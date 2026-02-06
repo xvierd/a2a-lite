@@ -1,0 +1,82 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'com.a2alite'
+version = '0.2.5'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+    withJavadocJar()
+}
+
+// Examples source set - for verification only
+sourceSets {
+    examples {
+        java {
+            srcDirs = ['examples']
+        }
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+    }
+}
+
+task compileExamples(type: JavaCompile) {
+    source = sourceSets.examples.java
+    classpath = sourceSets.examples.compileClasspath
+    destinationDirectory = file("$buildDir/examples")
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // A2A SDK - official Java implementation
+    api 'io.github.a2asdk:a2a-java-sdk-server-common:0.2.5'
+
+    // Web framework for standalone mode (optional for Quarkus users)
+    compileOnly 'io.javalin:javalin:5.6.3'
+
+    // JSON handling (provided by Quarkus in Quarkus mode)
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.9'
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.1'
+    testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.10.1'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.1'
+    testImplementation 'org.assertj:assertj-core:3.24.2'
+    testImplementation 'io.javalin:javalin:5.6.3'
+    testImplementation 'io.rest-assured:rest-assured:5.4.0'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            pom {
+                name = 'A2A Lite'
+                description = 'Build A2A agents in 8 lines. Wraps the official A2A Java SDK.'
+                url = 'https://github.com/xvierd/a2a-lite'
+
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                }
+            }
+        }
+    }
+}

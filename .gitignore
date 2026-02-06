@@ -1,0 +1,21 @@
+# Build artifacts
+node_modules/
+dist/
+build/
+*.pyc
+__pycache__/
+.gradle/
+*.class
+*.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+
+# Lock files (optional)
+package-lock.json
+uv.lock
