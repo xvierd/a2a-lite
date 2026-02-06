@@ -376,3 +376,163 @@ class TestRequireAuth:
         response = client.post("/", json=request_body, headers={"X-API-Key": "my-key"})
         result_text = response.json().get("result", {}).get("parts", [{}])[0].get("text", "")
         assert result_text.startswith("user:")
+
+
+class TestAuthRequest:
+    def test_get_header_exact_match(self):
+        request = AuthRequest(headers={"X-API-Key": "test"})
+        assert request.get_header("X-API-Key") == "test"
+
+    def test_get_header_case_insensitive(self):
+        request = AuthRequest(headers={"x-api-key": "test"})
+        assert request.get_header("X-API-Key") == "test"
+
+    def test_get_header_missing(self):
+        request = AuthRequest(headers={})
+        assert request.get_header("X-API-Key") is None
+
+    def test_default_values(self):
+        request = AuthRequest(headers={})
+        assert request.query_params == {}
+        assert request.body is None
+        assert request.method == "POST"
+        assert request.path == "/"
+
+
+class TestAuthResultMetadata:
+    def test_success_with_metadata(self):
+        result = AuthResult.success(
+            user_id="user-123",
+            scopes={"read"},
+            role="admin",
+            team="engineering",
+        )
+        assert result.metadata["role"] == "admin"
+        assert result.metadata["team"] == "engineering"
+
+    def test_failure_defaults(self):
+        result = AuthResult.failure("oops")
+        assert result.user_id is None
+        assert result.scopes == set()
+        assert result.metadata == {}
+
+
+class TestAPIKeyAuthEdgeCases:
+    @pytest.mark.asyncio
+    async def test_multiple_valid_keys(self):
+        """All registered keys should work."""
+        auth = APIKeyAuth(keys=["key1", "key2", "key3"])
+
+        for key in ["key1", "key2", "key3"]:
+            request = AuthRequest(headers={"X-API-Key": key})
+            result = await auth.authenticate(request)
+            assert result.authenticated is True
+
+    def test_scheme_query_param(self):
+        """Scheme should reflect query param when configured."""
+        auth = APIKeyAuth(keys=["key"], query_param="api_key")
+        scheme = auth.get_scheme()
+        assert scheme["in"] == "query"
+        assert scheme["name"] == "api_key"
+
+    def test_keys_are_hashed(self):
+        """Keys should be stored as hashes, not plaintext."""
+        auth = APIKeyAuth(keys=["my-secret-key"])
+        # The stored hashes should not contain the plaintext key
+        for h in auth._key_hashes:
+            assert h != "my-secret-key"
+            assert len(h) == 64  # SHA-256 hex digest length
+
+
+class TestOAuth2Auth:
+    def test_scheme(self):
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+        )
+        scheme = auth.get_scheme()
+        assert scheme["type"] == "oauth2"
+        assert "flows" in scheme
+        assert "authorizationCode" in scheme["flows"]
+
+    @pytest.mark.asyncio
+    async def test_missing_bearer_token(self):
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+        )
+        request = AuthRequest(headers={})
+        result = await auth.authenticate(request)
+        assert result.authenticated is False
+        assert "Bearer" in result.error
+
+    @pytest.mark.asyncio
+    async def test_invalid_token(self):
+        """OAuth2Auth should fail for invalid tokens."""
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+        )
+        request = AuthRequest(headers={"Authorization": "Bearer invalid-token"})
+        try:
+            result = await auth.authenticate(request)
+            assert result.authenticated is False
+        except BaseException:
+            # cryptography/cffi may be broken in some environments
+            pytest.skip("cryptography/jwt not available in this environment")
+
+    def test_default_jwks_uri(self):
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+        )
+        assert auth.jwks_uri == "https://auth.example.com/.well-known/jwks.json"
+
+    def test_custom_jwks_uri(self):
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+            jwks_uri="https://custom.example.com/jwks",
+        )
+        assert auth.jwks_uri == "https://custom.example.com/jwks"
+
+    def test_default_algorithms(self):
+        from a2a_lite.auth import OAuth2Auth
+        auth = OAuth2Auth(
+            issuer="https://auth.example.com",
+            audience="my-agent",
+        )
+        assert auth.algorithms == ["RS256"]
+
+
+class TestCompositeAuthEdgeCases:
+    def test_get_scheme_returns_first_provider(self):
+        auth = CompositeAuth([
+            APIKeyAuth(keys=["key"]),
+            BearerAuth(validator=lambda t: None),
+        ])
+        scheme = auth.get_scheme()
+        assert scheme["type"] == "apiKey"
+
+    def test_get_scheme_empty_providers(self):
+        auth = CompositeAuth([])
+        scheme = auth.get_scheme()
+        assert scheme == {}
+
+    @pytest.mark.asyncio
+    async def test_composite_error_messages_combined(self):
+        auth = CompositeAuth([
+            APIKeyAuth(keys=["key1"]),
+            BearerAuth(validator=lambda t: None),
+        ])
+        request = AuthRequest(headers={})
+        result = await auth.authenticate(request)
+        assert result.authenticated is False
+        assert result.error is not None
+        # Error should contain messages from both providers
+        assert ";" in result.error

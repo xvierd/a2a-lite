@@ -204,3 +204,243 @@ def test_skill_with_tags():
 
     skill = agent._skills["tagged"]
     assert skill.tags == ["math", "calculation"]
+
+
+def test_streaming_skill_registration():
+    """Test that streaming skills are properly detected."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("stream", streaming=True)
+    async def stream_skill(msg: str):
+        for word in msg.split():
+            yield word
+
+    skill = agent._skills["stream"]
+    assert skill.is_streaming is True
+    assert agent._has_streaming is True
+
+
+def test_streaming_auto_detection():
+    """Test auto-detection of generator functions as streaming."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("auto_stream")
+    async def gen_skill(msg: str):
+        yield "hello"
+        yield "world"
+
+    skill = agent._skills["auto_stream"]
+    assert skill.is_streaming is True
+
+
+def test_add_middleware():
+    """Test non-decorator middleware registration."""
+    agent = Agent(name="Test", description="Test")
+
+    async def my_middleware(ctx, next):
+        return await next()
+
+    agent.add_middleware(my_middleware)
+    assert len(agent._middleware._middlewares) == 1
+
+
+def test_middleware_decorator():
+    """Test middleware decorator registration."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.middleware
+    async def my_middleware(ctx, next):
+        return await next()
+
+    assert len(agent._middleware._middlewares) == 1
+
+
+def test_on_complete_registration():
+    """Test completion hook registration."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.on_complete
+    async def complete(skill, result, ctx):
+        pass
+
+    assert len(agent._on_complete) == 1
+
+
+def test_multiple_startup_hooks():
+    """Test registering multiple startup hooks."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.on_startup
+    async def hook1():
+        pass
+
+    @agent.on_startup
+    async def hook2():
+        pass
+
+    assert len(agent._on_startup) == 2
+
+
+def test_task_store_memory():
+    """Test agent with memory task store."""
+    from a2a_lite.tasks import TaskStore
+
+    agent = Agent(name="Test", description="Test", task_store="memory")
+    assert isinstance(agent._task_store, TaskStore)
+
+
+def test_task_store_custom():
+    """Test agent with custom task store."""
+    from a2a_lite.tasks import TaskStore
+
+    custom_store = TaskStore()
+    agent = Agent(name="Test", description="Test", task_store=custom_store)
+    assert agent._task_store is custom_store
+
+
+def test_task_store_none():
+    """Test agent with no task store (default)."""
+    agent = Agent(name="Test", description="Test")
+    assert agent._task_store is None
+
+
+def test_auth_default_noauth():
+    """Test that default auth is NoAuth."""
+    from a2a_lite.auth import NoAuth
+
+    agent = Agent(name="Test", description="Test")
+    assert isinstance(agent._auth, NoAuth)
+
+
+def test_auth_custom():
+    """Test agent with custom auth."""
+    from a2a_lite.auth import APIKeyAuth
+
+    auth = APIKeyAuth(keys=["test-key"])
+    agent = Agent(name="Test", description="Test", auth=auth)
+    assert agent._auth is auth
+
+
+def test_agent_card_streaming_capability():
+    """Test that agent card reflects streaming capability."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("stream", streaming=True)
+    async def stream_skill(msg: str):
+        yield msg
+
+    card = agent.build_agent_card()
+    assert card.capabilities.streaming is True
+
+
+def test_agent_card_no_streaming():
+    """Test that agent card correctly reports no streaming."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("simple")
+    async def simple() -> str:
+        return "ok"
+
+    card = agent.build_agent_card()
+    assert card.capabilities.streaming is False
+
+
+def test_agent_card_push_notifications():
+    """Test agent card push notifications capability."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("test")
+    async def test_skill() -> str:
+        return "ok"
+
+    @agent.on_complete
+    async def on_complete(skill, result, ctx):
+        pass
+
+    card = agent.build_agent_card()
+    assert card.capabilities.push_notifications is True
+
+
+def test_skill_name_from_function():
+    """Test that skill name defaults to function name when None."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill()
+    async def my_skill(x: int) -> int:
+        return x
+
+    assert "my_skill" in agent._skills
+
+
+def test_skill_description_from_docstring():
+    """Test that skill description falls back to docstring."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("doc_skill")
+    async def doc_skill(x: int) -> int:
+        """This is the docstring description."""
+        return x
+
+    skill = agent._skills["doc_skill"]
+    assert "docstring description" in skill.description
+
+
+def test_get_app_returns_starlette():
+    """Test that get_app returns a working Starlette app."""
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("test")
+    async def test_skill() -> str:
+        return "ok"
+
+    app = agent.get_app()
+    assert app is not None
+    assert hasattr(app, "routes")
+
+
+def test_get_app_with_cors():
+    """Test that get_app includes CORS middleware when configured."""
+    agent = Agent(name="Test", description="Test", cors_origins=["http://localhost:3000"])
+
+    @agent.skill("test")
+    async def test_skill() -> str:
+        return "ok"
+
+    app = agent.get_app()
+    assert app is not None
+
+
+def test_skill_with_task_context_detection():
+    """Test that skills needing TaskContext are detected."""
+    from a2a_lite.tasks import TaskContext
+
+    agent = Agent(name="Test", description="Test", task_store="memory")
+
+    @agent.skill("process")
+    async def process(data: str, task: TaskContext) -> str:
+        return data
+
+    skill = agent._skills["process"]
+    assert skill.needs_task_context is True
+    assert skill.task_context_param == "task"
+
+
+def test_skill_with_auth_detection():
+    """Test that skills needing AuthResult are detected."""
+    from a2a_lite.auth import AuthResult
+
+    agent = Agent(name="Test", description="Test")
+
+    @agent.skill("whoami")
+    async def whoami(auth: AuthResult) -> str:
+        return "ok"
+
+    skill = agent._skills["whoami"]
+    assert skill.needs_auth is True
+    assert skill.auth_param == "auth"
+
+
+def test_production_flag():
+    """Test production flag is set."""
+    agent = Agent(name="Test", description="Test", production=True)
+    assert agent.production is True

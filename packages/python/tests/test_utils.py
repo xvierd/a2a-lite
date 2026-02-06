@@ -132,3 +132,118 @@ class TestExtractFunctionSchemas:
 
         assert "self" not in input_schema["properties"]
         assert "x" in input_schema["properties"]
+
+    def test_function_with_cls(self):
+        """Test that 'cls' parameter is excluded."""
+        class MyClass:
+            @classmethod
+            async def method(cls, x: int) -> int:
+                return x
+
+        input_schema, _ = extract_function_schemas(MyClass.method)
+        assert "cls" not in input_schema["properties"]
+
+    def test_function_no_return_type(self):
+        """Test function without return type annotation."""
+        def func(x: int):
+            return x
+
+        _, output_schema = extract_function_schemas(func)
+        assert output_schema == {"type": "object"}
+
+    def test_function_return_none(self):
+        """Test function returning None."""
+        def func() -> None:
+            pass
+
+        _, output_schema = extract_function_schemas(func)
+        assert output_schema == {"type": "null"}
+
+    def test_function_return_list(self):
+        """Test function returning List[str]."""
+        async def func() -> List[str]:
+            return ["a", "b"]
+
+        _, output_schema = extract_function_schemas(func)
+        assert output_schema == {"type": "array", "items": {"type": "string"}}
+
+    def test_empty_function(self):
+        """Test function with no parameters and no return type."""
+        def func():
+            pass
+
+        input_schema, output_schema = extract_function_schemas(func)
+        assert input_schema["properties"] == {}
+        assert input_schema["required"] == []
+
+
+class TestTypeToJsonSchemaAdvanced:
+    def test_union_type(self):
+        """Test Union[int, str] type."""
+        from typing import Union
+        schema = type_to_json_schema(Union[int, str])
+        assert "oneOf" in schema
+        assert len(schema["oneOf"]) == 2
+
+    def test_pydantic_model(self):
+        """Test Pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        class TestModel(BaseModel):
+            name: str
+            age: int
+
+        schema = type_to_json_schema(TestModel)
+        assert "properties" in schema
+        assert "name" in schema["properties"]
+        assert "age" in schema["properties"]
+
+    def test_optional_int(self):
+        """Test Optional[int]."""
+        schema = type_to_json_schema(Optional[int])
+        assert schema == {"type": "integer"}
+
+    def test_dict_str_str(self):
+        """Test Dict[str, str]."""
+        schema = type_to_json_schema(Dict[str, str])
+        assert schema == {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        }
+
+    def test_list_of_dict(self):
+        """Test List[Dict[str, int]]."""
+        schema = type_to_json_schema(List[Dict[str, int]])
+        assert schema == {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"},
+            },
+        }
+
+
+class TestIsOrSubclass:
+    def test_exact_match(self):
+        from a2a_lite.utils import _is_or_subclass
+        assert _is_or_subclass(int, int) is True
+
+    def test_subclass(self):
+        from a2a_lite.utils import _is_or_subclass
+
+        class Parent:
+            pass
+
+        class Child(Parent):
+            pass
+
+        assert _is_or_subclass(Child, Parent) is True
+
+    def test_no_match(self):
+        from a2a_lite.utils import _is_or_subclass
+        assert _is_or_subclass(str, int) is False
+
+    def test_non_type_hint(self):
+        from a2a_lite.utils import _is_or_subclass
+        # Generic types may raise TypeError in issubclass
+        assert _is_or_subclass(List[str], int) is False
