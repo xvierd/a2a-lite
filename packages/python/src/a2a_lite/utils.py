@@ -1,6 +1,7 @@
 """
 Helper functions for A2A Lite.
 """
+
 import typing
 from typing import Any, Dict, Type, get_origin, get_args, Union
 import inspect
@@ -62,29 +63,26 @@ def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
 
     # Handle List[X]
     if origin is list and args:
-        return {
-            "type": "array",
-            "items": type_to_json_schema(args[0])
-        }
+        return {"type": "array", "items": type_to_json_schema(args[0])}
 
     # Handle Dict[K, V]
     if origin is dict and len(args) >= 2:
-        return {
-            "type": "object",
-            "additionalProperties": type_to_json_schema(args[1])
-        }
+        return {"type": "object", "additionalProperties": type_to_json_schema(args[1])}
 
     # Handle Pydantic models
-    if hasattr(python_type, 'model_json_schema'):
+    if hasattr(python_type, "model_json_schema"):
         return python_type.model_json_schema()
 
     # Handle dataclasses
-    if hasattr(python_type, '__dataclass_fields__'):
+    if hasattr(python_type, "__dataclass_fields__"):
         properties = {}
         required = []
         for field_name, field_info in python_type.__dataclass_fields__.items():
             properties[field_name] = type_to_json_schema(field_info.type)
-            if field_info.default is inspect.Parameter.empty and field_info.default_factory is inspect.Parameter.empty:
+            if (
+                field_info.default is inspect.Parameter.empty
+                and field_info.default_factory is inspect.Parameter.empty
+            ):
                 required.append(field_name)
         return {
             "type": "object",
@@ -107,14 +105,14 @@ def extract_function_schemas(func) -> tuple[Dict[str, Any], Dict[str, Any]]:
     try:
         hints = typing.get_type_hints(func)
     except Exception:
-        hints = getattr(func, '__annotations__', {})
+        hints = getattr(func, "__annotations__", {})
 
     # Build input schema from parameters
     properties = {}
     required = []
 
     for param_name, param in sig.parameters.items():
-        if param_name in ('self', 'cls'):
+        if param_name in ("self", "cls"):
             continue
 
         param_type = hints.get(param_name, Any)
@@ -131,7 +129,7 @@ def extract_function_schemas(func) -> tuple[Dict[str, Any], Dict[str, Any]]:
     }
 
     # Build output schema from return type
-    return_type = hints.get('return', Any)
+    return_type = hints.get("return", Any)
     output_schema = type_to_json_schema(return_type)
 
     return input_schema, output_schema

@@ -27,14 +27,13 @@ Example (with OAuth2 - opt-in):
         ),
     )
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
 import hashlib
-import hmac
-import time
 
 
 class AuthProvider(ABC):
@@ -54,6 +53,7 @@ class AuthProvider(ABC):
 @dataclass
 class AuthRequest:
     """Incoming authentication request."""
+
     headers: Dict[str, str]
     query_params: Dict[str, str] = field(default_factory=dict)
     body: Optional[bytes] = None
@@ -75,6 +75,7 @@ class AuthRequest:
 @dataclass
 class AuthResult:
     """Authentication result."""
+
     authenticated: bool
     user_id: Optional[str] = None
     scopes: Set[str] = field(default_factory=set)
@@ -128,9 +129,7 @@ class APIKeyAuth(AuthProvider):
         query_param: Optional[str] = None,
     ):
         # Store only hashes of keys for security
-        self._key_hashes = {
-            hashlib.sha256(k.encode()).hexdigest() for k in keys
-        }
+        self._key_hashes = {hashlib.sha256(k.encode()).hexdigest() for k in keys}
         self.header = header
         self.query_param = query_param
 

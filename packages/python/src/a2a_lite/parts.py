@@ -17,6 +17,7 @@ Example (with files - opt-in):
         content = await document.read_text()
         return summarize(content)
 """
+
 from __future__ import annotations
 
 import base64
@@ -28,6 +29,7 @@ from pathlib import Path
 @dataclass
 class TextPart:
     """Simple text content."""
+
     text: str
 
     def to_a2a(self) -> Dict[str, Any]:
@@ -55,6 +57,7 @@ class FilePart:
 
             return process_content(content)
     """
+
     name: str
     mime_type: str = "application/octet-stream"
     data: Optional[bytes] = None
@@ -74,6 +77,7 @@ class FilePart:
             return self.data
         if self.uri:
             import httpx
+
             async with httpx.AsyncClient() as client:
                 response = await client.get(self.uri)
                 response.raise_for_status()
@@ -93,7 +97,7 @@ class FilePart:
                     "name": self.name,
                     "mimeType": self.mime_type,
                     "uri": self.uri,
-                }
+                },
             }
         else:
             return {
@@ -102,7 +106,7 @@ class FilePart:
                     "name": self.name,
                     "mimeType": self.mime_type,
                     "bytes": base64.b64encode(self.data or b"").decode(),
-                }
+                },
             }
 
     @classmethod
@@ -117,11 +121,14 @@ class FilePart:
         )
 
     @classmethod
-    def from_path(cls, path: Union[str, Path], mime_type: Optional[str] = None) -> "FilePart":
+    def from_path(
+        cls, path: Union[str, Path], mime_type: Optional[str] = None
+    ) -> "FilePart":
         """Create FilePart from a local file path."""
         path = Path(path)
         if mime_type is None:
             import mimetypes
+
             mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         return cls(
             name=path.name,
@@ -141,6 +148,7 @@ class DataPart:
             result = process(data.data)
             return DataPart(data=result)
     """
+
     data: Dict[str, Any]
     mime_type: str = "application/json"
 
@@ -173,6 +181,7 @@ class Artifact:
                 ],
             )
     """
+
     name: Optional[str] = None
     description: Optional[str] = None
     parts: list = field(default_factory=list)

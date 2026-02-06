@@ -50,6 +50,23 @@ WITH FILES (opt-in):
     async def summarize(doc: FilePart) -> str:
         text = await doc.read_text()
         return summarize(text)
+
+WITH MCP TOOLS (opt-in):
+    from a2a_lite import MCPClient
+
+    agent.add_mcp_server("http://localhost:5001")
+
+    @agent.skill("research")
+    async def research(query: str, mcp: MCPClient) -> str:
+        result = await mcp.call_tool("web_search", query=query)
+        return result
+
+WITH MULTI-AGENT (opt-in):
+    from a2a_lite import AgentNetwork
+
+    network = AgentNetwork()
+    network.add("weather", "http://weather:8787")
+    agent = Agent(name="Planner", description="...", network=network)
 """
 
 # Core
@@ -84,7 +101,21 @@ from .auth import (
     require_auth,
 )
 
-__version__ = "0.2.3"
+# Errors
+from .errors import (
+    A2ALiteError,
+    SkillNotFoundError,
+    ParamValidationError,
+    AuthRequiredError,
+)
+
+# Orchestration
+from .orchestration import AgentNetwork
+
+# MCP (requires optional dep)
+from .mcp import MCPClient
+
+__version__ = "0.2.5"
 
 __all__ = [
     # Core
@@ -120,4 +151,13 @@ __all__ = [
     "BearerAuth",
     "OAuth2Auth",
     "require_auth",
+    # Errors
+    "A2ALiteError",
+    "SkillNotFoundError",
+    "ParamValidationError",
+    "AuthRequiredError",
+    # Orchestration
+    "AgentNetwork",
+    # MCP
+    "MCPClient",
 ]

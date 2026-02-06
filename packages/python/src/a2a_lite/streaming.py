@@ -8,24 +8,19 @@ Enables generator-based streaming for LLM-style responses:
         async for chunk in llm.stream(message):
             yield chunk
 """
+
 from __future__ import annotations
 
 from typing import Any, AsyncGenerator, Callable, Generator, Union
-import asyncio
 import inspect
 
 
 def is_generator_function(func: Callable) -> bool:
     """Check if a function is a generator (sync or async)."""
-    return (
-        inspect.isgeneratorfunction(func) or
-        inspect.isasyncgenfunction(func)
-    )
+    return inspect.isgeneratorfunction(func) or inspect.isasyncgenfunction(func)
 
 
-async def collect_generator(
-    gen: Union[Generator, AsyncGenerator]
-) -> list[Any]:
+async def collect_generator(gen: Union[Generator, AsyncGenerator]) -> list[Any]:
     """Collect all items from a generator into a list."""
     items = []
     if inspect.isasyncgen(gen):
@@ -56,5 +51,3 @@ async def stream_generator(
         for chunk in gen:
             text = str(chunk) if not isinstance(chunk, str) else chunk
             await event_queue.enqueue_event(new_agent_text_message(text))
-
-

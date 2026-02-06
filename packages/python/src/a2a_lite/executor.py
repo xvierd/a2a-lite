@@ -1,10 +1,10 @@
 """
 Wrapper around A2A's AgentExecutor that dispatches to registered skill handlers.
 """
+
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 from typing import Any, Callable, Dict, List, Optional
@@ -15,6 +15,12 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 
 from .decorators import SkillDefinition
+from .errors import (
+    A2ALiteError,
+    SkillNotFoundError,
+    ParamValidationError,
+    AuthRequiredError,
+)
 from .middleware import MiddlewareChain, MiddlewareContext
 from .streaming import is_generator_function, stream_generator
 from .utils import _is_or_subclass
@@ -42,6 +48,7 @@ class LiteAgentExecutor(AgentExecutor):
         on_complete: Optional[List[Callable]] = None,
         auth_provider: Optional[Any] = None,
         task_store: Optional[Any] = None,
+        mcp_servers: Optional[List[str]] = None,
     ):
         self.skills = skills
         self.error_handler = error_handler
@@ -49,6 +56,7 @@ class LiteAgentExecutor(AgentExecutor):
         self.on_complete = on_complete or []
         self.auth_provider = auth_provider
         self.task_store = task_store
+        self.mcp_servers = mcp_servers or []
 
     async def execute(
         self,
@@ -63,16 +71,38 @@ class LiteAgentExecutor(AgentExecutor):
             auth_result = None
             if self.auth_provider:
                 from .auth import AuthRequest, NoAuth
+
                 headers = {}
                 if context.call_context and context.call_context.state:
-                    headers = context.call_context.state.get('headers', {})
+                    headers = context.call_context.state.get("headers", {})
                 auth_request = AuthRequest(headers=headers)
                 auth_result = await self.auth_provider.authenticate(auth_request)
                 # Reject unauthenticated requests (unless NoAuth)
-                if not isinstance(self.auth_provider, NoAuth) and not auth_result.authenticated:
-                    error_msg = json.dumps({
-                        "error": auth_result.error or "Authentication failed",
-                    })
+                if (
+                    not isinstance(self.auth_provider, NoAuth)
+                    and not auth_result.authenticated
+                ):
+                    scheme = (
+                        self.auth_provider.get_scheme()
+                        if hasattr(self.auth_provider, "get_scheme")
+                        else {}
+                    )
+                    scheme_type = scheme.get("type", "unknown")
+                    scheme_name = scheme.get("name", "")
+                    if scheme_type == "apiKey":
+                        detail = f"Pass your key via the '{scheme_name or 'X-API-Key'}' header."
+                        scheme_info = "API Key auth"
+                    elif scheme_type == "http" and scheme.get("scheme") == "bearer":
+                        detail = "Pass your token via the 'Authorization: Bearer <token>' header."
+                        scheme_info = "Bearer token auth"
+                    elif scheme_type == "oauth2":
+                        detail = "Obtain a token from the OAuth2 provider."
+                        scheme_info = "OAuth2 auth"
+                    else:
+                        detail = auth_result.error or None
+                        scheme_info = "authentication"
+                    auth_err = AuthRequiredError(scheme_info=scheme_info, detail=detail)
+                    error_msg = json.dumps(auth_err.to_response())
                     await event_queue.enqueue_event(new_agent_text_message(error_msg))
                     return
 
@@ -122,7 +152,11 @@ class LiteAgentExecutor(AgentExecutor):
                     else:
                         hook(skill_name, result, ctx)
                 except Exception:
-                    logger.warning("Completion hook error for skill '%s'", skill_name, exc_info=True)
+                    logger.warning(
+                        "Completion hook error for skill '%s'",
+                        skill_name,
+                        exc_info=True,
+                    )
 
         except Exception as e:
             await self._handle_error(e, event_queue)
@@ -135,6 +169,8 @@ class LiteAgentExecutor(AgentExecutor):
         metadata: Dict[str, Any],
     ) -> Any:
         """Execute a skill with the given parameters."""
+        available = {name: sd.description for name, sd in self.skills.items()}
+
         if skill_name is None:
             if not self.skills:
                 return {"error": "No skills registered"}
@@ -142,25 +178,47 @@ class LiteAgentExecutor(AgentExecutor):
             if len(self.skills) == 1:
                 skill_name = list(self.skills.keys())[0]
             else:
-                return {
-                    "error": "No skill specified. Use {\"skill\": \"name\", \"params\": {...}} format.",
-                    "available_skills": list(self.skills.keys()),
-                }
+                err = SkillNotFoundError(
+                    skill="(none)",
+                    available_skills=available,
+                )
+                return err.to_response()
 
         if skill_name not in self.skills:
-            return {
-                "error": f"Unknown skill: {skill_name}",
-                "available_skills": list(self.skills.keys()),
-            }
+            err = SkillNotFoundError(
+                skill=skill_name,
+                available_skills=available,
+            )
+            return err.to_response()
 
         skill_def = self.skills[skill_name]
 
-        # Convert Pydantic models and file parts in params
-        params = self._convert_params(skill_def, params, metadata)
+        # Convert Pydantic models and file parts in params — catch validation errors
+        try:
+            params = self._convert_params(skill_def, params, metadata)
+        except Exception as conv_err:
+            # Check for Pydantic ValidationError
+            if type(conv_err).__name__ == "ValidationError" and hasattr(
+                conv_err, "errors"
+            ):
+                errors = []
+                for e in conv_err.errors():  # type: ignore[union-attr]
+                    field = ".".join(str(loc) for loc in e.get("loc", []))
+                    errors.append(
+                        {
+                            "field": field,
+                            "message": e.get("msg", str(e)),
+                            "type": e.get("type", "unknown"),
+                        }
+                    )
+                param_err = ParamValidationError(skill=skill_name, errors=errors)
+                return param_err.to_response()
+            raise
 
         # Inject special contexts if needed
         if skill_def.needs_task_context and self.task_store:
-            from .tasks import TaskContext, Task, TaskStatus, TaskState
+            from .tasks import TaskContext
+
             task = await self.task_store.create(skill_name, params)
             # Only pass event_queue for streaming skills (status updates go via SSE)
             eq = event_queue if skill_def.is_streaming else None
@@ -171,6 +229,13 @@ class LiteAgentExecutor(AgentExecutor):
         if skill_def.needs_auth:
             param_name = skill_def.auth_param or "auth"
             params[param_name] = metadata.get("auth_result")
+
+        if skill_def.needs_mcp and self.mcp_servers:
+            from .mcp import MCPClient
+
+            mcp_client = MCPClient(server_urls=self.mcp_servers)
+            param_name = skill_def.mcp_param or "mcp"
+            params[param_name] = mcp_client
 
         # Call the handler
         handler = skill_def.handler
@@ -190,17 +255,18 @@ class LiteAgentExecutor(AgentExecutor):
     ) -> Dict[str, Any]:
         """Convert parameters to Pydantic models and file parts if needed."""
         import typing
+
         handler = skill_def.handler
         try:
             hints = typing.get_type_hints(handler)
         except Exception:
-            hints = getattr(handler, '__annotations__', {})
+            hints = getattr(handler, "__annotations__", {})
 
         from .parts import FilePart, DataPart
 
         converted = {}
         for param_name, value in params.items():
-            if param_name == 'return':
+            if param_name == "return":
                 continue
             param_type = hints.get(param_name)
 
@@ -211,7 +277,13 @@ class LiteAgentExecutor(AgentExecutor):
             # Skip special context types
             from .tasks import TaskContext as _TaskContext
             from .auth import AuthResult as _AuthResult
-            if _is_or_subclass(param_type, _TaskContext) or _is_or_subclass(param_type, _AuthResult):
+            from .mcp import MCPClient as _MCPClient
+
+            if (
+                _is_or_subclass(param_type, _TaskContext)
+                or _is_or_subclass(param_type, _AuthResult)
+                or _is_or_subclass(param_type, _MCPClient)
+            ):
                 continue
 
             # Convert FilePart
@@ -227,7 +299,9 @@ class LiteAgentExecutor(AgentExecutor):
                             data = data.encode("utf-8")
                         converted[param_name] = FilePart(
                             name=value.get("name", "unknown"),
-                            mime_type=value.get("mime_type", "application/octet-stream"),
+                            mime_type=value.get(
+                                "mime_type", "application/octet-stream"
+                            ),
                             data=data,
                             uri=value.get("uri"),
                         )
@@ -249,7 +323,7 @@ class LiteAgentExecutor(AgentExecutor):
                 continue
 
             # Convert Pydantic models
-            if hasattr(param_type, 'model_validate'):
+            if hasattr(param_type, "model_validate"):
                 if isinstance(value, dict):
                     converted[param_name] = param_type.model_validate(value)
                 else:
@@ -265,37 +339,39 @@ class LiteAgentExecutor(AgentExecutor):
         """Parse message to extract skill name and params."""
         try:
             data = json.loads(message)
-            if isinstance(data, dict) and 'skill' in data:
-                return data['skill'], data.get('params', {})
+            if isinstance(data, dict) and "skill" in data:
+                return data["skill"], data.get("params", {})
         except json.JSONDecodeError:
             logger.debug("Message is not JSON, treating as plain text")
 
         return None, {"message": message}
 
-    def _extract_message_and_parts(self, context: RequestContext) -> tuple[str, List[Any]]:
+    def _extract_message_and_parts(
+        self, context: RequestContext
+    ) -> tuple[str, List[Any]]:
         """Extract message text and any file/data parts."""
         text = ""
         parts = []
 
-        if hasattr(context, 'message') and context.message:
+        if hasattr(context, "message") and context.message:
             message = context.message
-            if hasattr(message, 'parts'):
+            if hasattr(message, "parts"):
                 raw_parts = message.parts
             else:
-                raw_parts = message.get('parts', [])
+                raw_parts = message.get("parts", [])
 
             for part in raw_parts:
-                if hasattr(part, 'root'):
+                if hasattr(part, "root"):
                     part = part.root
 
                 # Get part type
-                if hasattr(part, 'text'):
+                if hasattr(part, "text"):
                     text = part.text
                 elif isinstance(part, dict):
-                    part_type = part.get('type') or part.get('kind')
-                    if part_type == 'text':
-                        text = part.get('text', '')
-                    elif part_type in ('file', 'data'):
+                    part_type = part.get("type") or part.get("kind")
+                    if part_type == "text":
+                        text = part.get("text", "")
+                    elif part_type in ("file", "data"):
                         parts.append(part)
 
         return text, parts
@@ -313,19 +389,34 @@ class LiteAgentExecutor(AgentExecutor):
                 return
             except Exception as handler_error:
                 await event_queue.enqueue_event(
-                    new_agent_text_message(json.dumps({
-                        "error": str(e),
-                        "handler_error": str(handler_error),
-                        "type": type(e).__name__,
-                    }))
+                    new_agent_text_message(
+                        json.dumps(
+                            {
+                                "error": str(e),
+                                "handler_error": str(handler_error),
+                                "type": type(e).__name__,
+                            }
+                        )
+                    )
                 )
                 return
 
+        # Use structured response for A2ALiteError subtypes
+        if isinstance(e, A2ALiteError):
+            await event_queue.enqueue_event(
+                new_agent_text_message(json.dumps(e.to_response()))
+            )
+            return
+
         await event_queue.enqueue_event(
-            new_agent_text_message(json.dumps({
-                "error": str(e),
-                "type": type(e).__name__,
-            }))
+            new_agent_text_message(
+                json.dumps(
+                    {
+                        "error": str(e),
+                        "type": type(e).__name__,
+                    }
+                )
+            )
         )
 
     async def cancel(
@@ -335,6 +426,7 @@ class LiteAgentExecutor(AgentExecutor):
     ) -> None:
         """Handle cancellation requests."""
         from a2a.utils import new_agent_text_message
+
         await event_queue.enqueue_event(
             new_agent_text_message(json.dumps({"status": "cancelled"}))
         )
@@ -345,7 +437,4 @@ class LiteAgentExecutor(AgentExecutor):
             return await handler(*args, **kwargs)
         else:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None,
-                lambda: handler(*args, **kwargs)
-            )
+            return await loop.run_in_executor(None, lambda: handler(*args, **kwargs))

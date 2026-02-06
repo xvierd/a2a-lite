@@ -1,0 +1,64 @@
+site_name: A2A Lite
+site_description: Build A2A agents in 8 lines. Add enterprise features when you need them.
+site_url: https://a2a-lite.dev
+
+repo_url: https://github.com/a2a-lite/a2a-lite
+repo_name: a2a-lite/a2a-lite
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Progressive Levels: progressive-levels.md
+    - CLI Reference: cli.md
+  - Guides:
+    - MCP Integration: mcp.md
+    - Multi-Agent Orchestration: multi-agent.md
+    - LLM Integration: llm.md
+  - Reference:
+    - API Reference: api.md
+    - Examples: examples.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3

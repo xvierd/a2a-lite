@@ -10,11 +10,12 @@ Makes testing agents as simple as:
         result = client.call("greet", name="World")
         assert result == "Hello, World!"
 """
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from uuid import uuid4
 
 
@@ -29,6 +30,7 @@ class TestResult:
     - .json() — parse text as JSON (raises on invalid JSON)
     - .raw_response — the full A2A response dict
     """
+
     _data: Any
     _text: str
     raw_response: Dict[str, Any]
@@ -88,6 +90,7 @@ class AgentTestClient:
         """Lazily create the test client."""
         if self._client is None:
             from starlette.testclient import TestClient as StarletteTestClient
+
             self._app = self.agent.get_app()
             self._client = StarletteTestClient(self._app)
         return self._client
@@ -119,7 +122,7 @@ class AgentTestClient:
                     "parts": [{"type": "text", "text": message}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = client.post("/", json=request_body)
@@ -203,10 +206,10 @@ class AgentTestClient:
             gen = handler(**params)
 
             # Handle both async and sync generators
-            if hasattr(gen, '__anext__'):
+            if hasattr(gen, "__anext__"):
                 async for value in gen:
                     results.append(value)
-            elif hasattr(gen, '__next__'):
+            elif hasattr(gen, "__next__"):
                 for value in gen:
                     results.append(value)
             else:
@@ -219,6 +222,7 @@ class AgentTestClient:
             asyncio.get_running_loop()
             # Already in an async context — run in a separate thread
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(1) as pool:
                 pool.submit(asyncio.run, run_handler()).result()
         except RuntimeError:
@@ -229,6 +233,7 @@ class AgentTestClient:
 
 class TestClientError(Exception):
     """Error from test client."""
+
     pass
 
 
@@ -253,10 +258,10 @@ class AsyncAgentTestClient:
         """Lazily create the async test client."""
         if self._client is None:
             import httpx
+
             self._app = self.agent.get_app()
             self._client = httpx.AsyncClient(
-                app=self._app,
-                base_url="http://testserver"
+                app=self._app, base_url="http://testserver"
             )
         return self._client
 
@@ -284,7 +289,7 @@ class AsyncAgentTestClient:
                     "parts": [{"type": "text", "text": message}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = await client.post("/", json=request_body)

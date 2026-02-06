@@ -33,6 +33,19 @@ dependencies = [
 oauth = [
     "pyjwt[crypto]>=2.0",
 ]
+mcp = [
+    "mcp>=1.0",
+]
+openai = [
+    "openai>=1.0",
+]
+anthropic = [
+    "anthropic>=0.30",
+]
+docs = [
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
@@ -52,3 +65,8 @@ packages = ["src/a2a_lite"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.0",
+]

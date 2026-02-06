@@ -12,6 +12,7 @@ Example:
         print(f"Result: {result}")
         return result
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ class MiddlewareContext:
         message: The raw message text
         metadata: Arbitrary metadata dict for middleware to share data
     """
+
     skill: Optional[str] = None
     params: Dict[str, Any] = field(default_factory=dict)
     message: str = ""
@@ -66,6 +68,7 @@ class MiddlewareChain:
         Returns:
             The result from the handler (possibly modified by middleware)
         """
+
         # Build the chain from the end
         async def call_final():
             return await final_handler(context)
@@ -84,15 +87,18 @@ class MiddlewareChain:
         next_fn: Callable,
     ) -> Callable:
         """Wrap a middleware function."""
+
         async def wrapped():
             if asyncio.iscoroutinefunction(middleware):
                 return await middleware(context, next_fn)
             else:
                 return middleware(context, next_fn)
+
         return wrapped
 
 
 # Built-in middleware helpers
+
 
 def logging_middleware(logger=None):
     """
@@ -102,6 +108,7 @@ def logging_middleware(logger=None):
         agent.add_middleware(logging_middleware())
     """
     import logging
+
     log = logger or logging.getLogger("a2a_lite")
 
     async def middleware(ctx: MiddlewareContext, next):
@@ -143,6 +150,7 @@ def retry_middleware(max_retries: int = 3, delay: float = 1.0):
     Example:
         agent.add_middleware(retry_middleware(max_retries=3))
     """
+
     async def middleware(ctx: MiddlewareContext, next):
         last_error = None
         for attempt in range(max_retries):
@@ -195,4 +203,5 @@ def rate_limit_middleware(requests_per_minute: int = 60):
 
 class RateLimitExceeded(Exception):
     """Raised when rate limit is exceeded."""
+
     pass

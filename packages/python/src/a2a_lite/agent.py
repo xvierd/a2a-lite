@@ -3,13 +3,13 @@ Core Agent class that wraps the A2A SDK complexity.
 
 Simple by default, powerful when needed.
 """
+
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
-from typing import Any, Callable, Optional, Dict, List, Type, Union, get_origin, get_args
-from dataclasses import dataclass, field
+from typing import Any, Callable, Optional, Dict, List
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ from a2a.types import (
 
 from .executor import LiteAgentExecutor
 from .decorators import SkillDefinition
-from .utils import type_to_json_schema, extract_function_schemas, _is_or_subclass
-from .middleware import MiddlewareChain, MiddlewareContext
+from .utils import extract_function_schemas, _is_or_subclass
+from .middleware import MiddlewareChain
 from .streaming import is_generator_function
 
 
@@ -73,6 +73,7 @@ class Agent:
             await task.update("working", progress=0.5)
             return "done"
     """
+
     name: str
     description: str
     version: str = "1.0.0"
@@ -83,6 +84,7 @@ class Agent:
     task_store: Optional[Any] = None  # TaskStore or "memory"
     cors_origins: Optional[List[str]] = None
     production: bool = False
+    network: Optional[Any] = None  # AgentNetwork
 
     def __post_init__(self):
         # Internal state
@@ -93,10 +95,18 @@ class Agent:
         self._on_complete: List[Callable] = []
         self._middleware = MiddlewareChain()
         self._has_streaming = False
+        self._mcp_servers: List[str] = []
+
+        # Setup optional network
+        if self.network is not None:
+            self._network = self.network
+        else:
+            self._network = None
 
         # Setup optional task store
         if self.task_store == "memory":
             from .tasks import TaskStore
+
             self._task_store = TaskStore()
         elif self.task_store:
             self._task_store = self.task_store
@@ -106,6 +116,7 @@ class Agent:
         # Setup optional auth
         if self.auth is None:
             from .auth import NoAuth
+
             self._auth = NoAuth()
         else:
             self._auth = self.auth
@@ -137,6 +148,7 @@ class Agent:
                 await task.update("working", progress=0.5)
                 return "done"
         """
+
         def decorator(func: Callable) -> Callable:
             skill_name = name or func.__name__
             skill_desc = description or func.__doc__ or f"Skill: {skill_name}"
@@ -154,19 +166,22 @@ class Agent:
             import typing
             from .tasks import TaskContext as _TaskContext
             from .auth import AuthResult as _AuthResult
+            from .mcp import MCPClient as _MCPClient
 
             needs_task_context = False
             needs_auth = False
+            needs_mcp = False
             task_context_param: str | None = None
             auth_param: str | None = None
+            mcp_param: str | None = None
 
             try:
                 resolved_hints = typing.get_type_hints(func)
             except Exception:
-                resolved_hints = getattr(func, '__annotations__', {})
+                resolved_hints = getattr(func, "__annotations__", {})
 
             for param_name, hint in resolved_hints.items():
-                if param_name == 'return':
+                if param_name == "return":
                     continue
                 if _is_or_subclass(hint, _TaskContext):
                     needs_task_context = True
@@ -174,9 +189,12 @@ class Agent:
                 elif _is_or_subclass(hint, _AuthResult):
                     needs_auth = True
                     auth_param = param_name
+                elif _is_or_subclass(hint, _MCPClient):
+                    needs_mcp = True
+                    mcp_param = param_name
 
             # Also detect require_auth decorator
-            if getattr(func, '__requires_auth__', False) and not needs_auth:
+            if getattr(func, "__requires_auth__", False) and not needs_auth:
                 needs_auth = True
                 auth_param = auth_param or "auth"
 
@@ -194,8 +212,10 @@ class Agent:
                 is_streaming=is_streaming,
                 needs_task_context=needs_task_context,
                 needs_auth=needs_auth,
+                needs_mcp=needs_mcp,
                 task_context_param=task_context_param,
                 auth_param=auth_param,
+                mcp_param=mcp_param,
             )
 
             self._skills[skill_name] = skill_def
@@ -239,6 +259,69 @@ class Agent:
         """Decorator to register a task completion handler."""
         self._on_complete.append(func)
         return func
+
+    def add_mcp_server(self, url: str) -> None:
+        """Register an MCP server URL for tool access in skills.
+
+        Skills can request an MCPClient instance via type hint injection,
+        which will have access to all registered MCP servers.
+
+        Requires: pip install a2a-lite[mcp]
+
+        Args:
+            url: The MCP server URL (e.g., "http://localhost:5001").
+
+        Example:
+            agent.add_mcp_server("http://localhost:5001")
+
+            @agent.skill("research")
+            async def research(query: str, mcp: MCPClient) -> str:
+                result = await mcp.call_tool("web_search", query=query)
+                return result
+        """
+        self._mcp_servers.append(url)
+
+    async def delegate(
+        self,
+        target: str,
+        skill: str,
+        timeout: float = 30.0,
+        **params: Any,
+    ) -> Any:
+        """Delegate a skill call to a remote agent and return the parsed result.
+
+        The target can be a full URL or a name registered in the agent's network.
+
+        Args:
+            target: Agent URL or network name.
+            skill: The skill to invoke.
+            timeout: Request timeout in seconds.
+            **params: Parameters for the skill.
+
+        Returns:
+            The parsed result from the remote agent (not the raw A2A envelope).
+
+        Example:
+            weather = await agent.delegate("http://weather:8787", "forecast", city="NYC")
+
+            # Or with a network:
+            weather = await agent.delegate("weather", "forecast", city="NYC")
+        """
+        from .orchestration import _call_remote_skill
+
+        # Resolve name to URL via network if available
+        url = target
+        if self._network is not None and not target.startswith(("http://", "https://")):
+            resolved = self._network.get(target)
+            if resolved is not None:
+                url = resolved
+            else:
+                raise KeyError(
+                    f"Agent '{target}' not found in network. "
+                    f"Available: {list(self._network.list().keys())}"
+                )
+
+        return await _call_remote_skill(url, skill, params, timeout)
 
     def build_agent_card(self, host: str = "localhost", port: int = 8787) -> AgentCard:
         """Generate A2A-compliant Agent Card from registered skills."""
@@ -301,6 +384,7 @@ class Agent:
             on_complete=self._on_complete,
             auth_provider=self._auth,
             task_store=self._task_store,
+            mcp_servers=self._mcp_servers,
         )
 
         # The SDK's InMemoryTaskStore handles protocol-level task lifecycle
@@ -318,11 +402,13 @@ class Agent:
         )
 
         # Build display info
-        skills_list = "\n".join([
-            f"  • {s.name}: {s.description}" +
-            (" [streaming]" if getattr(s, 'is_streaming', False) else "")
-            for s in self._skills.values()
-        ])
+        skills_list = "\n".join(
+            [
+                f"  • {s.name}: {s.description}"
+                + (" [streaming]" if getattr(s, "is_streaming", False) else "")
+                for s in self._skills.values()
+            ]
+        )
         if not skills_list:
             skills_list = "  (no skills registered)"
 
@@ -337,18 +423,22 @@ class Agent:
         if self._task_store:
             features.append("task-tracking")
 
-        features_str = f"\n\n[bold]Features:[/] {', '.join(features)}" if features else ""
+        features_str = (
+            f"\n\n[bold]Features:[/] {', '.join(features)}" if features else ""
+        )
 
-        console.print(Panel(
-            f"[bold green]{self.name}[/] v{self.version}\n\n"
-            f"[dim]{self.description}[/]\n\n"
-            f"[bold]Skills:[/]\n{skills_list}{features_str}\n\n"
-            f"[bold]Endpoints:[/]\n"
-            f"  • Agent Card: http://{display_host}:{port}/.well-known/agent.json\n"
-            f"  • API: http://{display_host}:{port}/",
-            title="🚀 A2A Lite Agent Started",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                f"[bold green]{self.name}[/] v{self.version}\n\n"
+                f"[dim]{self.description}[/]\n\n"
+                f"[bold]Skills:[/]\n{skills_list}{features_str}\n\n"
+                f"[bold]Endpoints:[/]\n"
+                f"  • Agent Card: http://{display_host}:{port}/.well-known/agent.json\n"
+                f"  • API: http://{display_host}:{port}/",
+                title="🚀 A2A Lite Agent Started",
+                border_style="green",
+            )
+        )
 
         # Run startup hooks
         async def _run_startup():
@@ -357,6 +447,7 @@ class Agent:
                     await hook()
                 else:
                     hook()
+
         if self._on_startup:
             asyncio.run(_run_startup())
 
@@ -375,6 +466,7 @@ class Agent:
         # Add CORS middleware if configured
         if self.cors_origins is not None:
             from starlette.middleware.cors import CORSMiddleware
+
             app.add_middleware(
                 CORSMiddleware,
                 allow_origins=self.cors_origins,
@@ -398,6 +490,7 @@ class Agent:
                         await hook()
                     else:
                         hook()
+
             if self._on_shutdown:
                 asyncio.run(_run_shutdown())
 
@@ -428,7 +521,7 @@ class Agent:
                         "parts": [{"type": "text", "text": message}],
                         "messageId": uuid4().hex,
                     }
-                )
+                ),
             )
 
             response = await client.send_message(request)
@@ -444,6 +537,7 @@ class Agent:
             on_complete=self._on_complete,
             auth_provider=self._auth,
             task_store=self._task_store,
+            mcp_servers=self._mcp_servers,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
@@ -462,6 +556,7 @@ class Agent:
         # Add CORS middleware if configured
         if self.cors_origins is not None:
             from starlette.middleware.cors import CORSMiddleware
+
             app.add_middleware(
                 CORSMiddleware,
                 allow_origins=self.cors_origins,

@@ -1,6 +1,7 @@
 """
 Decorator definitions and skill metadata.
 """
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -8,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 @dataclass
 class SkillDefinition:
     """Metadata for a registered skill."""
+
     name: str
     description: str
     handler: Callable
@@ -18,8 +20,10 @@ class SkillDefinition:
     is_streaming: bool = False
     needs_task_context: bool = False
     needs_auth: bool = False
+    needs_mcp: bool = False
     task_context_param: Optional[str] = None
     auth_param: Optional[str] = None
+    mcp_param: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""

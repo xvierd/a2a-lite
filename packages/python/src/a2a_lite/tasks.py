@@ -25,6 +25,7 @@ Example (with task tracking - opt-in):
 
         return "Done!"
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 class TaskState(str, Enum):
     """A2A Protocol task states."""
+
     SUBMITTED = "submitted"
     WORKING = "working"
     INPUT_REQUIRED = "input-required"
@@ -52,6 +54,7 @@ class TaskState(str, Enum):
 @dataclass
 class TaskStatus:
     """Current status of a task."""
+
     state: TaskState
     message: Optional[str] = None
     progress: Optional[float] = None  # 0.0 to 1.0
@@ -69,6 +72,7 @@ class TaskStatus:
 @dataclass
 class Task:
     """Represents an A2A task."""
+
     id: str
     skill: str
     params: Dict[str, Any]
@@ -148,7 +152,9 @@ class TaskContext:
                 else:
                     callback(self._task.status)
             except Exception:
-                logger.warning("Status callback error for task '%s'", self._task.id, exc_info=True)
+                logger.warning(
+                    "Status callback error for task '%s'", self._task.id, exc_info=True
+                )
 
         # Send SSE event if streaming
         if self._event_queue:
@@ -159,11 +165,14 @@ class TaskContext:
         if self._event_queue:
             from a2a.utils import new_agent_text_message
             import json
-            status_msg = json.dumps({
-                "_type": "status_update",
-                "task_id": self._task.id,
-                "status": self._task.status.to_dict(),
-            })
+
+            status_msg = json.dumps(
+                {
+                    "_type": "status_update",
+                    "task_id": self._task.id,
+                    "status": self._task.status.to_dict(),
+                }
+            )
             await self._event_queue.enqueue_event(new_agent_text_message(status_msg))
 
     def on_status_change(self, callback: Callable) -> None:
