@@ -186,3 +186,157 @@ class TestTaskContext:
         await ctx.update("working", "Step 2")
 
         assert len(callbacks_received) == 2
+
+    @pytest.mark.asyncio
+    async def test_update_with_task_state_enum(self):
+        """Test updating with TaskState enum directly."""
+        task = Task(
+            id="task-123",
+            skill="process",
+            params={},
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        ctx = TaskContext(task)
+        await ctx.update(TaskState.COMPLETED, "Done!")
+        assert task.status.state == TaskState.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_multiple_status_changes_tracked_in_history(self):
+        """Test that multiple updates create history entries."""
+        task = Task(
+            id="task-123",
+            skill="process",
+            params={},
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        ctx = TaskContext(task)
+
+        await ctx.update("working", "Step 1", 0.25)
+        await ctx.update("working", "Step 2", 0.50)
+        await ctx.update("working", "Step 3", 0.75)
+        await ctx.update("completed", "Done!", 1.0)
+
+        assert task.status.state == TaskState.COMPLETED
+        assert len(task.history) == 4  # SUBMITTED + 3 WORKING
+
+    @pytest.mark.asyncio
+    async def test_async_status_callback(self):
+        """Test that async status callbacks are awaited."""
+        task = Task(
+            id="task-123",
+            skill="process",
+            params={},
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        ctx = TaskContext(task)
+
+        callbacks_received = []
+
+        async def async_callback(status):
+            callbacks_received.append(status.state)
+
+        ctx.on_status_change(async_callback)
+        await ctx.update("working", "Step 1")
+
+        assert len(callbacks_received) == 1
+        assert callbacks_received[0] == TaskState.WORKING
+
+    @pytest.mark.asyncio
+    async def test_send_status_event_with_event_queue(self):
+        """Test that status updates are sent via event queue when provided."""
+        events = []
+
+        class MockEventQueue:
+            async def enqueue_event(self, event):
+                events.append(event)
+
+        task = Task(
+            id="task-123",
+            skill="process",
+            params={},
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        ctx = TaskContext(task, event_queue=MockEventQueue())
+        await ctx.update("working", "Processing...")
+
+        assert len(events) == 1
+
+
+class TestTaskStoreEdgeCases:
+    @pytest.mark.asyncio
+    async def test_list_with_limit(self):
+        """Test that list respects the limit parameter."""
+        store = TaskStore()
+        for i in range(10):
+            await store.create("skill", {"i": i})
+
+        tasks = await store.list(limit=5)
+        assert len(tasks) == 5
+
+    @pytest.mark.asyncio
+    async def test_update(self):
+        """Test updating a task in the store."""
+        store = TaskStore()
+        task = await store.create("skill", {})
+        task.update_status(TaskState.WORKING, "Processing")
+        await store.update(task)
+
+        retrieved = await store.get(task.id)
+        assert retrieved.status.state == TaskState.WORKING
+
+    @pytest.mark.asyncio
+    async def test_list_returns_sorted_by_created_at(self):
+        """Test that list returns tasks sorted by creation time (newest first)."""
+        import asyncio
+        store = TaskStore()
+        t1 = await store.create("skill", {"order": 1})
+        await asyncio.sleep(0.01)
+        t2 = await store.create("skill", {"order": 2})
+
+        tasks = await store.list()
+        assert tasks[0].id == t2.id  # Newest first
+
+
+class TestTaskStateValues:
+    def test_auth_required_state(self):
+        """Test AUTH_REQUIRED state exists."""
+        assert TaskState.AUTH_REQUIRED.value == "auth-required"
+
+    def test_all_states(self):
+        """Test all states are accessible."""
+        states = list(TaskState)
+        assert len(states) == 7  # 7 states total
+
+
+class TestTaskStatusDefaults:
+    def test_default_message(self):
+        """Test that message defaults to None."""
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        assert status.message is None
+
+    def test_default_progress(self):
+        """Test that progress defaults to None."""
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        assert status.progress is None
+
+    def test_timestamp_auto_set(self):
+        """Test that timestamp is automatically set."""
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        assert status.timestamp is not None
+
+
+class TestTaskDefaults:
+    def test_default_fields(self):
+        """Test Task default field values."""
+        task = Task(
+            id="test",
+            skill="skill",
+            params={},
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        assert task.result is None
+        assert task.error is None
+        assert task.artifacts == []
+        assert task.history == []
+        assert task.created_at is not None
+        assert task.updated_at is not None

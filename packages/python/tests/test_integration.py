@@ -216,3 +216,362 @@ def test_multiple_agents():
     assert "skill2" not in agent1._skills
     assert "skill2" in agent2._skills
     assert "skill1" not in agent2._skills
+
+
+def test_sync_skill_via_http():
+    """Test that sync skills work via HTTP."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="SyncTest", description="Sync skill test")
+
+    @agent.skill("double")
+    def double(x: int) -> int:
+        return x * 2
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "double", "params": {"x": 21}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    assert "42" in result_text
+
+
+def test_skill_returning_dict_via_http():
+    """Test skill returning dict via HTTP."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="DictTest", description="Dict result test")
+
+    @agent.skill("info")
+    async def info(name: str) -> dict:
+        return {"name": name, "status": "active"}
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "info", "params": {"name": "Alice"}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result = json.loads(result_text)
+    assert result["name"] == "Alice"
+    assert result["status"] == "active"
+
+
+def test_skill_returning_list_via_http():
+    """Test skill returning list via HTTP."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="ListTest", description="List result test")
+
+    @agent.skill("numbers")
+    async def numbers(n: int) -> list:
+        return list(range(n))
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "numbers", "params": {"n": 5}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result = json.loads(result_text)
+    assert result == [0, 1, 2, 3, 4]
+
+
+def test_error_handler_via_http():
+    """Test that custom error handler is called via HTTP."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="ErrorTest", description="Error handler test")
+
+    @agent.skill("fail")
+    async def fail() -> str:
+        raise ValueError("Intentional error")
+
+    @agent.on_error
+    async def handle_error(error):
+        return {"handled": True, "error_type": type(error).__name__}
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "fail", "params": {}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result = json.loads(result_text)
+    assert result["handled"] is True
+
+
+def test_middleware_via_http():
+    """Test middleware execution via HTTP."""
+    from starlette.testclient import TestClient
+    from a2a_lite.middleware import timing_middleware
+
+    agent = Agent(name="MWTest", description="Middleware test")
+    agent.add_middleware(timing_middleware())
+
+    @agent.skill("hello")
+    async def hello(name: str = "World") -> str:
+        return f"Hello, {name}!"
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "hello", "params": {"name": "Test"}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    assert "Hello, Test!" in result_text
+
+
+def test_plain_text_message():
+    """Test sending a plain text (non-JSON) message to an agent."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="PlainTest", description="Plain text test")
+
+    @agent.skill("echo")
+    async def echo(message: str) -> str:
+        return f"Echo: {message}"
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    # Send plain text instead of JSON skill call
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": "Hello there"}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+
+def test_pydantic_model_via_http():
+    """Test Pydantic model parameter via HTTP."""
+    from starlette.testclient import TestClient
+    from pydantic import BaseModel
+
+    class UserInput(BaseModel):
+        name: str
+        age: int
+
+    agent = Agent(name="PydanticHTTP", description="Pydantic HTTP test")
+
+    @agent.skill("create_user")
+    async def create_user(user: UserInput) -> dict:
+        return {"created": True, "name": user.name, "age": user.age}
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({
+        "skill": "create_user",
+        "params": {"user": {"name": "Alice", "age": 30}},
+    })
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result = json.loads(result_text)
+    assert result["created"] is True
+    assert result["name"] == "Alice"
+
+
+def test_agent_with_no_skills():
+    """Test agent with no skills registered."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="EmptyAgent", description="No skills")
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "nonexistent", "params": {}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+
+def test_completion_hook_via_http():
+    """Test that completion hooks are called."""
+    from starlette.testclient import TestClient
+
+    completed_skills = []
+    agent = Agent(name="HookTest", description="Hook test")
+
+    @agent.skill("hello")
+    async def hello() -> str:
+        return "world"
+
+    @agent.on_complete
+    async def on_complete(skill_name, result, ctx):
+        completed_skills.append(skill_name)
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    message = json.dumps({"skill": "hello", "params": {}})
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+    assert "hello" in completed_skills
+
+
+def test_single_skill_auto_dispatch():
+    """Test that a single-skill agent auto-dispatches plain text."""
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="SingleSkill", description="One skill")
+
+    @agent.skill("echo")
+    async def echo(message: str) -> str:
+        return f"Echo: {message}"
+
+    app = agent.get_app()
+    client = TestClient(app)
+
+    # Send plain text — should auto-dispatch to the only skill
+    request_body = {
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "id": uuid4().hex,
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": "Hello there"}],
+                "messageId": uuid4().hex,
+            }
+        }
+    }
+
+    response = client.post("/", json=request_body)
+    assert response.status_code == 200
+
+    data = response.json()
+    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    assert "Echo:" in result_text

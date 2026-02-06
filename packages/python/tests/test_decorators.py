@@ -66,3 +66,61 @@ def test_skill_definition_defaults():
 
     assert skill.tags == []
     assert skill.is_async is False
+
+
+def test_skill_definition_streaming():
+    """Test SkillDefinition with streaming flag."""
+    async def handler():
+        yield "data"
+
+    skill = SkillDefinition(
+        name="stream",
+        description="Streaming skill",
+        handler=handler,
+        input_schema={},
+        output_schema={},
+        is_streaming=True,
+        is_async=True,
+    )
+
+    assert skill.is_streaming is True
+    data = skill.to_dict()
+    assert data["is_streaming"] is True
+
+
+def test_skill_definition_task_context():
+    """Test SkillDefinition with task context fields."""
+    async def handler():
+        return ""
+
+    skill = SkillDefinition(
+        name="tracked",
+        description="Tracked skill",
+        handler=handler,
+        input_schema={},
+        output_schema={},
+        needs_task_context=True,
+        task_context_param="task",
+    )
+
+    assert skill.needs_task_context is True
+    assert skill.task_context_param == "task"
+
+
+def test_skill_definition_auth():
+    """Test SkillDefinition with auth fields."""
+    async def handler():
+        return ""
+
+    skill = SkillDefinition(
+        name="secure",
+        description="Secure skill",
+        handler=handler,
+        input_schema={},
+        output_schema={},
+        needs_auth=True,
+        auth_param="auth",
+    )
+
+    assert skill.needs_auth is True
+    assert skill.auth_param == "auth"
