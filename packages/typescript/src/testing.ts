@@ -121,11 +121,11 @@ export class AgentTestClient {
             resolve(result);
           } catch {
             console.debug('Response is not JSON, returning raw text');
-            resolve(data);
+            resolve(new TestResult(data, data));
           }
         },
         end: () => {
-          resolve(undefined);
+          resolve(new TestResult(undefined, ''));
         },
       };
 

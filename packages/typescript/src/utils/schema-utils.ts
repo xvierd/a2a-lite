@@ -148,7 +148,8 @@ export function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
 
     case 'ZodArray':
     case 'array': {
-      const arrSchema = schema as { _def?: { type?: ZodTypeAny; element?: ZodTypeAny } };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const arrSchema = schema as any;
       // Handle both old (_def.type) and new (_def.element) Zod versions
       const element = arrSchema._def?.element || arrSchema._def?.type;
       if (!element) return withDescription(schema, { type: 'array' });

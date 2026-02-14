@@ -274,13 +274,16 @@ export class OAuth2Auth implements AuthProvider {
 
     try {
       // Try to use jose library (recommended)
-      const { jwtVerify, createRemoteJWKSet } = await import('jose');
+      // @ts-expect-error jose is an optional peer dependency
+      const jose = await import('jose');
+      
+      const { jwtVerify, createRemoteJWKSet } = jose;
       
       const jwks = createRemoteJWKSet(new URL(this.jwksUri));
       const { payload } = await jwtVerify(token, jwks, {
         issuer: this.issuer,
         audience: this.audience,
-        algorithms: this.algorithms as any,
+        algorithms: this.algorithms,
       });
 
       const userId = (payload.sub as string) ?? (payload.email as string) ?? 'unknown';
