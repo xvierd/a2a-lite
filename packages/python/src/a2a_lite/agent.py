@@ -177,7 +177,8 @@ class Agent:
 
             try:
                 resolved_hints = typing.get_type_hints(func)
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to resolve type hints for skill '%s': %s", func.__name__, e)
                 resolved_hints = getattr(func, "__annotations__", {})
 
             for param_name, hint in resolved_hints.items():

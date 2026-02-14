@@ -247,3 +247,42 @@ class TestIsOrSubclass:
         from a2a_lite.utils import _is_or_subclass
         # Generic types may raise TypeError in issubclass
         assert _is_or_subclass(List[str], int) is False
+
+    def test_optional_str(self):
+        """Test that Optional[str] is detected as subclass of str."""
+        from a2a_lite.utils import _is_or_subclass
+        assert _is_or_subclass(Optional[str], str) is True
+
+    def test_optional_int(self):
+        """Test that Optional[int] is detected as subclass of int."""
+        from a2a_lite.utils import _is_or_subclass
+        assert _is_or_subclass(Optional[int], int) is True
+
+    def test_optional_custom_class(self):
+        """Test that Optional[CustomClass] is detected as subclass of CustomClass."""
+        from a2a_lite.utils import _is_or_subclass
+
+        class MyClass:
+            pass
+
+        assert _is_or_subclass(Optional[MyClass], MyClass) is True
+
+    def test_optional_no_match(self):
+        """Test that Optional[str] is NOT detected as subclass of int."""
+        from a2a_lite.utils import _is_or_subclass
+        assert _is_or_subclass(Optional[str], int) is False
+
+    def test_union_with_none(self):
+        """Test that Union[str, None] works like Optional[str]."""
+        from a2a_lite.utils import _is_or_subclass
+        from typing import Union
+        assert _is_or_subclass(Union[str, None], str) is True
+        assert _is_or_subclass(Union[int, None], int) is True
+
+    def test_union_multiple_types(self):
+        """Test that Union with multiple non-None types returns False."""
+        from a2a_lite.utils import _is_or_subclass
+        from typing import Union
+        # Union[str, int, None] is Optional[Union[str, int]]
+        # Should NOT match str exactly
+        assert _is_or_subclass(Union[str, int, None], str) is False

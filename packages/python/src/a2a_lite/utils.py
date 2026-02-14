@@ -2,9 +2,12 @@
 Helper functions for A2A Lite.
 """
 
+import logging
 import typing
 from typing import Any, Dict, Type, get_origin, get_args, Union
 import inspect
+
+logger = logging.getLogger(__name__)
 
 
 def _is_or_subclass(hint: Any, target_class: Type) -> bool:
@@ -12,7 +15,17 @@ def _is_or_subclass(hint: Any, target_class: Type) -> bool:
     Check if a type hint is, or is a subclass of, the target class.
 
     Works with raw classes and string annotations.
+    Also handles Optional[X] (Union[X, None]) by extracting the inner type.
     """
+    # Handle Optional[X] (Union[X, None]) by extracting the non-None type
+    origin = get_origin(hint)
+    if origin is Union:
+        args = get_args(hint)
+        non_none_args = [a for a in args if a is not type(None)]
+        if len(non_none_args) == 1:
+            # This is Optional[X], check against the inner type
+            hint = non_none_args[0]
+
     try:
         if hint is target_class:
             return True
@@ -104,7 +117,8 @@ def extract_function_schemas(func) -> tuple[Dict[str, Any], Dict[str, Any]]:
     sig = inspect.signature(func)
     try:
         hints = typing.get_type_hints(func)
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to get type hints for %s: %s", func.__name__, e)
         hints = getattr(func, "__annotations__", {})
 
     # Build input schema from parameters
