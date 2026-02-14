@@ -221,3 +221,107 @@ export class CompositeAuth implements AuthProvider {
     };
   }
 }
+
+/**
+ * OAuth2/OIDC authentication.
+ *
+ * Validates JWT tokens from an OAuth2 provider.
+ *
+ * Example:
+ *   const auth = new OAuth2Auth({
+ *     issuer: 'https://auth.company.com',
+ *     audience: 'my-agent',
+ *   });
+ *
+ *   const agent = new Agent({
+ *     name: 'EnterpriseBot',
+ *     auth,
+ *   });
+ *
+ * Note: Requires jose or jsonwebtoken package for JWT validation.
+ * Install with: npm install jose
+ */
+export class OAuth2Auth implements AuthProvider {
+  readonly issuer: string;
+  readonly audience: string;
+  readonly jwksUri: string;
+  readonly algorithms: string[];
+  private _jwksClient: unknown = null;
+
+  constructor(options: {
+    issuer: string;
+    audience: string;
+    jwksUri?: string;
+    algorithms?: string[];
+  }) {
+    this.issuer = options.issuer;
+    this.audience = options.audience;
+    this.jwksUri = options.jwksUri ?? `${options.issuer}/.well-known/jwks.json`;
+    this.algorithms = options.algorithms ?? ['RS256'];
+  }
+
+  async authenticate(request: AuthRequest): Promise<AuthResult> {
+    const authHeader = request.headers['Authorization'] ?? request.headers['authorization'];
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return {
+        authenticated: false,
+        error: 'Bearer token required',
+      };
+    }
+
+    const token = authHeader.slice(7);
+
+    try {
+      // Try to use jose library (recommended)
+      // @ts-expect-error jose is an optional peer dependency
+      const jose = await import('jose');
+      
+      const { jwtVerify, createRemoteJWKSet } = jose;
+      
+      const jwks = createRemoteJWKSet(new URL(this.jwksUri));
+      const { payload } = await jwtVerify(token, jwks, {
+        issuer: this.issuer,
+        audience: this.audience,
+        algorithms: this.algorithms,
+      });
+
+      const userId = (payload.sub as string) ?? (payload.email as string) ?? 'unknown';
+      const scopeString = (payload.scope as string) ?? '';
+      const scopes = new Set(scopeString.split(/\s+/).filter(Boolean));
+
+      return {
+        authenticated: true,
+        userId,
+        scopes,
+      };
+    } catch (error) {
+      // jose not installed or validation failed
+      if ((error as Error).message?.includes('Cannot find module') || 
+          (error as Error).message?.includes('jose')) {
+        return {
+          authenticated: false,
+          error: 'OAuth2 requires jose package. Install with: npm install jose',
+        };
+      }
+
+      return {
+        authenticated: false,
+        error: `Token validation failed: ${(error as Error).message}`,
+      };
+    }
+  }
+
+  getScheme(): Record<string, unknown> {
+    return {
+      type: 'oauth2',
+      flows: {
+        authorizationCode: {
+          authorizationUrl: `${this.issuer}/authorize`,
+          tokenUrl: `${this.issuer}/oauth/token`,
+          scopes: {},
+        },
+      },
+    };
+  }
+}

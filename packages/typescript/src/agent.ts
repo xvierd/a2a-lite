@@ -37,6 +37,8 @@ import type {
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 
+import { MCPClient } from './mcp/index.js';
+
 export class Agent {
   readonly name: string;
   readonly description: string;
@@ -54,6 +56,7 @@ export class Agent {
   private hasStreaming = false;
   private corsOrigins?: string[];
   private production: boolean;
+  private mcpServers: string[] = [];
 
   constructor(config: AgentConfig) {
     this.name = config.name;
@@ -62,6 +65,7 @@ export class Agent {
     this.url = config.url;
     this.corsOrigins = config.corsOrigins;
     this.production = config.production ?? false;
+    this.mcpServers = config.mcpServers ?? [];
 
     // Setup task store
     if (config.taskStore === 'memory') {
@@ -112,8 +116,24 @@ export class Agent {
       this.hasStreaming = true;
     }
 
-    // Use explicit config fields for special parameter needs
-    const needsTaskContext = config.taskContext ?? false;
+    // Auto-detect TaskContext parameter by analyzing the handler
+    const taskContextInfo = this.detectTaskContextParameter(handler);
+    const needsTaskContext = config.taskContext !== undefined 
+      ? !!config.taskContext 
+      : taskContextInfo.needsTaskContext;
+    const taskContextParam = typeof config.taskContext === 'string' 
+      ? config.taskContext 
+      : taskContextInfo.paramName;
+
+    // Auto-detect MCPClient parameter by analyzing the handler
+    const mcpInfo = this.detectMCPClientParameter(handler);
+    const needsMcp = config.mcp !== undefined 
+      ? !!config.mcp 
+      : mcpInfo.needsMcp;
+    const mcpParam = typeof config.mcp === 'string' 
+      ? config.mcp 
+      : mcpInfo.paramName;
+
     const needsInteraction = config.interaction ?? false;
 
     const skillDef: SkillDefinition = {
@@ -126,6 +146,9 @@ export class Agent {
       isStreaming,
       needsTaskContext,
       needsInteraction,
+      taskContextParam,
+      needsMcp,
+      mcpParam,
     };
 
     this.skills.set(skillName, skillDef);
@@ -222,6 +245,7 @@ export class Agent {
       onCompleteHooks: this.onCompleteHooks,
       authProvider: this.auth as any,
       taskStore: this.taskStore,
+      mcpServers: this.mcpServers,
     });
 
     // Create the SDK's request handler
@@ -375,5 +399,59 @@ ${Array.from(this.skills.values())
       fn.constructor.name === 'AsyncGeneratorFunction' ||
       fn.constructor.name === 'GeneratorFunction'
     );
+  }
+
+  /**
+   * Detect if the handler expects a TaskContext parameter.
+   * Analyzes the function's parameter names to identify common TaskContext parameter names.
+   */
+  private detectTaskContextParameter(handler: SkillHandler): { 
+    needsTaskContext: boolean; 
+    paramName?: string 
+  } {
+    // Get the function's source code to analyze parameter names
+    const fnString = handler.toString();
+    
+    // Match destructured parameter patterns like: async ({ data, task }) => ...
+    // or: async ({ data, ctx }) => ...
+    const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(task|ctx|context)\b[^}]*\}\s*\)/);
+    
+    if (destructuredMatch) {
+      const paramName = destructuredMatch[1];
+      return { needsTaskContext: true, paramName };
+    }
+    
+    // Match regular parameter patterns like: async (data, task) => ...
+    // But this is less common for TaskContext usage
+    const regularMatch = fnString.match(/\(\s*(?:[^)]*,\s*)*\b(task|ctx|context)\b\s*\)/);
+    
+    if (regularMatch) {
+      const paramName = regularMatch[1];
+      return { needsTaskContext: true, paramName };
+    }
+    
+    return { needsTaskContext: false };
+  }
+
+  /**
+   * Detect if the handler expects an MCPClient parameter.
+   * Analyzes the function's parameter names to identify common MCP parameter names.
+   */
+  private detectMCPClientParameter(handler: SkillHandler): { 
+    needsMcp: boolean; 
+    paramName?: string 
+  } {
+    // Get the function's source code to analyze parameter names
+    const fnString = handler.toString();
+    
+    // Match destructured parameter patterns like: async ({ query, mcp }) => ...
+    const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(mcp|mcpClient)\b[^}]*\}\s*\)/);
+    
+    if (destructuredMatch) {
+      const paramName = destructuredMatch[1];
+      return { needsMcp: true, paramName };
+    }
+    
+    return { needsMcp: false };
   }
 }

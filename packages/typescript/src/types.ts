@@ -24,6 +24,7 @@ export interface AgentConfig {
   taskStore?: TaskStore | 'memory';
   corsOrigins?: string[];
   production?: boolean;
+  mcpServers?: string[];  // MCP server URLs
 }
 
 export interface SkillConfig {
@@ -31,8 +32,9 @@ export interface SkillConfig {
   description?: string;
   tags?: string[];
   streaming?: boolean;
-  taskContext?: boolean;
+  taskContext?: boolean | string;  // true or param name
   interaction?: boolean;
+  mcp?: boolean | string;          // true or param name
 }
 
 export interface SkillDefinition {
@@ -45,6 +47,9 @@ export interface SkillDefinition {
   isStreaming: boolean;
   needsTaskContext: boolean;
   needsInteraction: boolean;
+  taskContextParam?: string;  // Name of the parameter that receives TaskContext
+  needsMcp: boolean;          // Whether skill needs MCPClient injection
+  mcpParam?: string;          // Name of the parameter that receives MCPClient
 }
 
 export type SkillHandler = (
