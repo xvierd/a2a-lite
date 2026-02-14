@@ -82,3 +82,13 @@ export { FilePart, DataPart, Artifact, textPart, parsePart } from './parts.js';
 
 // Utils (optional)
 export { isZodSchema, zodToJsonSchema, extractZodSchemas } from './utils/index.js';
+
+// Middleware (optional)
+export {
+  loggingMiddleware,
+  rateLimitMiddleware,
+  errorHandlingMiddleware,
+  timingMiddleware,
+  requestIdMiddleware,
+  corsMiddleware,
+} from './middleware/index.js';
