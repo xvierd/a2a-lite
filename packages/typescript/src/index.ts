@@ -68,7 +68,7 @@ export type {
 export type { AgentCard, AgentSkill, Message, Part } from './types.js';
 
 // Auth (optional)
-export { NoAuth, APIKeyAuth, BearerAuth, CompositeAuth } from './auth.js';
+export { NoAuth, APIKeyAuth, BearerAuth, CompositeAuth, OAuth2Auth } from './auth.js';
 
 // Tasks (optional)
 export { InMemoryTaskStore, TaskContext } from './tasks.js';
