@@ -259,7 +259,8 @@ class LiteAgentExecutor(AgentExecutor):
         handler = skill_def.handler
         try:
             hints = typing.get_type_hints(handler)
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to get type hints for handler '%s': %s", getattr(handler, '__name__', 'unknown'), e)
             hints = getattr(handler, "__annotations__", {})
 
         from .parts import FilePart, DataPart

@@ -2,9 +2,12 @@
 Helper functions for A2A Lite.
 """
 
+import logging
 import typing
 from typing import Any, Dict, Type, get_origin, get_args, Union
 import inspect
+
+logger = logging.getLogger(__name__)
 
 
 def _is_or_subclass(hint: Any, target_class: Type) -> bool:
@@ -114,7 +117,8 @@ def extract_function_schemas(func) -> tuple[Dict[str, Any], Dict[str, Any]]:
     sig = inspect.signature(func)
     try:
         hints = typing.get_type_hints(func)
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to get type hints for %s: %s", func.__name__, e)
         hints = getattr(func, "__annotations__", {})
 
     # Build input schema from parameters
