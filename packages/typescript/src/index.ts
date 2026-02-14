@@ -79,3 +79,6 @@ export type { MCPToolResult, MCPToolDescriptor } from './mcp/index.js';
 
 // Parts (optional)
 export { FilePart, DataPart, Artifact, textPart, parsePart } from './parts.js';
+
+// Utils (optional)
+export { isZodSchema, zodToJsonSchema, extractZodSchemas } from './utils/index.js';
