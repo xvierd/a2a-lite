@@ -18,6 +18,7 @@ import type {
   AuthProvider,
   TaskStore,
 } from './types.js';
+import { TaskContext } from './tasks.js';
 
 export class LiteAgentExecutor implements AgentExecutor {
   private skills: Map<string, SkillDefinition>;
@@ -142,6 +143,16 @@ export class LiteAgentExecutor implements AgentExecutor {
         error: `Unknown skill: ${skillName}`,
         availableSkills: Array.from(this.skills.keys()),
       };
+    }
+
+    // Inject TaskContext if needed
+    if (skillDef.needsTaskContext && this.taskStore) {
+      // Store original params (without TaskContext)
+      const originalParams = { ...params };
+      const task = this.taskStore.create(skillName, originalParams);
+      const taskContext = new TaskContext(task);
+      const paramName = skillDef.taskContextParam ?? 'task';
+      params[paramName] = taskContext;
     }
 
     // Execute handler

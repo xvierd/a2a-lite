@@ -112,8 +112,11 @@ export class Agent {
       this.hasStreaming = true;
     }
 
-    // Use explicit config fields for special parameter needs
-    const needsTaskContext = config.taskContext ?? false;
+    // Auto-detect TaskContext parameter by analyzing the handler
+    const taskContextInfo = this.detectTaskContextParameter(handler);
+    const needsTaskContext = config.taskContext ?? taskContextInfo.needsTaskContext;
+    const taskContextParam = taskContextInfo.paramName;
+
     const needsInteraction = config.interaction ?? false;
 
     const skillDef: SkillDefinition = {
@@ -126,6 +129,7 @@ export class Agent {
       isStreaming,
       needsTaskContext,
       needsInteraction,
+      taskContextParam,
     };
 
     this.skills.set(skillName, skillDef);
@@ -375,5 +379,37 @@ ${Array.from(this.skills.values())
       fn.constructor.name === 'AsyncGeneratorFunction' ||
       fn.constructor.name === 'GeneratorFunction'
     );
+  }
+
+  /**
+   * Detect if the handler expects a TaskContext parameter.
+   * Analyzes the function's parameter names to identify common TaskContext parameter names.
+   */
+  private detectTaskContextParameter(handler: SkillHandler): { 
+    needsTaskContext: boolean; 
+    paramName?: string 
+  } {
+    // Get the function's source code to analyze parameter names
+    const fnString = handler.toString();
+    
+    // Match destructured parameter patterns like: async ({ data, task }) => ...
+    // or: async ({ data, ctx }) => ...
+    const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(task|ctx|context)\b[^}]*\}\s*\)/);
+    
+    if (destructuredMatch) {
+      const paramName = destructuredMatch[1];
+      return { needsTaskContext: true, paramName };
+    }
+    
+    // Match regular parameter patterns like: async (data, task) => ...
+    // But this is less common for TaskContext usage
+    const regularMatch = fnString.match(/\(\s*(?:[^)]*,\s*)*\b(task|ctx|context)\b\s*\)/);
+    
+    if (regularMatch) {
+      const paramName = regularMatch[1];
+      return { needsTaskContext: true, paramName };
+    }
+    
+    return { needsTaskContext: false };
   }
 }

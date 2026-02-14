@@ -45,6 +45,7 @@ export interface SkillDefinition {
   isStreaming: boolean;
   needsTaskContext: boolean;
   needsInteraction: boolean;
+  taskContextParam?: string;  // Name of the parameter that receives TaskContext
 }
 
 export type SkillHandler = (
