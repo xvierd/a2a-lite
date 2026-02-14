@@ -37,6 +37,8 @@ import type {
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 
+import { MCPClient } from './mcp/index.js';
+
 export class Agent {
   readonly name: string;
   readonly description: string;
@@ -54,6 +56,7 @@ export class Agent {
   private hasStreaming = false;
   private corsOrigins?: string[];
   private production: boolean;
+  private mcpServers: string[] = [];
 
   constructor(config: AgentConfig) {
     this.name = config.name;
@@ -62,6 +65,7 @@ export class Agent {
     this.url = config.url;
     this.corsOrigins = config.corsOrigins;
     this.production = config.production ?? false;
+    this.mcpServers = config.mcpServers ?? [];
 
     // Setup task store
     if (config.taskStore === 'memory') {
@@ -114,8 +118,21 @@ export class Agent {
 
     // Auto-detect TaskContext parameter by analyzing the handler
     const taskContextInfo = this.detectTaskContextParameter(handler);
-    const needsTaskContext = config.taskContext ?? taskContextInfo.needsTaskContext;
-    const taskContextParam = taskContextInfo.paramName;
+    const needsTaskContext = config.taskContext !== undefined 
+      ? !!config.taskContext 
+      : taskContextInfo.needsTaskContext;
+    const taskContextParam = typeof config.taskContext === 'string' 
+      ? config.taskContext 
+      : taskContextInfo.paramName;
+
+    // Auto-detect MCPClient parameter by analyzing the handler
+    const mcpInfo = this.detectMCPClientParameter(handler);
+    const needsMcp = config.mcp !== undefined 
+      ? !!config.mcp 
+      : mcpInfo.needsMcp;
+    const mcpParam = typeof config.mcp === 'string' 
+      ? config.mcp 
+      : mcpInfo.paramName;
 
     const needsInteraction = config.interaction ?? false;
 
@@ -130,6 +147,8 @@ export class Agent {
       needsTaskContext,
       needsInteraction,
       taskContextParam,
+      needsMcp,
+      mcpParam,
     };
 
     this.skills.set(skillName, skillDef);
@@ -226,6 +245,7 @@ export class Agent {
       onCompleteHooks: this.onCompleteHooks,
       authProvider: this.auth as any,
       taskStore: this.taskStore,
+      mcpServers: this.mcpServers,
     });
 
     // Create the SDK's request handler
@@ -411,5 +431,27 @@ ${Array.from(this.skills.values())
     }
     
     return { needsTaskContext: false };
+  }
+
+  /**
+   * Detect if the handler expects an MCPClient parameter.
+   * Analyzes the function's parameter names to identify common MCP parameter names.
+   */
+  private detectMCPClientParameter(handler: SkillHandler): { 
+    needsMcp: boolean; 
+    paramName?: string 
+  } {
+    // Get the function's source code to analyze parameter names
+    const fnString = handler.toString();
+    
+    // Match destructured parameter patterns like: async ({ query, mcp }) => ...
+    const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(mcp|mcpClient)\b[^}]*\}\s*\)/);
+    
+    if (destructuredMatch) {
+      const paramName = destructuredMatch[1];
+      return { needsMcp: true, paramName };
+    }
+    
+    return { needsMcp: false };
   }
 }

@@ -73,5 +73,9 @@ export { NoAuth, APIKeyAuth, BearerAuth, CompositeAuth } from './auth.js';
 // Tasks (optional)
 export { InMemoryTaskStore, TaskContext } from './tasks.js';
 
+// MCP (optional)
+export { MCPClient, MCPError, ToolNotFoundError } from './mcp/index.js';
+export type { MCPToolResult, MCPToolDescriptor } from './mcp/index.js';
+
 // Parts (optional)
 export { FilePart, DataPart, Artifact, textPart, parsePart } from './parts.js';

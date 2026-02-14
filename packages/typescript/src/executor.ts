@@ -19,6 +19,7 @@ import type {
   TaskStore,
 } from './types.js';
 import { TaskContext } from './tasks.js';
+import { MCPClient } from './mcp/index.js';
 
 export class LiteAgentExecutor implements AgentExecutor {
   private skills: Map<string, SkillDefinition>;
@@ -27,6 +28,8 @@ export class LiteAgentExecutor implements AgentExecutor {
   private onCompleteHooks: Array<(skill: string, result: unknown) => Promise<void> | void>;
   private authProvider?: AuthProvider;
   private taskStore?: TaskStore;
+  private mcpServers: string[];
+  private mcpClient?: MCPClient;
 
   constructor(options: {
     skills: Map<string, SkillDefinition>;
@@ -35,6 +38,7 @@ export class LiteAgentExecutor implements AgentExecutor {
     onCompleteHooks?: Array<(skill: string, result: unknown) => Promise<void> | void>;
     authProvider?: AuthProvider;
     taskStore?: TaskStore;
+    mcpServers?: string[];
   }) {
     this.skills = options.skills;
     this.errorHandler = options.errorHandler;
@@ -42,6 +46,12 @@ export class LiteAgentExecutor implements AgentExecutor {
     this.onCompleteHooks = options.onCompleteHooks ?? [];
     this.authProvider = options.authProvider;
     this.taskStore = options.taskStore;
+    this.mcpServers = options.mcpServers ?? [];
+    
+    // Create MCP client if servers are configured
+    if (this.mcpServers.length > 0) {
+      this.mcpClient = new MCPClient(this.mcpServers);
+    }
   }
 
   /**
@@ -153,6 +163,12 @@ export class LiteAgentExecutor implements AgentExecutor {
       const taskContext = new TaskContext(task);
       const paramName = skillDef.taskContextParam ?? 'task';
       params[paramName] = taskContext;
+    }
+
+    // Inject MCPClient if needed
+    if (skillDef.needsMcp && this.mcpClient) {
+      const paramName = skillDef.mcpParam ?? 'mcp';
+      params[paramName] = this.mcpClient;
     }
 
     // Execute handler
