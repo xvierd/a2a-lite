@@ -322,3 +322,11 @@ class AsyncAgentTestClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+
+    async def __aenter__(self) -> "AsyncAgentTestClient":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit async context manager, ensuring cleanup."""
+        await self.close()

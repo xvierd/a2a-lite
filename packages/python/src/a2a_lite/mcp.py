@@ -184,6 +184,14 @@ class MCPClient:
                 logger.warning("Error closing MCP session for %s", url, exc_info=True)
         self._sessions.clear()
 
+    async def __aenter__(self) -> "MCPClient":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit async context manager, ensuring cleanup."""
+        await self.close()
+
     def __repr__(self) -> str:
         return f"MCPClient(servers={self._server_urls})"
 
