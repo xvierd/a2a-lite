@@ -22,6 +22,16 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+class MCPError(Exception):
+    """Base exception for MCP-related errors."""
+    pass
+
+
+class ToolNotFoundError(MCPError):
+    """Raised when a tool is not found on any MCP server."""
+    pass
+
+
 class MCPClient:
     """Client for interacting with MCP servers.
 
@@ -103,6 +113,7 @@ class MCPClient:
             ImportError: If the ``mcp`` package is not installed.
         """
         urls = [server_url] if server_url else self._server_urls
+        last_error: Optional[Exception] = None
 
         for url in urls:
             try:
@@ -110,13 +121,65 @@ class MCPClient:
                 result = await session.call_tool(tool_name, arguments=kwargs)
                 return _extract_mcp_content(result)
             except Exception as e:
-                if "not found" in str(e).lower() or "unknown tool" in str(e).lower():
+                # Check if this is a "tool not found" error
+                # First try to detect specific MCP SDK exceptions
+                if self._is_tool_not_found_error(e):
+                    last_error = e
                     continue
+                # Otherwise re-raise the original error
                 raise
 
+        # Tool not found on any server
         raise ValueError(
-            f"Tool '{tool_name}' not found on any MCP server. Servers: {urls}"
-        )
+            f"Tool '{tool_name}' not found on any MCP server. "
+            f"Servers: {urls}"
+        ) from last_error
+
+    def _is_tool_not_found_error(self, error: Exception) -> bool:
+        """Check if an exception indicates a tool was not found.
+
+        This method attempts to detect tool-not-found errors without relying
+        solely on fragile string matching. It tries:
+        1. Check for specific MCP SDK exception types
+        2. Check for common error code patterns
+        3. Fallback to checking error message content
+
+        Args:
+            error: The exception to check.
+
+        Returns:
+            True if the error indicates the tool was not found.
+        """
+        # Try to detect specific MCP SDK exception types
+        error_type = type(error).__name__.lower()
+        if "tool" in error_type and ("notfound" in error_type or "missing" in error_type):
+            return True
+
+        # Check for common error attributes (some SDKs use error codes)
+        if hasattr(error, "code"):
+            code = getattr(error, "code", None)
+            if code in ("TOOL_NOT_FOUND", "METHOD_NOT_FOUND", -32601):
+                return True
+
+        # Check error message as last resort (more specific patterns first)
+        error_str = str(error).lower()
+        specific_patterns = [
+            "unknown tool",
+            "tool not found",
+            "tool '",
+            'tool "',
+            "no tool named",
+            "tool does not exist",
+        ]
+        for pattern in specific_patterns:
+            if pattern in error_str:
+                return True
+
+        # Generic "not found" only if tool is mentioned
+        if "not found" in error_str and "tool" in error_str:
+            return True
+
+        return False
 
     async def list_tools(
         self,
