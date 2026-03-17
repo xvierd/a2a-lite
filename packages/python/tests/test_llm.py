@@ -75,7 +75,7 @@ class TestOpenAISkill:
 class TestAnthropicSkill:
     @pytest.mark.asyncio
     async def test_anthropic_import_error(self):
-        @anthropic_skill(model="claude-sonnet-4-5-20250929")
+        @anthropic_skill(model="claude-opus-4-6")
         async def analyze(text: str) -> str:
             ...
 
@@ -84,7 +84,7 @@ class TestAnthropicSkill:
                 await analyze(text="hello")
 
     def test_streaming_decorator_creates_generator(self):
-        @anthropic_skill(model="claude-sonnet-4-5-20250929", streaming=True)
+        @anthropic_skill(model="claude-opus-4-6", streaming=True)
         async def analyze(text: str) -> str:
             ...
 
@@ -92,7 +92,7 @@ class TestAnthropicSkill:
         assert inspect.isasyncgenfunction(analyze)
 
     def test_non_streaming_decorator_is_coroutine(self):
-        @anthropic_skill(model="claude-sonnet-4-5-20250929")
+        @anthropic_skill(model="claude-opus-4-6")
         async def analyze(text: str) -> str:
             ...
 
@@ -204,7 +204,7 @@ class TestDecoratorPreservesMetadata:
         assert my_chat.__name__ == "my_chat"
 
     def test_anthropic_preserves_name(self):
-        @anthropic_skill(model="claude-sonnet-4-5-20250929")
+        @anthropic_skill(model="claude-opus-4-6")
         async def my_analyze(text: str) -> str:
             ...
 

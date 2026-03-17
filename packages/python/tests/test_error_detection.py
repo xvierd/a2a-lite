@@ -9,8 +9,9 @@ class TestErrorDetection:
     """Tests that errors are detected using proper types, not string matching."""
 
     def test_orchestration_detects_json_rpc_error_key(self):
-        """Test that orchestration._extract_result detects JSON-RPC error by key presence."""
+        """Test that orchestration._extract_result raises RemoteAgentError on JSON-RPC error."""
         from a2a_lite.orchestration import _extract_result
+        from a2a_lite.errors import RemoteAgentError
 
         # Error response
         error_response = {
@@ -19,8 +20,8 @@ class TestErrorDetection:
             "error": {"code": -32600, "message": "Invalid Request"}
         }
 
-        result = _extract_result(error_response)
-        assert result == {"code": -32600, "message": "Invalid Request"}
+        with pytest.raises(RemoteAgentError):
+            _extract_result(error_response)
 
     def test_orchestration_returns_success_result(self):
         """Test that orchestration._extract_result returns result when no error."""

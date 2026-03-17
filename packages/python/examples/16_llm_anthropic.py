@@ -22,7 +22,7 @@ agent = Agent(
 
 @agent.skill("analyze", description="Analyze text with Claude")
 @anthropic_skill(
-    model="claude-sonnet-4-5-20250929",
+    model="claude-opus-4-6",
     system_prompt="You are an expert analyst. Provide clear, structured analysis.",
     max_tokens=1024,
 )
@@ -33,7 +33,7 @@ async def analyze(text: str) -> str:
 
 @agent.skill("code_review", description="Review code with Claude")
 @anthropic_skill(
-    model="claude-sonnet-4-5-20250929",
+    model="claude-opus-4-6",
     system_prompt=(
         "You are an expert code reviewer. Review the code for bugs, "
         "security issues, and style. Be concise."
@@ -48,7 +48,7 @@ async def code_review(text: str) -> str:
 
 @agent.skill("chat", description="Chat with Claude (streaming)", streaming=True)
 @anthropic_skill(
-    model="claude-sonnet-4-5-20250929",
+    model="claude-opus-4-6",
     system_prompt="You are a helpful, friendly assistant.",
     streaming=True,
 )

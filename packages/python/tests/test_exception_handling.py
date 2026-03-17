@@ -70,17 +70,18 @@ class TestExceptionHandling:
     def test_mcp_list_tools_exception_logged(self, caplog):
         """Test that MCP list_tools exceptions are properly logged."""
         import logging
+        import asyncio
+        from unittest.mock import patch, AsyncMock
         from a2a_lite.mcp import MCPClient
 
         client = MCPClient(server_urls=["http://localhost:5001"])
 
-        # Mock _get_session to raise an exception
         async def mock_get_session(url):
             raise Exception("Connection failed")
 
-        with caplog.at_level(logging.WARNING):
-            import asyncio
-            asyncio.run(client.list_tools())
+        with patch.object(client, "_get_session", side_effect=Exception("Connection failed")):
+            with caplog.at_level(logging.WARNING):
+                asyncio.run(client.list_tools())
 
         # Should have logged the warning
         assert "Failed to list tools" in caplog.text or "Connection failed" in caplog.text

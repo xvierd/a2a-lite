@@ -51,7 +51,7 @@ async def chat(message: str) -> str:
 from a2a_lite.llm import anthropic_skill
 
 @agent.skill("analyze")
-@anthropic_skill(model="claude-sonnet-4-5-20250929", max_tokens=1024)
+@anthropic_skill(model="claude-opus-4-6", max_tokens=1024)
 async def analyze(text: str) -> str:
     ...  # Handled by decorator
 ```
@@ -60,7 +60,7 @@ async def analyze(text: str) -> str:
 
 ```python
 @agent.skill("chat", streaming=True)
-@anthropic_skill(model="claude-sonnet-4-5-20250929", streaming=True)
+@anthropic_skill(model="claude-opus-4-6", streaming=True)
 async def chat(message: str) -> str:
     ...  # Streams tokens automatically
 ```
@@ -69,7 +69,7 @@ async def chat(message: str) -> str:
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `model` | `"claude-sonnet-4-5-20250929"` | Anthropic model ID |
+| `model` | `"claude-opus-4-6"` | Anthropic model ID |
 | `system_prompt` | `"You are a helpful assistant."` | System message |
 | `temperature` | `0.7` | Sampling temperature |
 | `max_tokens` | `1024` | Max response tokens |

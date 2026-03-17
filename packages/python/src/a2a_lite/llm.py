@@ -20,7 +20,7 @@ Example:
         ...  # handled by decorator
 
     @agent.skill("analyze")
-    @anthropic_skill(model="claude-sonnet-4-5-20250929")
+    @anthropic_skill(model="claude-opus-4-6")
     async def analyze(text: str) -> str:
         ...  # handled by decorator
 
@@ -142,7 +142,7 @@ def openai_skill(
 
 
 def anthropic_skill(
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = "claude-opus-4-6",
     system_prompt: str = "You are a helpful assistant.",
     temperature: float = 0.7,
     max_tokens: int = 1024,
@@ -167,7 +167,7 @@ def anthropic_skill(
 
     Example:
         @agent.skill("analyze")
-        @anthropic_skill(model="claude-sonnet-4-5-20250929")
+        @anthropic_skill(model="claude-opus-4-6")
         async def analyze(text: str) -> str:
             ...
     """
