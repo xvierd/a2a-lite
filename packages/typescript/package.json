@@ -1,6 +1,6 @@
 {
   "name": "a2a-lite",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Build A2A agents in 8 lines. Add enterprise features when you need them.",
   "type": "module",
   "main": "dist/index.js",
@@ -36,7 +36,16 @@
     "llm",
     "sdk"
   ],
-  "author": "",
+  "author": "A2A Lite Contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xvierd/a2a-lite.git",
+    "directory": "packages/typescript"
+  },
+  "homepage": "https://github.com/xvierd/a2a-lite/tree/main/packages/typescript",
+  "bugs": {
+    "url": "https://github.com/xvierd/a2a-lite/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
