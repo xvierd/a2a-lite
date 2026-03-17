@@ -14,6 +14,9 @@ jobs:
   build-and-publish:
     name: Build and publish to npm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for provenance attestation
     defaults:
       run:
         working-directory: packages/typescript
@@ -41,6 +44,6 @@ jobs:
 
       - name: Publish to npm
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
-        run: npm publish --access public
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
