@@ -179,6 +179,12 @@ class AgentTestClient:
         """
         Call a streaming skill and collect all results.
 
+        .. warning::
+            This method calls the handler directly and does **not** exercise
+            middleware, auth, or the event queue. A full-pipeline streaming
+            test would require SSE client support, which is out of scope for
+            this utility.
+
         Args:
             skill: Name of the skill to call
             **params: Parameters to pass to the skill

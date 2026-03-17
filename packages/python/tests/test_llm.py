@@ -4,7 +4,7 @@ Tests for the LLM skill decorators.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from a2a_lite.llm import openai_skill, anthropic_skill, ollama_skill, _extract_user_message
+from a2a_lite.llm import openai_skill, anthropic_skill, ollama_skill, bedrock_skill, _extract_user_message
 
 
 class TestExtractUserMessage:
@@ -139,6 +139,62 @@ class TestOllamaSkill:
             assert result == "Ollama says hi"
 
 
+class TestBedrockSkill:
+    def test_non_streaming_is_coroutine(self):
+        @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
+        async def chat(message: str) -> str:
+            ...
+
+        import asyncio
+        assert asyncio.iscoroutinefunction(chat)
+
+    def test_streaming_is_generator(self):
+        @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0", streaming=True)
+        async def chat(message: str) -> str:
+            ...
+
+        import inspect
+        assert inspect.isasyncgenfunction(chat)
+
+    @pytest.mark.asyncio
+    async def test_bedrock_import_error(self):
+        @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
+        async def chat(message: str) -> str:
+            ...
+
+        with patch.dict("sys.modules", {"boto3": None}):
+            with pytest.raises(ImportError, match="boto3"):
+                await chat(message="hello")
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_calls_boto3(self):
+        @bedrock_skill(
+            model="anthropic.claude-3-haiku-20240307-v1:0",
+            region_name="us-east-1",
+        )
+        async def chat(message: str) -> str:
+            ...
+
+        mock_client = MagicMock()
+        mock_client.converse.return_value = {
+            "output": {
+                "message": {
+                    "content": [{"text": "Bedrock says hi"}],
+                }
+            }
+        }
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        with patch.dict("sys.modules", {"boto3": mock_boto3}):
+            result = await chat(message="hello")
+            assert result == "Bedrock says hi"
+            mock_boto3.client.assert_called_once_with(
+                "bedrock-runtime", region_name="us-east-1"
+            )
+
+
 class TestDecoratorPreservesMetadata:
     def test_openai_preserves_name(self):
         @openai_skill(model="gpt-4o-mini")
@@ -160,3 +216,10 @@ class TestDecoratorPreservesMetadata:
             ...
 
         assert my_local.__name__ == "my_local"
+
+    def test_bedrock_preserves_name(self):
+        @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
+        async def my_bedrock(message: str) -> str:
+            ...
+
+        assert my_bedrock.__name__ == "my_bedrock"

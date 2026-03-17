@@ -29,8 +29,13 @@ import java.util.Objects;
 public class FilePart {
     private final String name;
     private final String mimeType;
-    private final byte[] data;
-    private final String uri;
+    private byte[] data;
+    private String uri;
+
+    public FilePart(String name, String mimeType) {
+        this.name = Objects.requireNonNull(name, "name is required");
+        this.mimeType = mimeType != null ? mimeType : "application/octet-stream";
+    }
 
     public FilePart(String name, String mimeType, byte[] data) {
         this.name = Objects.requireNonNull(name, "name is required");
@@ -87,9 +92,18 @@ public class FilePart {
 
     public String getName() { return name; }
     public String getMimeType() { return mimeType; }
+    public byte[] getData() { return data; }
     public boolean isUri() { return uri != null; }
     public boolean isBytes() { return data != null; }
     public String getUri() { return uri; }
+
+    public void setData(byte[] data) { this.data = data; }
+    public void setUri(String uri) { this.uri = uri; }
+
+    /** Load file content from a local path. */
+    public void loadFromPath(Path path) throws Exception {
+        this.data = Files.readAllBytes(path);
+    }
 
     /**
      * Read file content as bytes.
@@ -144,6 +158,13 @@ public class FilePart {
     }
 
     /**
+     * Convert to dictionary format.
+     */
+    public Map<String, Object> toDict() {
+        return toA2A();
+    }
+
+    /**
      * Guess MIME type from filename extension.
      */
     static String guessMimeType(String filename) {
@@ -168,5 +189,10 @@ public class FilePart {
             case "zip" -> "application/zip";
             default -> "application/octet-stream";
         };
+    }
+
+    @Override
+    public String toString() {
+        return "FilePart(name=" + name + ", mimeType=" + mimeType + ")";
     }
 }

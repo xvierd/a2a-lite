@@ -187,13 +187,38 @@ class TaskStore:
     For production, extend this with Redis/DB backend.
     """
 
-    def __init__(self):
+    def __init__(self, max_size: int = 10000, ttl_seconds: float = 3600):
         self._tasks: Dict[str, Task] = {}
         self._lock = asyncio.Lock()
+        self._max_size = max_size
+        self._ttl_seconds = ttl_seconds
+
+    def _evict(self) -> None:
+        """Remove expired tasks and enforce max_size (oldest first)."""
+        now = datetime.now(timezone.utc)
+
+        # Remove tasks older than TTL
+        expired = [
+            tid
+            for tid, t in self._tasks.items()
+            if (now - t.created_at).total_seconds() > self._ttl_seconds
+        ]
+        for tid in expired:
+            del self._tasks[tid]
+
+        # Evict oldest if still over max_size
+        if len(self._tasks) >= self._max_size:
+            sorted_tasks = sorted(
+                self._tasks.items(), key=lambda item: item[1].created_at
+            )
+            excess = len(self._tasks) - self._max_size + 1
+            for tid, _ in sorted_tasks[:excess]:
+                del self._tasks[tid]
 
     async def create(self, skill: str, params: Dict[str, Any]) -> Task:
         """Create a new task."""
         async with self._lock:
+            self._evict()
             task = Task(
                 id=uuid4().hex,
                 skill=skill,

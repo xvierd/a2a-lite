@@ -94,6 +94,30 @@ class ParamValidationError(A2ALiteError):
         }
 
 
+class RemoteAgentError(A2ALiteError):
+    """Raised when a remote agent returns an error response.
+
+    Args:
+        message: Human-readable error description.
+        response: The raw error response dict from the remote agent.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        response: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.response = response or {}
+        super().__init__(message)
+
+    def to_response(self) -> Dict[str, Any]:
+        return {
+            "error": str(self),
+            "type": "RemoteAgentError",
+            "remote_response": self.response,
+        }
+
+
 class AuthRequiredError(A2ALiteError):
     """Raised when authentication is required but not provided.
 

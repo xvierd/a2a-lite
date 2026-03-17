@@ -2,6 +2,8 @@ package com.a2alite;
 
 import com.a2alite.auth.AuthProvider;
 import com.a2alite.auth.NoAuth;
+import com.a2alite.errors.A2ALiteException;
+import com.a2alite.errors.SkillNotFoundException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -34,6 +36,7 @@ import java.util.logging.Logger;
  */
 public class Agent {
     private static final Logger LOGGER = Logger.getLogger(Agent.class.getName());
+    private static final String PROTOCOL_VERSION = "0.3.0";
 
     private final String name;
     private final String description;
@@ -42,6 +45,9 @@ public class Agent {
     private final AuthProvider auth;
     private final List<String> corsOrigins;
     private final boolean production;
+
+    private final AgentNetwork network;
+    private final TaskStore taskStore;
 
     private final Map<String, SkillDefinition> skills = new LinkedHashMap<>();
     private final List<Middleware> middlewares = new ArrayList<>();
@@ -52,6 +58,7 @@ public class Agent {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private boolean hasStreaming = false;
+    private Thread shutdownHookThread;
 
     private Agent(Builder builder) {
         this.name = builder.name;
@@ -61,6 +68,9 @@ public class Agent {
         this.auth = builder.auth != null ? builder.auth : new NoAuth();
         this.corsOrigins = builder.corsOrigins;
         this.production = builder.production;
+        this.network = builder.network;
+        this.taskStore = builder.taskStore != null ? builder.taskStore :
+                         ("memory".equals(builder.taskStoreName) ? new InMemoryTaskStore() : null);
     }
 
     public static Builder builder() {
@@ -84,6 +94,41 @@ public class Agent {
             config != null && config.tags() != null ? config.tags() : List.of(),
             handler,
             config != null ? config.streaming() : false
+        );
+
+        if (def.isStreaming()) {
+            hasStreaming = true;
+        }
+
+        skills.put(name, def);
+        return this;
+    }
+
+    /**
+     * Register a skill that receives a TaskContext for progress tracking.
+     */
+    public Agent skill(String name, SkillHandlerWithContext handler) {
+        return skill(name, null, handler);
+    }
+
+    /**
+     * Register a skill with configuration that receives a TaskContext.
+     */
+    public Agent skill(String name, SkillConfig config, SkillHandlerWithContext handler) {
+        final TaskStore store = this.taskStore != null ? this.taskStore : new InMemoryTaskStore();
+        SkillHandler wrappedHandler = params -> {
+            var task = store.create(name, params);
+            var context = new TaskContext(task);
+            return handler.handle(params, context);
+        };
+
+        var def = new SkillDefinition(
+            name,
+            config != null && config.description() != null ? config.description() : "Skill: " + name,
+            config != null && config.tags() != null ? config.tags() : List.of(),
+            wrappedHandler,
+            config != null ? config.streaming() : false,
+            true
         );
 
         if (def.isStreaming()) {
@@ -154,14 +199,14 @@ public class Agent {
             .description(description)
             .version(version)
             .url(agentUrl)
-            .protocolVersion("0.2.0")
+            .protocolVersion(PROTOCOL_VERSION)
             .capabilities(new AgentCapabilities.Builder()
                 .streaming(hasStreaming)
                 .pushNotifications(!completeHooks.isEmpty())
                 .stateTransitionHistory(false)
                 .build())
-            .defaultInputModes(List.of("text"))
-            .defaultOutputModes(List.of("text"))
+            .defaultInputModes(List.of("application/json"))
+            .defaultOutputModes(List.of("application/json"))
             .skills(skillList)
             .build();
     }
@@ -182,15 +227,15 @@ public class Agent {
         card.put("name", name);
         card.put("description", description);
         card.put("version", version);
-        card.put("protocolVersion", "0.3.0");
+        card.put("protocolVersion", PROTOCOL_VERSION);
         card.put("url", url != null ? url : "http://" + host + ":" + port);
 
         var capabilities = card.putObject("capabilities");
         capabilities.put("streaming", hasStreaming);
         capabilities.put("pushNotifications", !completeHooks.isEmpty());
 
-        card.putArray("defaultInputModes").add("text");
-        card.putArray("defaultOutputModes").add("text");
+        card.putArray("defaultInputModes").add("application/json");
+        card.putArray("defaultOutputModes").add("application/json");
 
         var skillsArray = card.putArray("skills");
         for (var skill : skills.values()) {
@@ -209,9 +254,27 @@ public class Agent {
     }
 
     /**
-     * Handle an incoming message (for standalone mode).
+     * Handle an incoming message with auth (public entry point for standalone mode).
      */
-    public Object handleMessage(JsonNode message) throws Exception {
+    public Object handleMessage(JsonNode message, Map<String, String> headers) throws Exception {
+        if (!(auth instanceof NoAuth)) {
+            var authRequest = new com.a2alite.auth.AuthRequest(headers);
+            var authResult = auth.authenticate(authRequest);
+            if (!authResult.authenticated()) {
+                throw new SecurityException(authResult.error() != null ? authResult.error() : "Authentication failed");
+            }
+        }
+        return handleMessageInternal(message);
+    }
+
+    /**
+     * Handle an incoming message (package-private, bypasses auth for testing).
+     */
+    Object handleMessage(JsonNode message) throws Exception {
+        return handleMessageInternal(message);
+    }
+
+    private Object handleMessageInternal(JsonNode message) throws Exception {
         // Extract text from message
         String text = "";
         var parts = message.path("parts");
@@ -255,12 +318,21 @@ public class Agent {
             handler = () -> middleware.apply(ctx, next);
         }
 
-        Object result = handler.call();
+        Object result;
+        try {
+            result = handler.call();
+        } catch (A2ALiteException e) {
+            if (errorHandler != null) {
+                return errorHandler.apply(e);
+            }
+            return e.toResponse();
+        }
 
         // Call completion hooks
         for (var hook : completeHooks) {
             try {
-                hook.accept(finalSkillName, result);
+                String hookSkillName = finalSkillName != null ? finalSkillName : "(unknown)";
+                hook.accept(hookSkillName, result);
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Completion hook error for skill '" + finalSkillName + "'", e);
             }
@@ -276,24 +348,18 @@ public class Agent {
         // Default to first skill only if there's exactly one
         if (skillName == null || skillName.isEmpty()) {
             if (skills.isEmpty()) {
-                return Map.of("error", "No skills registered");
+                throw new SkillNotFoundException("", List.of());
             }
             if (skills.size() == 1) {
                 skillName = skills.keySet().iterator().next();
             } else {
-                return Map.of(
-                    "error", "No skill specified. Use {\"skill\": \"name\", \"params\": {...}} format.",
-                    "availableSkills", skills.keySet()
-                );
+                throw new SkillNotFoundException("", new ArrayList<>(skills.keySet()));
             }
         }
 
         var skillDef = skills.get(skillName);
         if (skillDef == null) {
-            return Map.of(
-                "error", "Unknown skill: " + skillName,
-                "availableSkills", skills.keySet()
-            );
+            throw new SkillNotFoundException(skillName, new ArrayList<>(skills.keySet()));
         }
 
         return skillDef.handler().handle(params);
@@ -372,6 +438,28 @@ public class Agent {
             );
             postMethod.invoke(app, "/", messageHandler);
 
+            // OPTIONS preflight handler for CORS
+            if (corsOrigins != null && !corsOrigins.isEmpty()) {
+                var optionsMethod = javalinClass.getMethod("options", String.class, handlerClass);
+                var optionsHandler = java.lang.reflect.Proxy.newProxyInstance(
+                    handlerClass.getClassLoader(),
+                    new Class[]{handlerClass},
+                    (proxy, method, args) -> {
+                        if ("handle".equals(method.getName())) {
+                            var optCtx = args[0];
+                            var hdrMethod = optCtx.getClass().getMethod("header", String.class, String.class);
+                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
+                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Headers", "*");
+                            var statusMethod = optCtx.getClass().getMethod("status", int.class);
+                            statusMethod.invoke(optCtx, 204);
+                        }
+                        return null;
+                    }
+                );
+                optionsMethod.invoke(app, "/", optionsHandler);
+            }
+
             // Start server
             var displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
 
@@ -403,12 +491,16 @@ public class Agent {
             var startMethod = javalinClass.getMethod("start", String.class, int.class);
             startMethod.invoke(app, host, port);
 
-            // Register shutdown hook
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            // Register shutdown hook (remove old one first to prevent accumulation)
+            if (shutdownHookThread != null) {
+                Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
+            }
+            shutdownHookThread = new Thread(() -> {
                 for (var hook : shutdownHooks) {
                     hook.run();
                 }
-            }));
+            });
+            Runtime.getRuntime().addShutdownHook(shutdownHookThread);
 
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(
@@ -421,6 +513,14 @@ public class Agent {
     }
 
     private void handleRequest(Object ctx) throws Exception {
+        // Add CORS headers if configured
+        if (corsOrigins != null && !corsOrigins.isEmpty()) {
+            var headerMethod = ctx.getClass().getMethod("header", String.class, String.class);
+            headerMethod.invoke(ctx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
+            headerMethod.invoke(ctx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+            headerMethod.invoke(ctx, "Access-Control-Allow-Headers", "*");
+        }
+
         // Authenticate the request
         if (!(auth instanceof NoAuth)) {
             var headerMethod = ctx.getClass().getMethod("header", String.class);
@@ -453,10 +553,10 @@ public class Agent {
             }
         }
 
-        var bodyMethod = ctx.getClass().getMethod("body");
+        var bodyMethod = ctx.getClass().getMethod("bodyAsBytes");
         var jsonMethod = ctx.getClass().getMethod("json", Object.class);
 
-        var body = mapper.readTree((String) bodyMethod.invoke(ctx));
+        var body = mapper.readTree((byte[]) bodyMethod.invoke(ctx));
         var method = body.path("method").asText();
         var id = body.path("id").asText();
 
@@ -486,12 +586,66 @@ public class Agent {
         }
     }
 
+    /**
+     * Delegate a skill call to a remote agent.
+     *
+     * The target can be a full URL or a name registered in this agent's network.
+     */
+    public Object delegate(String target, String skill, Map<String, Object> params) throws Exception {
+        return delegate(target, skill, params, 30);
+    }
+
+    public Object delegate(String target, String skill, Map<String, Object> params, int timeoutSeconds) throws Exception {
+        String url = target;
+        if (network != null && !target.startsWith("http://") && !target.startsWith("https://")) {
+            var resolved = network.get(target);
+            if (resolved.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "Agent '" + target + "' not found in network. Available: " + network.list().keySet()
+                );
+            }
+            url = resolved.get();
+        }
+        if (network == null && !target.startsWith("http://") && !target.startsWith("https://")) {
+            throw new IllegalArgumentException("No network configured and target is not a URL: " + target);
+        }
+        return new AgentNetwork().callRemoteSkill(url, skill, params, timeoutSeconds);
+    }
+
+    /**
+     * Return skills as OpenAI-compatible tool schemas for use with LLM APIs.
+     *
+     * <pre>{@code
+     * var tools = agent.getToolSchemas();
+     * // tools is a List of Maps in OpenAI function-calling format
+     * }</pre>
+     *
+     * @return List of tool schema maps in OpenAI format.
+     */
+    public List<Map<String, Object>> getToolSchemas() {
+        var schemas = new ArrayList<Map<String, Object>>();
+        for (var skillDef : skills.values()) {
+            var function = new HashMap<String, Object>();
+            function.put("name", skillDef.name());
+            function.put("description", skillDef.description());
+            function.put("parameters", Map.of("type", "object", "properties", Map.of()));
+
+            var tool = new HashMap<String, Object>();
+            tool.put("type", "function");
+            tool.put("function", function);
+            schemas.add(tool);
+        }
+        return schemas;
+    }
+
     // Getters
     public String getName() { return name; }
     public String getDescription() { return description; }
     public String getVersion() { return version; }
     public AuthProvider getAuth() { return auth; }
     public Map<String, SkillDefinition> getSkills() { return Collections.unmodifiableMap(skills); }
+    public AgentNetwork getNetwork() { return network; }
+    public TaskStore getTaskStore() { return taskStore; }
 
     /**
      * Builder for Agent.
@@ -504,6 +658,9 @@ public class Agent {
         private AuthProvider auth;
         private List<String> corsOrigins;
         private boolean production = false;
+        private AgentNetwork network;
+        private TaskStore taskStore;
+        private String taskStoreName;
 
         public Builder name(String name) {
             this.name = name;
@@ -537,6 +694,21 @@ public class Agent {
 
         public Builder production(boolean production) {
             this.production = production;
+            return this;
+        }
+
+        public Builder network(AgentNetwork network) {
+            this.network = network;
+            return this;
+        }
+
+        public Builder taskStore(TaskStore taskStore) {
+            this.taskStore = taskStore;
+            return this;
+        }
+
+        public Builder taskStore(String name) {
+            this.taskStoreName = name;
             return this;
         }
 

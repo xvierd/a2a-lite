@@ -377,30 +377,6 @@ class Agent:
 
         # Build components
         display_host = "localhost" if host == "0.0.0.0" else host
-        agent_card = self.build_agent_card(display_host, port)
-        executor = LiteAgentExecutor(
-            skills=self._skills,
-            error_handler=self._error_handler,
-            middleware=self._middleware,
-            on_complete=self._on_complete,
-            auth_provider=self._auth,
-            task_store=self._task_store,
-            mcp_servers=self._mcp_servers,
-        )
-
-        # The SDK's InMemoryTaskStore handles protocol-level task lifecycle
-        # (task creation, state transitions per the A2A spec). This is separate
-        # from self._task_store which provides application-level tracking
-        # (progress updates, custom status) exposed via TaskContext to skills.
-        request_handler = DefaultRequestHandler(
-            agent_executor=executor,
-            task_store=InMemoryTaskStore(),
-        )
-
-        app_builder = A2AStarletteApplication(
-            agent_card=agent_card,
-            http_handler=request_handler,
-        )
 
         # Build display info
         skills_list = "\n".join(
@@ -450,7 +426,11 @@ class Agent:
                     hook()
 
         if self._on_startup:
-            asyncio.run(_run_startup())
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_until_complete(_run_startup())
+            except RuntimeError:
+                asyncio.run(_run_startup())
 
         # Production mode warning
         if self.production:
@@ -462,18 +442,7 @@ class Agent:
                 )
 
         # Build the ASGI app
-        app = app_builder.build()
-
-        # Add CORS middleware if configured
-        if self.cors_origins is not None:
-            from starlette.middleware.cors import CORSMiddleware
-
-            app.add_middleware(
-                CORSMiddleware,
-                allow_origins=self.cors_origins,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
+        app = self._build_app(display_host, port)
 
         # Start server
         try:
@@ -493,7 +462,11 @@ class Agent:
                         hook()
 
             if self._on_shutdown:
-                asyncio.run(_run_shutdown())
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(_run_shutdown())
+                except RuntimeError:
+                    asyncio.run(_run_shutdown())
 
     async def call_remote(
         self,
@@ -528,9 +501,17 @@ class Agent:
             response = await client.send_message(request)
             return response.model_dump()
 
-    def get_app(self):
-        """Get the Starlette application without running it."""
-        agent_card = self.build_agent_card()
+    def _build_app(self, host: str = "localhost", port: int = 8787):
+        """Build the Starlette ASGI application.
+
+        Args:
+            host: Hostname for the agent card URL.
+            port: Port for the agent card URL.
+
+        Returns:
+            The configured Starlette application.
+        """
+        agent_card = self.build_agent_card(host, port)
         executor = LiteAgentExecutor(
             skills=self._skills,
             error_handler=self._error_handler,
@@ -566,3 +547,84 @@ class Agent:
             )
 
         return app
+
+    def get_app(self):
+        """Get the Starlette application without running it."""
+        return self._build_app()
+
+    def get_tool_schemas(self, format: str = "openai") -> list[dict]:
+        """
+        Return skills as tool schemas for use with LLM APIs.
+
+        Filters out injected parameters (TaskContext, AuthResult, MCPClient)
+        that are not part of the user-facing API.
+
+        Args:
+            format: Schema format. Currently only "openai" is supported.
+                Returns OpenAI-compatible tool schemas.
+
+        Returns:
+            List of tool schema dicts in the requested format.
+
+        Example (with OpenAI):
+            tools = agent.get_tool_schemas()
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[...],
+                tools=tools,
+            )
+
+        Example (with Anthropic):
+            tools = agent.get_tool_schemas()  # same format works
+            response = anthropic.messages.create(
+                model="claude-sonnet-4-6",
+                messages=[...],
+                tools=tools,
+            )
+        """
+        if format != "openai":
+            raise ValueError(f"Unsupported schema format: {format!r}. Use 'openai'.")
+
+        schemas = []
+        for skill_def in self._skills.values():
+            # Build the parameters schema, filtering out injected params
+            input_schema = dict(skill_def.input_schema) if skill_def.input_schema else {}
+
+            # Identify injected parameter names to exclude from the public schema
+            injected_params = set()
+            if skill_def.task_context_param:
+                injected_params.add(skill_def.task_context_param)
+            if skill_def.auth_param:
+                injected_params.add(skill_def.auth_param)
+            if skill_def.mcp_param:
+                injected_params.add(skill_def.mcp_param)
+
+            # Strip injected params from the JSON schema properties
+            if injected_params and "properties" in input_schema:
+                props = {
+                    k: v for k, v in input_schema["properties"].items()
+                    if k not in injected_params
+                }
+                input_schema = dict(input_schema)
+                input_schema["properties"] = props
+                # Also remove from required list if present
+                if "required" in input_schema:
+                    input_schema["required"] = [
+                        r for r in input_schema["required"]
+                        if r not in injected_params
+                    ]
+
+            # If no schema was extracted, provide a minimal one
+            if not input_schema:
+                input_schema = {"type": "object", "properties": {}}
+
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": skill_def.name,
+                    "description": skill_def.description,
+                    "parameters": input_schema,
+                },
+            })
+
+        return schemas

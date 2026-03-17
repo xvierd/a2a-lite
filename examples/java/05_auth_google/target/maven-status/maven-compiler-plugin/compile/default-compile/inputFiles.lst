@@ -1,0 +1,10 @@
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/security/SecuritySchemes.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/model/UserInfo.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/model/AdminResponse.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/SecureAgentServer.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/skills/GetUserInfoSkill.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/security/ApiKeyAuthenticator.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/skills/GetSecretSkill.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/model/SecretResponse.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/security/BearerTokenAuthenticator.java
+/Users/xavier.gutierrez/projects/a2a-lite/examples/java/05_auth_google/src/main/java/com/example/auth/skills/AdminOnlySkill.java

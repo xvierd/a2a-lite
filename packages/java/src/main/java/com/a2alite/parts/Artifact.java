@@ -32,15 +32,22 @@ public class Artifact {
         this.description = description;
     }
 
+    public Artifact(List<Object> parts) {
+        this.parts.addAll(parts);
+    }
+
+    public Artifact setName(String name) { this.name = name; return this; }
+    public Artifact setDescription(String description) { this.description = description; return this; }
+    public Artifact setMetadata(Map<String, Object> metadata) { this.metadata = metadata; return this; }
+
+    public Artifact addPart(TextPart part) { parts.add(part); return this; }
+    public Artifact addPart(FilePart part) { parts.add(part); return this; }
+    public Artifact addPart(DataPart part) { parts.add(part); return this; }
+
     public String getName() { return name; }
     public String getDescription() { return description; }
     public List<Object> getParts() { return parts; }
     public Map<String, Object> getMetadata() { return metadata; }
-
-    public Artifact setMetadata(Map<String, Object> metadata) {
-        this.metadata = metadata;
-        return this;
-    }
 
     /**
      * Add a text part.
@@ -71,12 +78,14 @@ public class Artifact {
      */
     public Map<String, Object> toA2A() {
         var result = new LinkedHashMap<String, Object>();
-        result.put("name", name);
-        result.put("description", description);
+        if (name != null) result.put("name", name);
+        if (description != null) result.put("description", description);
 
         var a2aParts = new ArrayList<>();
         for (var part : parts) {
-            if (part instanceof FilePart fp) {
+            if (part instanceof TextPart tp) {
+                a2aParts.add(tp.toDict());
+            } else if (part instanceof FilePart fp) {
                 a2aParts.add(fp.toA2A());
             } else if (part instanceof DataPart dp) {
                 a2aParts.add(dp.toA2A());
@@ -85,7 +94,14 @@ public class Artifact {
             }
         }
         result.put("parts", a2aParts);
-        result.put("metadata", metadata);
+        if (metadata != null) result.put("metadata", metadata);
         return result;
+    }
+
+    /**
+     * Convert to dictionary format (alias for toA2A).
+     */
+    public Map<String, Object> toDict() {
+        return toA2A();
     }
 }

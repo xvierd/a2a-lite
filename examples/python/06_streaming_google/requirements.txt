@@ -1,0 +1,9 @@
+# Google A2A Python SDK (official) with HTTP server support
+a2a-sdk[http-server]>=0.1.0
+
+# Web framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+
+# Async support
+anyio>=4.0.0

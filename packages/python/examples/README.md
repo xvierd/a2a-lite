@@ -22,6 +22,7 @@ Progressive examples demonstrating A2A Lite features from simple to advanced.
 | 14 | [14_multi_agent_network.py](14_multi_agent_network.py) | AgentNetwork orchestration | Network, delegate |
 | 15 | [15_llm_openai.py](15_llm_openai.py) | OpenAI-powered agent with streaming | LLM decorators |
 | 16 | [16_llm_anthropic.py](16_llm_anthropic.py) | Anthropic-powered agent | LLM decorators |
+| 17 | [17_llm_bedrock.py](17_llm_bedrock.py) | AWS Bedrock-powered agent | LLM decorators, Bedrock |
 
 ## Running Examples
 
@@ -50,4 +51,7 @@ pip install a2a-lite[openai]
 
 # For Anthropic (example 16)
 pip install a2a-lite[anthropic]
+
+# For Bedrock (example 17)
+pip install a2a-lite[bedrock]
 ```

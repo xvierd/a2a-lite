@@ -1,0 +1,2 @@
+# A2A Lite with auth support
+a2a-lite>=0.2.0

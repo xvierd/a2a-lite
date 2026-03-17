@@ -1,0 +1,8 @@
+# Google A2A Python SDK with HTTP server support
+a2a-sdk[http-server]>=0.3.0
+
+# Web framework
+uvicorn>=0.23.0
+
+# For secure key storage
+python-jose[cryptography]>=3.3.0

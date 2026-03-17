@@ -1,0 +1,51 @@
+{
+  "name": "SecureAgent",
+  "description": "A secure agent requiring API Key or Bearer token authentication",
+  "version": "1.0.0",
+  "url": "http://localhost:8790/",
+  "protocol_version": "1.0",
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "capabilities": {
+    "streaming": false,
+    "push_notifications": false,
+    "state_transition_history": false
+  },
+  "skills": [
+    {
+      "id": "get_secret",
+      "name": "get_secret",
+      "description": "Get secret data (requires authentication)",
+      "tags": ["secure", "secret"]
+    },
+    {
+      "id": "get_user_info",
+      "name": "get_user_info",
+      "description": "Get current user authentication info",
+      "tags": ["auth", "user"]
+    },
+    {
+      "id": "admin_only",
+      "name": "admin_only",
+      "description": "Admin-only operation (requires admin permission)",
+      "tags": ["admin", "restricted"]
+    }
+  ],
+  "securitySchemes": {
+    "apiKeyAuth": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-API-Key",
+      "description": "API Key authentication via X-API-Key header"
+    },
+    "bearerAuth": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Bearer token authentication"
+    }
+  },
+  "security": [
+    {"apiKeyAuth": []},
+    {"bearerAuth": []}
+  ]
+}

@@ -1,16 +1,18 @@
 """
 LLM provider integration decorators for A2A Lite.
 
-Provides decorators that wrap skills to call LLM APIs (OpenAI, Anthropic, Ollama).
+Provides decorators that wrap skills to call LLM APIs
+(OpenAI, Anthropic, AWS Bedrock, Ollama).
 Each uses optional import patterns — the LLM library is only required at runtime.
 
 Requires:
     pip install a2a-lite[openai]     # for openai_skill
     pip install a2a-lite[anthropic]  # for anthropic_skill
+    pip install a2a-lite[bedrock]    # for bedrock_skill
     ollama_skill uses httpx (already a core dep)
 
 Example:
-    from a2a_lite.llm import openai_skill, anthropic_skill
+    from a2a_lite.llm import openai_skill, anthropic_skill, bedrock_skill
 
     @agent.skill("chat", streaming=True)
     @openai_skill(model="gpt-4o-mini", system_prompt="You are helpful.")
@@ -21,10 +23,16 @@ Example:
     @anthropic_skill(model="claude-sonnet-4-5-20250929")
     async def analyze(text: str) -> str:
         ...  # handled by decorator
+
+    @agent.skill("bedrock_chat")
+    @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
+    async def bedrock_chat(message: str) -> str:
+        ...  # handled by decorator
 """
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import Any, Callable, Optional
 
@@ -308,6 +316,151 @@ def ollama_skill(
                     response.raise_for_status()
                     data = response.json()
                     return data.get("message", {}).get("content", "")
+
+            return wrapper
+
+    return decorator
+
+
+def bedrock_skill(
+    model: str = "anthropic.claude-3-haiku-20240307-v1:0",
+    region_name: str = "us-east-1",
+    system_prompt: str = "You are a helpful assistant.",
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+    streaming: bool = False,
+    **extra_kwargs: Any,
+) -> Callable:
+    """Decorator that wraps a skill to call the AWS Bedrock Converse API.
+
+    Works with any model available on Bedrock (Claude, Llama, Mistral, Nova,
+    etc.) via the model-agnostic Converse API.
+
+    Args:
+        model: Bedrock model identifier.
+        region_name: AWS region for the Bedrock endpoint.
+        system_prompt: System message for the conversation.
+        temperature: Sampling temperature.
+        max_tokens: Maximum tokens in the response.
+        streaming: Whether to stream tokens.
+        **extra_kwargs: Additional kwargs forwarded to ``boto3.client()``.
+
+    Returns:
+        A decorator that replaces the skill handler.
+
+    Raises:
+        ImportError: If the ``boto3`` package is not installed.
+
+    Example:
+        @agent.skill("chat")
+        @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
+        async def chat(message: str) -> str:
+            ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        if streaming:
+
+            @functools.wraps(func)
+            async def streaming_wrapper(**kwargs: Any):  # type: ignore[misc]
+                try:
+                    import boto3
+                except ImportError:
+                    raise ImportError(
+                        "Bedrock integration requires the 'boto3' package. "
+                        "Install it with: pip install a2a-lite[bedrock]"
+                    )
+
+                user_message = _extract_user_message(kwargs)
+                client = boto3.client(
+                    "bedrock-runtime",
+                    region_name=region_name,
+                    **extra_kwargs,
+                )
+
+                def _invoke_stream():
+                    return client.converse_stream(
+                        modelId=model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [{"text": user_message}],
+                            }
+                        ],
+                        system=[{"text": system_prompt}],
+                        inferenceConfig={
+                            "maxTokens": max_tokens,
+                            "temperature": temperature,
+                        },
+                    )
+
+                loop = asyncio.get_event_loop()
+                queue: asyncio.Queue[str | None] = asyncio.Queue()
+                error_holder: list[BaseException] = []
+
+                def _run():
+                    try:
+                        response = _invoke_stream()
+                        stream = response.get("stream", [])
+                        for event in stream:
+                            delta = event.get("contentBlockDelta", {}).get("delta", {})
+                            text = delta.get("text", "")
+                            if text:
+                                loop.call_soon_threadsafe(queue.put_nowait, text)
+                    except Exception as exc:
+                        error_holder.append(exc)
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                loop.run_in_executor(None, _run)
+
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        if error_holder:
+                            raise error_holder[0]
+                        break
+                    yield item
+
+            return streaming_wrapper
+        else:
+
+            @functools.wraps(func)
+            async def wrapper(**kwargs: Any) -> str:
+                try:
+                    import boto3
+                except ImportError:
+                    raise ImportError(
+                        "Bedrock integration requires the 'boto3' package. "
+                        "Install it with: pip install a2a-lite[bedrock]"
+                    )
+
+                user_message = _extract_user_message(kwargs)
+                client = boto3.client(
+                    "bedrock-runtime",
+                    region_name=region_name,
+                    **extra_kwargs,
+                )
+
+                def _invoke():
+                    return client.converse(
+                        modelId=model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [{"text": user_message}],
+                            }
+                        ],
+                        system=[{"text": system_prompt}],
+                        inferenceConfig={
+                            "maxTokens": max_tokens,
+                            "temperature": temperature,
+                        },
+                    )
+
+                response = await asyncio.to_thread(_invoke)
+                content = response["output"]["message"]["content"]
+                return "".join(block["text"] for block in content if "text" in block)
 
             return wrapper
 

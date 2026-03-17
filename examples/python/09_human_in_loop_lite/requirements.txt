@@ -1,0 +1,2 @@
+# A2A Lite with human-in-the-loop support
+a2a-lite>=0.2.0

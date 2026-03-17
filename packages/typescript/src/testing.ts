@@ -218,3 +218,11 @@ export class TestClientError extends Error {
     this.name = 'TestClientError';
   }
 }
+
+/**
+ * Async-explicit test client — same as AgentTestClient.
+ *
+ * Provided for API parity with the Python SDK's AsyncAgentTestClient.
+ * In TypeScript everything is already async, so this is an alias.
+ */
+export class AsyncAgentTestClient extends AgentTestClient {}

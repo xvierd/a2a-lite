@@ -36,6 +36,8 @@ import type {
 } from './types.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
+import type { AgentNetwork } from './orchestration.js';
+import { callRemoteSkill } from './orchestration.js';
 
 import { MCPClient } from './mcp/index.js';
 
@@ -53,10 +55,12 @@ export class Agent {
   private onCompleteHooks: Array<(skill: string, result: unknown) => Promise<void> | void> = [];
   private taskStore?: TaskStore;
   private auth: { authenticate: Function; getScheme: Function };
+  private network?: AgentNetwork;
   private hasStreaming = false;
   private corsOrigins?: string[];
   private production: boolean;
   private mcpServers: string[] = [];
+  private mcpServerUrls: string[] = [];
 
   constructor(config: AgentConfig) {
     this.name = config.name;
@@ -73,6 +77,9 @@ export class Agent {
     } else if (config.taskStore) {
       this.taskStore = config.taskStore;
     }
+
+    // Setup network
+    this.network = config.network;
 
     // Setup auth
     this.auth = config.auth ?? new NoAuth();
@@ -118,20 +125,20 @@ export class Agent {
 
     // Auto-detect TaskContext parameter by analyzing the handler
     const taskContextInfo = this.detectTaskContextParameter(handler);
-    const needsTaskContext = config.taskContext !== undefined 
-      ? !!config.taskContext 
+    const needsTaskContext = config.taskContext !== undefined
+      ? !!config.taskContext
       : taskContextInfo.needsTaskContext;
-    const taskContextParam = typeof config.taskContext === 'string' 
-      ? config.taskContext 
+    const taskContextParam = typeof config.taskContext === 'string'
+      ? config.taskContext
       : taskContextInfo.paramName;
 
     // Auto-detect MCPClient parameter by analyzing the handler
     const mcpInfo = this.detectMCPClientParameter(handler);
-    const needsMcp = config.mcp !== undefined 
-      ? !!config.mcp 
+    const needsMcp = config.mcp !== undefined
+      ? !!config.mcp
       : mcpInfo.needsMcp;
-    const mcpParam = typeof config.mcp === 'string' 
-      ? config.mcp 
+    const mcpParam = typeof config.mcp === 'string'
+      ? config.mcp
       : mcpInfo.paramName;
 
     const needsInteraction = config.interaction ?? false;
@@ -169,6 +176,20 @@ export class Agent {
   }
 
   /**
+   * Register an MCP server for tool access in skills.
+   *
+   * Skills can access MCP tools via the MCPClient passed in context.
+   *
+   * Requires: npm install @modelcontextprotocol/sdk
+   *
+   * @param url - The MCP server URL (e.g., "http://localhost:5001/sse")
+   */
+  addMcpServer(url: string): this {
+    this.mcpServerUrls.push(url);
+    return this;
+  }
+
+  /**
    * Set error handler.
    */
   onError(handler: (error: Error) => Promise<unknown>): this {
@@ -198,6 +219,35 @@ export class Agent {
   onComplete(hook: (skill: string, result: unknown) => Promise<void> | void): this {
     this.onCompleteHooks.push(hook);
     return this;
+  }
+
+  /**
+   * Delegate a skill call to a remote agent.
+   *
+   * The target can be a full URL or a name registered in this agent's network.
+   *
+   *   const result = await agent.delegate("http://weather:8787", "forecast", { city: "NYC" });
+   *
+   *   // Or with a network:
+   *   const result = await agent.delegate("weather", "forecast", { city: "NYC" });
+   */
+  async delegate(
+    target: string,
+    skill: string,
+    params: Record<string, unknown> = {},
+    timeout = 30000
+  ): Promise<unknown> {
+    let url = target;
+    if (this.network && !target.startsWith('http://') && !target.startsWith('https://')) {
+      const resolved = this.network.get(target);
+      if (resolved === undefined) {
+        throw new Error(
+          `Agent '${target}' not found in network. Available: ${Object.keys(this.network.list()).join(', ')}`
+        );
+      }
+      url = resolved;
+    }
+    return callRemoteSkill(url, skill, params, timeout);
   }
 
   /**
@@ -392,6 +442,34 @@ ${Array.from(this.skills.values())
   }
 
   /**
+   * Return skills as OpenAI-compatible tool schemas for use with LLM APIs.
+   *
+   * Usage with OpenAI:
+   *   const tools = agent.getToolSchemas();
+   *   const response = await openai.chat.completions.create({ model: "gpt-4o", messages, tools });
+   *
+   * Usage with Anthropic (same format works):
+   *   const tools = agent.getToolSchemas();
+   *   const response = await anthropic.messages.create({ model: "...", messages, tools });
+   */
+  getToolSchemas(format: 'openai' = 'openai'): Array<Record<string, unknown>> {
+    if (format !== 'openai') {
+      throw new Error(`Unsupported schema format: '${format}'. Use 'openai'.`);
+    }
+
+    return Array.from(this.skills.values()).map((skill) => ({
+      type: 'function',
+      function: {
+        name: skill.name,
+        description: skill.description,
+        parameters: Object.keys(skill.inputSchema).length > 0
+          ? skill.inputSchema
+          : { type: 'object', properties: {} },
+      },
+    }));
+  }
+
+  /**
    * Check if a function is a generator.
    */
   private isGeneratorFunction(fn: Function): boolean {
@@ -405,31 +483,31 @@ ${Array.from(this.skills.values())
    * Detect if the handler expects a TaskContext parameter.
    * Analyzes the function's parameter names to identify common TaskContext parameter names.
    */
-  private detectTaskContextParameter(handler: SkillHandler): { 
-    needsTaskContext: boolean; 
-    paramName?: string 
+  private detectTaskContextParameter(handler: SkillHandler): {
+    needsTaskContext: boolean;
+    paramName?: string
   } {
     // Get the function's source code to analyze parameter names
     const fnString = handler.toString();
-    
+
     // Match destructured parameter patterns like: async ({ data, task }) => ...
     // or: async ({ data, ctx }) => ...
     const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(task|ctx|context)\b[^}]*\}\s*\)/);
-    
+
     if (destructuredMatch) {
       const paramName = destructuredMatch[1];
       return { needsTaskContext: true, paramName };
     }
-    
+
     // Match regular parameter patterns like: async (data, task) => ...
     // But this is less common for TaskContext usage
     const regularMatch = fnString.match(/\(\s*(?:[^)]*,\s*)*\b(task|ctx|context)\b\s*\)/);
-    
+
     if (regularMatch) {
       const paramName = regularMatch[1];
       return { needsTaskContext: true, paramName };
     }
-    
+
     return { needsTaskContext: false };
   }
 
@@ -437,21 +515,21 @@ ${Array.from(this.skills.values())
    * Detect if the handler expects an MCPClient parameter.
    * Analyzes the function's parameter names to identify common MCP parameter names.
    */
-  private detectMCPClientParameter(handler: SkillHandler): { 
-    needsMcp: boolean; 
-    paramName?: string 
+  private detectMCPClientParameter(handler: SkillHandler): {
+    needsMcp: boolean;
+    paramName?: string
   } {
     // Get the function's source code to analyze parameter names
     const fnString = handler.toString();
-    
+
     // Match destructured parameter patterns like: async ({ query, mcp }) => ...
     const destructuredMatch = fnString.match(/\(\s*\{\s*[^}]*\b(mcp|mcpClient)\b[^}]*\}\s*\)/);
-    
+
     if (destructuredMatch) {
       const paramName = destructuredMatch[1];
       return { needsMcp: true, paramName };
     }
-    
+
     return { needsMcp: false };
   }
 }

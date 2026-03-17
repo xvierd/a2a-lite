@@ -222,6 +222,13 @@ export class CompositeAuth implements AuthProvider {
   }
 }
 
+export interface OAuth2Config {
+  issuer: string;
+  audience: string;
+  jwksUri?: string;
+  algorithms?: string[];
+}
+
 /**
  * OAuth2/OIDC authentication.
  *
@@ -248,12 +255,7 @@ export class OAuth2Auth implements AuthProvider {
   readonly algorithms: string[];
   private _jwksClient: unknown = null;
 
-  constructor(options: {
-    issuer: string;
-    audience: string;
-    jwksUri?: string;
-    algorithms?: string[];
-  }) {
+  constructor(options: OAuth2Config) {
     this.issuer = options.issuer;
     this.audience = options.audience;
     this.jwksUri = options.jwksUri ?? `${options.issuer}/.well-known/jwks.json`;
@@ -275,10 +277,14 @@ export class OAuth2Auth implements AuthProvider {
     try {
       // Try to use jose library (recommended)
       // @ts-expect-error jose is an optional peer dependency
-      const jose = await import('jose');
-      
+      const jose = await import('jose').catch(() => {
+        throw new Error(
+          "OAuth2Auth requires the 'jose' package. Install it with: npm install jose"
+        );
+      });
+
       const { jwtVerify, createRemoteJWKSet } = jose;
-      
+
       const jwks = createRemoteJWKSet(new URL(this.jwksUri));
       const { payload } = await jwtVerify(token, jwks, {
         issuer: this.issuer,
@@ -296,18 +302,10 @@ export class OAuth2Auth implements AuthProvider {
         scopes,
       };
     } catch (error) {
-      // jose not installed or validation failed
-      if ((error as Error).message?.includes('Cannot find module') || 
-          (error as Error).message?.includes('jose')) {
-        return {
-          authenticated: false,
-          error: 'OAuth2 requires jose package. Install with: npm install jose',
-        };
-      }
-
+      const msg = (error as Error).message;
       return {
         authenticated: false,
-        error: `Token validation failed: ${(error as Error).message}`,
+        error: msg.includes('jose') ? msg : `Token validation failed: ${msg}`,
       };
     }
   }

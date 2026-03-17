@@ -1,0 +1,2 @@
+# A2A Lite - Simplified wrapper around Google A2A SDK
+a2a-lite>=0.2.0

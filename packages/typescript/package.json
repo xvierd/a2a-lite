@@ -12,12 +12,15 @@
       "require": "./dist/index.cjs"
     }
   },
+  "bin": {
+    "a2a-lite": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "build": "tsup src/index.ts src/cli.ts --format esm,cjs --dts",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -43,11 +46,31 @@
     "uuid": "^11.1.0"
   },
   "peerDependencies": {
-    "express": "^4.21.2 || ^5.1.0"
+    "express": "^4.21.2 || ^5.1.0",
+    "openai": ">=4.0.0",
+    "@anthropic-ai/sdk": ">=0.20.0",
+    "@aws-sdk/client-bedrock-runtime": ">=3.0.0",
+    "@modelcontextprotocol/sdk": ">=1.0.0",
+    "jose": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "express": {
       "optional": false
+    },
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-runtime": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "jose": {
+      "optional": true
     }
   },
   "devDependencies": {

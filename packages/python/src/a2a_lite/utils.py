@@ -2,6 +2,7 @@
 Helper functions for A2A Lite.
 """
 
+import dataclasses
 import logging
 import typing
 from typing import Any, Dict, Type, get_origin, get_args, Union
@@ -93,8 +94,8 @@ def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
         for field_name, field_info in python_type.__dataclass_fields__.items():
             properties[field_name] = type_to_json_schema(field_info.type)
             if (
-                field_info.default is inspect.Parameter.empty
-                and field_info.default_factory is inspect.Parameter.empty
+                field_info.default is dataclasses.MISSING
+                and field_info.default_factory is dataclasses.MISSING
             ):
                 required.append(field_name)
         return {

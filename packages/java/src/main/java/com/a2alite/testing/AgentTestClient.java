@@ -4,6 +4,7 @@ import com.a2alite.Agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +39,7 @@ public class AgentTestClient {
         textPart.put("kind", "text");
         textPart.put("text", mapper.writeValueAsString(message));
 
-        Object data = agent.handleMessage(messageWrapper);
+        Object data = agent.handleMessage(messageWrapper, Collections.emptyMap());
         String text = data instanceof String ? (String) data : mapper.writeValueAsString(data);
         return new TestResult(data, text);
     }

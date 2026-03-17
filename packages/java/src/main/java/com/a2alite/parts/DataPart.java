@@ -49,4 +49,14 @@ public class DataPart {
         result.put("data", data);
         return result;
     }
+
+    /**
+     * Convert to dictionary format (alias for toA2A).
+     */
+    public Map<String, Object> toDict() {
+        return toA2A();
+    }
+
+    @Override
+    public String toString() { return "DataPart(data=" + data + ")"; }
 }

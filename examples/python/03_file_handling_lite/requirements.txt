@@ -1,0 +1,2 @@
+# A2A Lite with file support
+a2a-lite>=0.2.0

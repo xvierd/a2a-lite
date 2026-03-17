@@ -7,6 +7,7 @@ A2A Lite provides decorators that wrap skills to call LLM APIs. The actual API c
 ```bash
 pip install a2a-lite[openai]     # For OpenAI
 pip install a2a-lite[anthropic]  # For Anthropic
+pip install a2a-lite[bedrock]    # For AWS Bedrock
 # Ollama uses httpx (already included)
 ```
 
@@ -74,6 +75,48 @@ async def chat(message: str) -> str:
 | `max_tokens` | `1024` | Max response tokens |
 | `streaming` | `False` | Stream tokens |
 
+## AWS Bedrock
+
+Works with any model available on Bedrock (Claude, Llama, Mistral, Nova, etc.) via the model-agnostic Converse API. Requires AWS credentials configured (environment variables, `~/.aws/credentials`, or IAM role).
+
+### Basic Usage
+
+```python
+from a2a_lite.llm import bedrock_skill
+
+@agent.skill("chat")
+@bedrock_skill(
+    model="anthropic.claude-3-haiku-20240307-v1:0",
+    region_name="us-east-1",
+    system_prompt="You are helpful.",
+)
+async def chat(message: str) -> str:
+    ...  # Handled by decorator
+```
+
+### Streaming
+
+```python
+@agent.skill("chat", streaming=True)
+@bedrock_skill(
+    model="anthropic.claude-3-haiku-20240307-v1:0",
+    streaming=True,
+)
+async def chat(message: str) -> str:
+    ...  # Streams tokens automatically
+```
+
+### Parameters
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `model` | `"anthropic.claude-3-haiku-20240307-v1:0"` | Bedrock model ID |
+| `region_name` | `"us-east-1"` | AWS region |
+| `system_prompt` | `"You are a helpful assistant."` | System message |
+| `temperature` | `0.7` | Sampling temperature |
+| `max_tokens` | `1024` | Max response tokens |
+| `streaming` | `False` | Stream tokens |
+
 ## Ollama (Local)
 
 No extra dependencies needed — uses httpx.
@@ -105,3 +148,4 @@ The decorators look for the user's input in skill parameters by checking these k
 
 - [`examples/15_llm_openai.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/15_llm_openai.py) — OpenAI with streaming
 - [`examples/16_llm_anthropic.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/16_llm_anthropic.py) — Anthropic integration
+- [`examples/17_llm_bedrock.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/17_llm_bedrock.py) — AWS Bedrock integration

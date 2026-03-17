@@ -1,0 +1,44 @@
+{
+  "name": "CalculatorAgent",
+  "description": "A calculator agent with arithmetic operations",
+  "url": "http://localhost:8788/",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["text", "text/plain", "application/json"],
+  "defaultOutputModes": ["text", "text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "add",
+      "name": "Addition",
+      "description": "Add two numbers together",
+      "tags": ["math", "arithmetic", "addition"]
+    },
+    {
+      "id": "subtract",
+      "name": "Subtraction",
+      "description": "Subtract one number from another",
+      "tags": ["math", "arithmetic", "subtraction"]
+    },
+    {
+      "id": "multiply",
+      "name": "Multiplication",
+      "description": "Multiply two numbers together",
+      "tags": ["math", "arithmetic", "multiplication"]
+    },
+    {
+      "id": "divide",
+      "name": "Division",
+      "description": "Divide one number by another",
+      "tags": ["math", "arithmetic", "division"]
+    },
+    {
+      "id": "power",
+      "name": "Power",
+      "description": "Raise a number to a power",
+      "tags": ["math", "arithmetic", "exponentiation"]
+    }
+  ]
+}

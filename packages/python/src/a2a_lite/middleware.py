@@ -181,21 +181,23 @@ def rate_limit_middleware(requests_per_minute: int = 60):
     from collections import deque
 
     request_times = deque()
+    lock = asyncio.Lock()
 
     async def middleware(ctx: MiddlewareContext, next):
-        now = time.time()
-        minute_ago = now - 60
+        async with lock:
+            now = time.time()
+            minute_ago = now - 60
 
-        # Remove old requests
-        while request_times and request_times[0] < minute_ago:
-            request_times.popleft()
+            # Remove old requests
+            while request_times and request_times[0] < minute_ago:
+                request_times.popleft()
 
-        if len(request_times) >= requests_per_minute:
-            raise RateLimitExceeded(
-                f"Rate limit exceeded: {requests_per_minute} requests per minute"
-            )
+            if len(request_times) >= requests_per_minute:
+                raise RateLimitExceeded(
+                    f"Rate limit exceeded: {requests_per_minute} requests per minute"
+                )
 
-        request_times.append(now)
+            request_times.append(now)
         return await next()
 
     return middleware

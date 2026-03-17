@@ -1,6 +1,8 @@
 package com.a2alite;
 
 import com.a2alite.auth.AuthProvider;
+import com.a2alite.errors.A2ALiteException;
+import com.a2alite.errors.SkillNotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.a2a.server.agentexecution.AgentExecutor;
 import io.a2a.server.agentexecution.RequestContext;
@@ -8,6 +10,7 @@ import io.a2a.server.events.EventQueue;
 import io.a2a.server.tasks.TaskUpdater;
 import io.a2a.spec.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,8 +52,10 @@ public class LiteAgentExecutor implements AgentExecutor {
             // Start the task if new
             if (context.getTask() == null) {
                 updater.submit();
+                updater.startWork();
+            } else {
+                updater.startWork();
             }
-            updater.startWork();
 
             // Extract message text
             String text = extractTextFromMessage(context.getMessage());
@@ -119,10 +124,13 @@ public class LiteAgentExecutor implements AgentExecutor {
         } catch (Exception e) {
             // Send error response
             try {
-                String errorJson = mapper.writeValueAsString(Map.of(
-                    "error", e.getMessage(),
-                    "type", e.getClass().getSimpleName()
-                ));
+                Map<String, Object> errorResult;
+                if (e instanceof A2ALiteException a2aErr) {
+                    errorResult = a2aErr.toResponse();
+                } else {
+                    errorResult = Map.of("error", e.getMessage(), "type", e.getClass().getSimpleName());
+                }
+                String errorJson = mapper.writeValueAsString(errorResult);
                 TextPart errorPart = new TextPart(errorJson, null);
                 updater.addArtifact(List.of(errorPart), null, null, null);
                 updater.fail();
@@ -134,10 +142,10 @@ public class LiteAgentExecutor implements AgentExecutor {
 
     @Override
     public void cancel(RequestContext context, EventQueue eventQueue) throws JSONRPCError {
-        Task task = context.getTask();
+        io.a2a.spec.Task task = context.getTask();
 
-        if (task != null && (task.getStatus().state() == TaskState.CANCELED ||
-                           task.getStatus().state() == TaskState.COMPLETED)) {
+        if (task != null && (task.getStatus().state() == io.a2a.spec.TaskState.CANCELED ||
+                           task.getStatus().state() == io.a2a.spec.TaskState.COMPLETED)) {
             throw new TaskNotCancelableError();
         }
 
@@ -149,24 +157,18 @@ public class LiteAgentExecutor implements AgentExecutor {
         // Default to first skill only if there's exactly one
         if (skillName == null || skillName.isEmpty()) {
             if (skills.isEmpty()) {
-                return Map.of("error", "No skills registered");
+                throw new SkillNotFoundException("", List.of());
             }
             if (skills.size() == 1) {
                 skillName = skills.keySet().iterator().next();
             } else {
-                return Map.of(
-                    "error", "No skill specified. Use {\"skill\": \"name\", \"params\": {...}} format.",
-                    "availableSkills", skills.keySet()
-                );
+                throw new SkillNotFoundException("", new ArrayList<>(skills.keySet()));
             }
         }
 
         var skillDef = skills.get(skillName);
         if (skillDef == null) {
-            return Map.of(
-                "error", "Unknown skill: " + skillName,
-                "availableSkills", skills.keySet()
-            );
+            throw new SkillNotFoundException(skillName, new ArrayList<>(skills.keySet()));
         }
 
         return skillDef.handler().handle(params);

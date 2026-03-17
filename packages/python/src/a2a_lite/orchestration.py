@@ -211,7 +211,11 @@ def _extract_result(response: Dict[str, Any]) -> Any:
         The parsed result value (dict, str, etc.).
     """
     if "error" in response:
-        return response["error"]
+        from .errors import RemoteAgentError
+
+        error = response["error"]
+        message = error if isinstance(error, str) else str(error)
+        raise RemoteAgentError(message, response)
 
     result = response.get("result", {})
     parts = result.get("parts", [])

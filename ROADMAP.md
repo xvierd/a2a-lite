@@ -22,29 +22,22 @@
 
 ---
 
+## ✅ Recently Shipped
+
+- [x] **AgentNetwork + delegate()** — multi-agent orchestration (Python, TypeScript, Java)
+- [x] **LLM skills** — OpenAI, Anthropic, Ollama, AWS Bedrock (Python, TypeScript, Java)
+- [x] **Router** — mount multiple agents under one server (Python, TypeScript, Java)
+- [x] **get_tool_schemas()** — export skill definitions as LLM tool schemas (Python, TypeScript, Java)
+- [x] **OAuth2Auth** — JWT claim validation (Python, TypeScript, Java)
+- [x] **MCP client** — connect to Model Context Protocol servers (Python, TypeScript)
+- [x] **Structured error types** — `SkillNotFoundError`, `ParamValidationError`, etc. (all languages)
+- [x] **Multi-modal parts** — `FilePart`, `DataPart`, `Artifact` (all languages)
+- [x] **Task tracking** — `TaskContext` with progress updates (all languages)
+- [x] **CLI tools** — `init`, `inspect`, `test`, `discover` (Python, TypeScript)
+
+---
+
 ## 🚧 Coming Next
-
-### Agent Composition
-Mount multiple agents under one server:
-```python
-from a2a_lite import Router
-
-router = Router()
-router.mount("/math", calculator_agent)
-router.mount("/search", search_agent)
-router.run(port=8787)
-```
-
-### LLM Tool Schemas
-Auto-generate OpenAI/Anthropic tool format:
-```python
-@agent.tool
-async def get_weather(city: str) -> dict:
-    """Get weather for a city."""
-    ...
-
-tools = agent.get_tool_schemas()  # Ready for LLM
-```
 
 ### Background Tasks
 Return immediately, process async:

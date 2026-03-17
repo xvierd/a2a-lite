@@ -112,6 +112,9 @@ from .errors import (
 # Orchestration
 from .orchestration import AgentNetwork
 
+# Router (multi-agent)
+from .router import Router
+
 # MCP (requires optional dep)
 from .mcp import MCPClient
 
@@ -158,6 +161,8 @@ __all__ = [
     "AuthRequiredError",
     # Orchestration
     "AgentNetwork",
+    # Router
+    "Router",
     # MCP
     "MCPClient",
 ]

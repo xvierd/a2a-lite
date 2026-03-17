@@ -132,9 +132,12 @@ class TestExtractResult:
         assert _extract_result(response) == "just text"
 
     def test_extract_error(self):
+        from a2a_lite.errors import RemoteAgentError
+
         response = {"error": {"code": -32000, "message": "fail"}}
-        result = _extract_result(response)
-        assert result["code"] == -32000
+        with pytest.raises(RemoteAgentError) as exc_info:
+            _extract_result(response)
+        assert exc_info.value.response == response
 
     def test_extract_empty_result(self):
         response = {"result": {}}

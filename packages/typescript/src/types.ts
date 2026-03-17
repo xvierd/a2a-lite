@@ -22,6 +22,7 @@ export interface AgentConfig {
   url?: string;
   auth?: AuthProvider;
   taskStore?: TaskStore | 'memory';
+  network?: import('./orchestration.js').AgentNetwork;
   corsOrigins?: string[];
   production?: boolean;
   mcpServers?: string[];  // MCP server URLs

@@ -39,7 +39,7 @@ export { Agent } from './agent.js';
 export { LiteAgentExecutor } from './executor.js';
 
 // Testing
-export { AgentTestClient, TestClientError, TestResult } from './testing.js';
+export { AgentTestClient, AsyncAgentTestClient, TestClientError, TestResult } from './testing.js';
 
 // Types
 export type {
@@ -69,6 +69,7 @@ export type { AgentCard, AgentSkill, Message, Part } from './types.js';
 
 // Auth (optional)
 export { NoAuth, APIKeyAuth, BearerAuth, CompositeAuth, OAuth2Auth } from './auth.js';
+export type { OAuth2Config } from './auth.js';
 
 // Tasks (optional)
 export { InMemoryTaskStore, TaskContext } from './tasks.js';
@@ -92,3 +93,22 @@ export {
   requestIdMiddleware,
   corsMiddleware,
 } from './middleware/index.js';
+
+// Errors
+export {
+  A2ALiteError,
+  SkillNotFoundError,
+  ParamValidationError,
+  RemoteAgentError,
+  AuthRequiredError,
+} from './errors.js';
+
+// Orchestration
+export { AgentNetwork, callRemoteSkill } from './orchestration.js';
+
+// Router
+export { Router } from './router.js';
+
+// LLM (optional — requires peer deps)
+export { openaiSkill, anthropicSkill, ollamaSkill, bedrockSkill } from './llm.js';
+export type { OpenAISkillConfig, AnthropicSkillConfig, OllamaSkillConfig, BedrockSkillConfig } from './llm.js';

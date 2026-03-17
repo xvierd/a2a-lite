@@ -20,6 +20,7 @@ import type {
 } from './types.js';
 import { TaskContext } from './tasks.js';
 import { MCPClient } from './mcp/index.js';
+import { A2ALiteError, SkillNotFoundError } from './errors.js';
 
 export class LiteAgentExecutor implements AgentExecutor {
   private skills: Map<string, SkillDefinition>;
@@ -47,7 +48,7 @@ export class LiteAgentExecutor implements AgentExecutor {
     this.authProvider = options.authProvider;
     this.taskStore = options.taskStore;
     this.mcpServers = options.mcpServers ?? [];
-    
+
     // Create MCP client if servers are configured
     if (this.mcpServers.length > 0) {
       this.mcpClient = new MCPClient(this.mcpServers);
@@ -135,24 +136,18 @@ export class LiteAgentExecutor implements AgentExecutor {
     // Default to first skill only if there's exactly one
     if (!skillName) {
       if (this.skills.size === 0) {
-        return { error: 'No skills registered' };
+        throw new SkillNotFoundError('', []);
       }
       if (this.skills.size === 1) {
         skillName = this.skills.keys().next().value!;
       } else {
-        return {
-          error: 'No skill specified. Use {"skill": "name", "params": {...}} format.',
-          availableSkills: Array.from(this.skills.keys()),
-        };
+        throw new SkillNotFoundError('', Array.from(this.skills.keys()));
       }
     }
 
     const skillDef = this.skills.get(skillName);
     if (!skillDef) {
-      return {
-        error: `Unknown skill: ${skillName}`,
-        availableSkills: Array.from(this.skills.keys()),
-      };
+      throw new SkillNotFoundError(skillName, Array.from(this.skills.keys()));
     }
 
     // Inject TaskContext if needed
@@ -247,7 +242,9 @@ export class LiteAgentExecutor implements AgentExecutor {
   ): Promise<void> {
     let errorResult: unknown;
 
-    if (this.errorHandler) {
+    if (error instanceof A2ALiteError) {
+      errorResult = error.toResponse();
+    } else if (this.errorHandler) {
       try {
         errorResult = await this.errorHandler(error);
       } catch (handlerError) {

@@ -1,0 +1,12 @@
+// Root project for A2A Lite Java Examples
+// Run individual examples with: ./gradlew :01_hello_world_lite:run
+
+allprojects {
+    group = 'com.example'
+    version = '1.0.0'
+    
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+}

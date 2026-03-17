@@ -1,0 +1,17 @@
+rootProject.name = 'a2a-lite-examples'
+
+// Include all lite examples
+include '01_hello_world_lite'
+include '02_calculator_lite'
+include '03_file_handling_lite'
+include '05_auth_lite'
+include '06_streaming_lite'
+include '08_llm_integration_lite'
+include '09_human_in_loop_lite'
+
+// Include the A2A Lite library as a composite build
+includeBuild('../../packages/java') {
+    dependencySubstitution {
+        substitute module('com.a2alite:a2a-lite') using project(':')
+    }
+}

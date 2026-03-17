@@ -1,0 +1,5 @@
+# A2A Lite with LLM support
+a2a-lite[llm]>=0.2.0
+
+# Environment
+python-dotenv>=1.0.0

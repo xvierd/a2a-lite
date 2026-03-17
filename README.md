@@ -1,7 +1,8 @@
 <p align="center">
   <h1 align="center">A2A Lite</h1>
   <p align="center">
-    <strong>The simplest way to build agents for Google's A2A Protocol.</strong>
+    <strong>The simplest way to build agents for Google's A2A Protocol.</strong><br>
+    Python · TypeScript · Java
   </p>
   <p align="center">
     <a href="https://pypi.org/project/a2a-lite/"><img src="https://img.shields.io/pypi/v/a2a-lite?label=PyPI&logo=pypi&logoColor=white" alt="PyPI"></a>
@@ -11,92 +12,30 @@
   <p align="center">
     <a href="#installation">Installation</a> &bull;
     <a href="#quick-start">Quick Start</a> &bull;
-    <a href="#progressive-complexity">Features</a> &bull;
-    <a href="#examples-python">Examples</a> &bull;
-    <a href="https://pypi.org/project/a2a-lite/">PyPI</a> &bull;
+    <a href="#features">Features</a> &bull;
+    <a href="#multi-language-examples">Examples</a> &bull;
+    <a href="#feature-matrix">Feature Matrix</a> &bull;
     <a href="ROADMAP.md">Roadmap</a>
   </p>
 </p>
 
 ---
 
-A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a simple, decorator-based API that stays **100% protocol-compatible**.
+A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API that stays **100% protocol-compatible** with zero boilerplate.
 
 ## Why A2A Lite?
 
 |  | Official A2A SDK | A2A Lite |
 |---|---|---|
 | Hello World | ~80 lines, 3 files | **8 lines, 1 file** |
-| JSON schemas | Manual | **Auto-generated from types** |
-| Learning curve | Steep | **Progressive** |
-| CLI tools | — | **init, inspect, test, discover** |
-| Testing | Manual setup | **Built-in TestClient** |
+| JSON schemas | Write by hand | **Auto-generated from types** |
+| Skill registration | Implement interfaces | **One decorator / method call** |
+| LLM integration | You wire it | **Built-in OpenAI / Anthropic / Ollama / Bedrock** |
+| Multi-agent | Manual HTTP + JSON-RPC | **`AgentNetwork` + `delegate()`** |
+| Testing | Spin up a real HTTP server | **In-process `AgentTestClient`** |
+| CLI tools | — | **init · inspect · test · discover** |
 
-## Quick Start
-
-<table>
-<tr>
-<th>Python</th>
-<th>TypeScript</th>
-<th>Java</th>
-</tr>
-<tr>
-<td>
-
-```python
-from a2a_lite import Agent
-
-agent = Agent(
-    name="Bot",
-    description="My bot"
-)
-
-@agent.skill("greet")
-async def greet(name: str):
-    return f"Hello, {name}!"
-
-agent.run()
-```
-
-</td>
-<td>
-
-```typescript
-import { Agent } from 'a2a-lite';
-
-const agent = new Agent({
-  name: 'Bot',
-  description: 'My bot'
-});
-
-agent.skill('greet', async ({ name }) =>
-  `Hello, ${name}!`
-);
-
-agent.run();
-```
-
-</td>
-<td>
-
-```java
-var agent = Agent.builder()
-    .name("Bot")
-    .description("My bot")
-    .build();
-
-agent.skill("greet", params ->
-    "Hello, " + params.get("name") + "!"
-);
-
-agent.run();
-```
-
-</td>
-</tr>
-</table>
-
-That's it. A fully compliant A2A agent, discoverable by any A2A client.
+---
 
 ## Installation
 
@@ -107,7 +46,7 @@ pip install a2a-lite
 uv add a2a-lite
 ```
 
-### TypeScript
+### TypeScript / Node.js
 ```bash
 npm install a2a-lite
 ```
@@ -116,71 +55,131 @@ npm install a2a-lite
 ```groovy
 dependencies {
     implementation 'com.a2alite:a2a-lite:0.2.5'
-    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'io.javalin:javalin:5.6.3'   // HTTP server
 }
 ```
 
 ---
 
-## Progressive Complexity
+## Quick Start
 
-A2A Lite follows a *use only what you need* philosophy. Start with a basic skill and add capabilities as your agent grows.
-
-### Level 1 — Just Works
+<table>
+<tr><th>Python</th><th>TypeScript</th><th>Java</th></tr>
+<tr>
+<td>
 
 ```python
 from a2a_lite import Agent
 
-agent = Agent(name="Bot", description="A bot")
+agent = Agent(
+    name="Greeter",
+    description="Greets people"
+)
 
 @agent.skill("greet")
 async def greet(name: str) -> str:
     return f"Hello, {name}!"
 
-agent.run()
+agent.run()  # http://localhost:8787
 ```
 
-### Level 2 — Pydantic Models
+</td>
+<td>
 
-Input/output schemas are generated automatically from your type hints.
+```typescript
+import { Agent } from 'a2a-lite';
+
+const agent = new Agent({
+  name: 'Greeter',
+  description: 'Greets people',
+});
+
+agent.skill('greet', async ({ name }) =>
+  `Hello, ${name}!`
+);
+
+agent.run(); // http://localhost:8787
+```
+
+</td>
+<td>
+
+```java
+var agent = Agent.builder()
+    .name("Greeter")
+    .description("Greets people")
+    .build();
+
+agent.skill("greet", params ->
+    "Hello, " + params.get("name") + "!"
+);
+
+agent.run(); // http://localhost:8787
+```
+
+</td>
+</tr>
+</table>
+
+That's it. A fully A2A-compliant agent, discoverable by any A2A client, serving:
+- `POST /` — JSON-RPC `message/send`
+- `GET /.well-known/agent.json` — Agent card with auto-generated skill schemas
+
+---
+
+## Features
+
+### Basic Skills — Just Return a Value
+
+```python
+@agent.skill("calculate")
+async def calculate(a: float, b: float, op: str) -> float:
+    ops = {"+": a + b, "-": a - b, "*": a * b, "/": a / b}
+    return ops[op]
+```
+
+### Pydantic Models — Schemas for Free
+
+Input/output schemas are generated automatically from your type hints:
 
 ```python
 from pydantic import BaseModel
 
-class User(BaseModel):
-    name: str
-    email: str
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 10
 
-@agent.skill("create_user")
-async def create_user(user: User) -> dict:
-    return {"id": 1, "name": user.name}
+class SearchResult(BaseModel):
+    items: list[str]
+    total: int
+
+@agent.skill("search")
+async def search(req: SearchRequest) -> SearchResult:
+    return SearchResult(items=["result1"], total=1)
 ```
 
-### Level 3 — Streaming
-
-Just `yield` instead of `return`.
+### Streaming — Just `yield`
 
 ```python
 @agent.skill("chat", streaming=True)
 async def chat(message: str):
-    for word in message.split():
-        yield word + " "
+    tokens = ["Hello", ", ", "world", "!"]
+    for token in tokens:
+        yield token
 ```
 
-### Level 4 — Middleware
-
-Cross-cutting concerns (logging, metrics, rate-limiting) without touching skill code.
+### Middleware — Cross-Cutting Concerns
 
 ```python
 @agent.middleware
 async def log_requests(ctx, next):
-    print(f"Calling: {ctx.skill}")
-    return await next()
+    print(f"→ {ctx.skill}({ctx.params})")
+    result = await next()
+    print(f"← {ctx.skill}: {result}")
+    return result
 ```
 
-### Level 5 — File Handling
-
-Accept and return files through the A2A protocol.
+### File Handling — Upload & Process Files
 
 ```python
 from a2a_lite import FilePart
@@ -188,65 +187,216 @@ from a2a_lite import FilePart
 @agent.skill("summarize")
 async def summarize(doc: FilePart) -> str:
     content = await doc.read_text()
-    return f"Summary: {content[:100]}..."
+    return f"Summary of {doc.name}: {content[:200]}..."
 ```
 
-### Level 6 — Task Tracking
-
-Long-running operations with progress updates.
+### Task Tracking — Long-Running Operations
 
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Bot", description="A bot", task_store="memory")
+agent = Agent(name="Processor", description="...", task_store="memory")
 
 @agent.skill("process")
 async def process(data: str, task: TaskContext) -> str:
-    await task.update("working", "Starting...", progress=0.0)
-    for i in range(10):
-        await task.update("working", f"Step {i}/10", progress=i/10)
+    await task.update("working", "Loading data...", progress=0.0)
+    # ... do work ...
+    await task.update("working", "Processing...", progress=0.5)
+    # ... more work ...
     return "Done!"
 ```
 
-### Level 7 — Authentication
-
-API key, Bearer/JWT, and OAuth2 — all optional, all hashed in memory with SHA-256.
+### Authentication — API Key, Bearer, OAuth2
 
 ```python
-from a2a_lite import Agent, APIKeyAuth
+from a2a_lite import Agent, APIKeyAuth, BearerAuth, OAuth2Auth
 
+# API Key
+agent = Agent(name="Bot", description="...", auth=APIKeyAuth(keys=["sk-..."]))
+
+# Bearer / JWT
+agent = Agent(name="Bot", description="...", auth=BearerAuth(tokens=["my-token"]))
+
+# OAuth2 (JWT validation)
 agent = Agent(
-    name="SecureBot",
-    description="A secure bot",
-    auth=APIKeyAuth(keys=["secret-key"]),
+    name="Bot",
+    description="...",
+    auth=OAuth2Auth(
+        issuer="https://accounts.google.com",
+        audience="my-api",
+    )
 )
 ```
 
-### Level 8 — Production Mode
-
-CORS control and production safety checks.
+Access auth info inside a skill:
 
 ```python
-agent = Agent(
-    name="Bot",
-    description="A bot",
-    cors_origins=["https://myapp.com"],
-    production=True,
+from a2a_lite import AuthResult
+
+@agent.skill("profile")
+async def profile(auth: AuthResult) -> dict:
+    return {"user_id": auth.subject, "claims": auth.claims}
+```
+
+### AgentNetwork — Multi-Agent Orchestration
+
+Connect agents and delegate work across a network:
+
+```python
+from a2a_lite import Agent, AgentNetwork
+
+# Define the network
+network = AgentNetwork()
+network.add("weather", "http://localhost:8788")
+network.add("hotels", "http://localhost:8789")
+
+orchestrator = Agent(
+    name="TravelAgent",
+    description="Plans trips",
+    network=network,
 )
+
+@orchestrator.skill("plan_trip")
+async def plan_trip(city: str) -> dict:
+    weather = await orchestrator.delegate("weather", "forecast", {"city": city})
+    hotels = await orchestrator.delegate("hotels", "search", {"city": city})
+    return {"weather": weather, "hotels": hotels}
+```
+
+Call remote agents directly:
+
+```python
+from a2a_lite import callRemoteSkill  # Python: AgentNetwork.call()
+
+result = await network.call("weather", "forecast", {"city": "Paris"})
+```
+
+### LLM Integration — OpenAI, Anthropic, Ollama, Bedrock
+
+Drop in LLM-powered skills without wiring SDKs manually:
+
+```python
+from a2a_lite import Agent
+from a2a_lite.llm import openai_skill, anthropic_skill, ollama_skill
+
+agent = Agent(name="AIBot", description="LLM-powered agent")
+
+# OpenAI
+agent.register_skill(
+    openai_skill(
+        name="chat",
+        model="gpt-4o",
+        system_prompt="You are a helpful assistant.",
+    )
+)
+
+# Anthropic Claude
+agent.register_skill(
+    anthropic_skill(
+        name="analyze",
+        model="claude-opus-4-6",
+        system_prompt="Analyze the following text.",
+    )
+)
+
+# Ollama (local)
+agent.register_skill(
+    ollama_skill(name="generate", model="llama3")
+)
+```
+
+TypeScript equivalent:
+
+```typescript
+import { Agent, openaiSkill, anthropicSkill, ollamaSkill } from 'a2a-lite';
+
+const agent = new Agent({ name: 'AIBot', description: 'LLM-powered agent' });
+
+agent.skill('chat', openaiSkill({
+  model: 'gpt-4o',
+  systemPrompt: 'You are a helpful assistant.',
+}));
+
+agent.skill('analyze', anthropicSkill({
+  model: 'claude-opus-4-6',
+  systemPrompt: 'Analyze the following text.',
+}));
+```
+
+### MCP Tools — Model Context Protocol
+
+Connect agents to MCP servers to access external tools and resources:
+
+```python
+from a2a_lite import Agent, MCPClient
+
+agent = Agent(name="ToolAgent", description="Uses external tools")
+agent.add_mcp_server("filesystem", "http://localhost:3001/sse")
+agent.add_mcp_server("github", "http://localhost:3002/sse")
+
+@agent.skill("file_summary")
+async def file_summary(path: str, mcp: MCPClient) -> str:
+    content = await mcp.call_tool("filesystem", "read_file", {"path": path})
+    return f"File at {path}: {content[:200]}"
+```
+
+TypeScript equivalent:
+
+```typescript
+import { Agent, MCPClient } from 'a2a-lite';
+
+const agent = new Agent({ name: 'ToolAgent', description: 'Uses external tools' });
+agent.addMcpServer('filesystem', 'http://localhost:3001/sse');
+
+agent.skill('file_summary', async ({ path }, { mcp }) => {
+  const content = await mcp.callTool('filesystem', 'read_file', { path });
+  return `File: ${content.slice(0, 200)}`;
+});
+```
+
+### Router — Multiple Agents, One Server
+
+Mount several agents under a single URL:
+
+```python
+from a2a_lite import Router
+
+router = Router()
+router.mount("/weather", weather_agent)
+router.mount("/hotels", hotel_agent)
+router.mount("/flights", flight_agent)
+
+router.run(port=8787)
+# Merged card at /.well-known/agent.json
+# Each agent at /weather, /hotels, /flights
+```
+
+### Tool Schemas — Use Your Agent as LLM Tools
+
+Export skill definitions in OpenAI or Anthropic tool format:
+
+```python
+# OpenAI format (default)
+tools = agent.get_tool_schemas()
+
+response = openai.chat.completions.create(
+    model="gpt-4o",
+    messages=messages,
+    tools=tools,   # ← drop in directly
+)
+
+# Anthropic format
+tools = agent.get_tool_schemas(format="anthropic")
 ```
 
 ---
 
 ## Testing
 
-Every language ships a `TestClient` so you can test without HTTP.
+Every language ships an in-process `AgentTestClient` — no HTTP server needed.
 
 <table>
-<tr>
-<th>Python</th>
-<th>TypeScript</th>
-<th>Java</th>
-</tr>
+<tr><th>Python</th><th>TypeScript</th><th>Java</th></tr>
 <tr>
 <td>
 
@@ -254,8 +404,16 @@ Every language ships a `TestClient` so you can test without HTTP.
 from a2a_lite import AgentTestClient
 
 client = AgentTestClient(agent)
+
+# Sync call
 result = client.call("greet", name="World")
 assert result == "Hello, World!"
+
+# Async call
+result = await client.acall("greet", name="World")
+
+# Streaming
+chunks = await client.stream("chat", message="Hi")
 ```
 
 </td>
@@ -265,8 +423,16 @@ assert result == "Hello, World!"
 import { AgentTestClient } from 'a2a-lite';
 
 const client = new AgentTestClient(agent);
+
 const result = await client.call('greet', { name: 'World' });
-expect(result).toBe('Hello, World!');
+expect(result.data).toBe('Hello, World!');
+
+// Streaming
+const chunks = await client.stream('chat', { message: 'Hi' });
+
+// Inspect the agent
+const skills = client.listSkills();
+const card = client.getAgentCard();
 ```
 
 </td>
@@ -274,8 +440,15 @@ expect(result).toBe('Hello, World!');
 
 ```java
 var client = new AgentTestClient(agent);
-assertThat(client.call("greet", Map.of("name", "World")))
-    .isEqualTo("Hello, World!");
+
+var result = client.call("greet", Map.of("name", "World"));
+assertThat(result.data()).isEqualTo("Hello, World!");
+
+// No params
+var result2 = client.call("ping");
+
+// Inspect
+List<String> skills = client.listSkills();
 ```
 
 </td>
@@ -284,14 +457,25 @@ assertThat(client.call("greet", Map.of("name", "World")))
 
 ---
 
-## CLI (Python)
+## CLI
+
+The Python package ships a full CLI:
 
 ```bash
-a2a-lite init my-agent          # Scaffold a new project
-a2a-lite serve agent.py         # Run an agent from file
-a2a-lite inspect http://...     # View agent card & skills
-a2a-lite test http://... skill  # Smoke-test a skill
-a2a-lite discover               # Find agents on the local network (mDNS)
+# Scaffold a new project
+a2a-lite init my-agent
+
+# Run an agent file
+a2a-lite serve agent.py
+
+# Inspect a running agent's card and skills
+a2a-lite inspect http://localhost:8787
+
+# Smoke-test a skill with JSON params
+a2a-lite test http://localhost:8787 greet '{"name": "World"}'
+
+# Discover A2A agents on the local network (mDNS)
+a2a-lite discover
 ```
 
 ---
@@ -299,22 +483,32 @@ a2a-lite discover               # Find agents on the local network (mDNS)
 ## Feature Matrix
 
 | Feature | Python | TypeScript | Java |
-|---------|--------|------------|------|
-| Basic skills | `@agent.skill()` | `agent.skill()` | `agent.skill()` |
-| Pydantic / Zod / POJO | Auto | Manual | Manual |
-| Streaming | `yield` | `yield` | — |
-| Middleware | `@agent.middleware` | `agent.use()` | `agent.use()` |
-| File handling | `FilePart` | `FilePart` | — |
-| Structured data | `DataPart` | `DataPart` | — |
-| Rich outputs | `Artifact` | `Artifact` | — |
-| Task tracking | `TaskContext` | — | — |
-| API Key auth | `APIKeyAuth` | `APIKeyAuth` | `APIKeyAuth` |
-| Bearer / JWT | `BearerAuth` | `BearerAuth` | `BearerAuth` |
-| OAuth2 | `OAuth2Auth` | — | — |
-| CORS | `cors_origins=[...]` | `corsOrigins` | — |
-| Testing | `AgentTestClient` | `AgentTestClient` | `AgentTestClient` |
-| CLI | `a2a-lite` | — | — |
-| mDNS discovery | `a2a-lite discover` | — | — |
+|---|:---:|:---:|:---:|
+| Basic skills | ✅ | ✅ | ✅ |
+| Auto JSON schemas | ✅ Pydantic | ⚠️ Manual | ⚠️ Manual |
+| Streaming (`yield`) | ✅ | ✅ | — |
+| Middleware | ✅ | ✅ | ✅ |
+| File handling (`FilePart`) | ✅ | ✅ | ✅ |
+| Structured data (`DataPart`) | ✅ | ✅ | ✅ |
+| Rich outputs (`Artifact`) | ✅ | ✅ | ✅ |
+| Task tracking (`TaskContext`) | ✅ | ✅ | ✅ |
+| API Key auth | ✅ | ✅ | ✅ |
+| Bearer / JWT auth | ✅ | ✅ | ✅ |
+| OAuth2 auth | ✅ | ✅ | ✅ |
+| Composite auth | ✅ | ✅ | — |
+| AgentNetwork + `delegate()` | ✅ | ✅ | ✅ |
+| LLM skills (OpenAI) | ✅ | ✅ | ✅ |
+| LLM skills (Anthropic) | ✅ | ✅ | ✅ |
+| LLM skills (Ollama) | ✅ | ✅ | ✅ |
+| LLM skills (AWS Bedrock) | ✅ | ✅ | ✅ |
+| MCP client | ✅ | ✅ | — |
+| Router (multi-agent) | ✅ | ✅ | ✅ |
+| `get_tool_schemas()` | ✅ | ✅ | ✅ |
+| Structured errors | ✅ | ✅ | ✅ |
+| In-process TestClient | ✅ | ✅ | ✅ |
+| CLI tools | ✅ | ✅ | — |
+| mDNS discovery | ✅ | — | — |
+| CORS control | ✅ | ✅ | — |
 
 ---
 
@@ -324,57 +518,66 @@ Everything in A2A Lite maps directly to the underlying protocol — no magic, no
 
 | A2A Lite | A2A Protocol |
 |----------|--------------|
-| `@agent.skill()` / `agent.skill()` | Agent Skills |
-| `streaming=True` | SSE Streaming |
-| `TaskContext.update()` | Task lifecycle states |
+| `@agent.skill()` | Agent Skill definition |
+| `agent.run()` | JSON-RPC server at `POST /` |
+| `streaming=True` + `yield` | SSE streaming (`message/stream`) |
+| `TaskContext.update()` | Task lifecycle states (submitted → working → completed) |
 | `FilePart` | A2A File parts |
 | `DataPart` | A2A Data parts |
 | `Artifact` | A2A Artifacts |
-| `APIKeyAuth` / `BearerAuth` | Security schemes |
+| `APIKeyAuth` / `BearerAuth` / `OAuth2Auth` | A2A Security schemes |
+| `AgentNetwork.call()` | `message/send` over HTTP |
+| `/.well-known/agent.json` | Agent Card |
 
 ---
 
-## Examples (Python)
+## Examples
+
+### Python
 
 | Example | What it shows |
 |---------|---------------|
 | [01_hello_world.py](packages/python/examples/01_hello_world.py) | Simplest agent (8 lines) |
 | [02_calculator.py](packages/python/examples/02_calculator.py) | Multiple skills |
-| [03_async_agent.py](packages/python/examples/03_async_agent.py) | Async operations & lifecycle hooks |
-| [04_multi_agent/](packages/python/examples/04_multi_agent) | Two agents communicating |
-| [05_with_llm.py](packages/python/examples/05_with_llm.py) | OpenAI / Anthropic integration |
-| [06_pydantic_models.py](packages/python/examples/06_pydantic_models.py) | Auto Pydantic conversion |
+| [03_async_agent.py](packages/python/examples/03_async_agent.py) | Async operations |
+| [05_with_llm.py](packages/python/examples/05_with_llm.py) | OpenAI integration |
+| [06_pydantic_models.py](packages/python/examples/06_pydantic_models.py) | Auto Pydantic schemas |
 | [07_middleware.py](packages/python/examples/07_middleware.py) | Middleware pipeline |
 | [08_streaming.py](packages/python/examples/08_streaming.py) | Streaming responses |
 | [09_testing.py](packages/python/examples/09_testing.py) | Built-in TestClient |
 | [10_file_handling.py](packages/python/examples/10_file_handling.py) | File upload & processing |
-| [11_task_tracking.py](packages/python/examples/11_task_tracking.py) | Progress updates |
+| [11_task_tracking.py](packages/python/examples/11_task_tracking.py) | Long-running tasks with progress |
 | [12_with_auth.py](packages/python/examples/12_with_auth.py) | Authentication |
+| [13_mcp_tools.py](packages/python/examples/13_mcp_tools.py) | MCP server integration |
+| [14_multi_agent_network.py](packages/python/examples/14_multi_agent_network.py) | AgentNetwork + delegate() |
+| [15_llm_openai.py](packages/python/examples/15_llm_openai.py) | OpenAI LLM skill |
+| [16_llm_anthropic.py](packages/python/examples/16_llm_anthropic.py) | Anthropic LLM skill |
+| [17_llm_bedrock.py](packages/python/examples/17_llm_bedrock.py) | AWS Bedrock LLM skill |
 
 ---
 
 ## Language-Specific Docs
 
-| Language | Package | Docs |
-|----------|---------|------|
-| Python | [`a2a-lite`](packages/python) | [packages/python/README.md](packages/python/README.md) |
-| TypeScript | [`a2a-lite`](packages/typescript) | [packages/typescript/README.md](packages/typescript/README.md) |
-| Java | [`a2a-lite`](packages/java) | [packages/java/README.md](packages/java/README.md) |
+| Language | Package | README |
+|----------|---------|--------|
+| Python | [`packages/python`](packages/python) | [packages/python/README.md](packages/python/README.md) |
+| TypeScript | [`packages/typescript`](packages/typescript) | [packages/typescript/README.md](packages/typescript/README.md) |
+| Java | [`packages/java`](packages/java) | [packages/java/README.md](packages/java/README.md) |
 
 ---
 
 ## For AI Coding Assistants
 
-See [AGENT.md](AGENT.md) — a concise reference designed for LLMs that are writing A2A agents.
+See [AGENT.md](AGENT.md) — a concise reference designed for LLMs writing A2A agents.
 
 ---
 
 ## Contributing
 
 1. Check if the official A2A SDK already supports the feature
-2. Design the simplest possible API
+2. Design the simplest possible API that a developer can learn in 30 seconds
 3. Keep it optional — never break the 8-line hello world
-4. Add examples and tests
+4. Add tests and at least one example
 5. Submit a PR
 
 See [ROADMAP.md](ROADMAP.md) for what's coming next.

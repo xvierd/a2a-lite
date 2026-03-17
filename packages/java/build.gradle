@@ -40,6 +40,9 @@ dependencies {
     // Web framework for standalone mode (optional for Quarkus users)
     compileOnly 'io.javalin:javalin:5.6.3'
 
+    // AWS Bedrock SDK (optional - only needed for LLMSkills.bedrock())
+    compileOnly 'software.amazon.awssdk:bedrockruntime:2.31.3'
+
     // JSON handling (provided by Quarkus in Quarkus mode)
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
 

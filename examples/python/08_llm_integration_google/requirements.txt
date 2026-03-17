@@ -1,0 +1,13 @@
+# Google A2A Python SDK (official)
+a2a-sdk[http-server]>=0.1.0
+
+# Web framework
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# LLM APIs
+openai>=1.0.0
+anthropic>=0.30.0
+
+# Environment
+python-dotenv>=1.0.0

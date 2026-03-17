@@ -1,0 +1,5 @@
+# A2A Lite - Simplified A2A framework
+a2a-lite>=0.2.0
+
+# Testing
+pytest>=7.0.0

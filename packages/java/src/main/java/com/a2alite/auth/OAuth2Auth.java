@@ -1,11 +1,13 @@
 package com.a2alite.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Map;
-import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 /**
  * OAuth2/OIDC authentication provider.
@@ -30,6 +32,7 @@ public class OAuth2Auth implements AuthProvider {
     private final String jwksUri;
     private final String[] algorithms;
     private volatile Object jwksCache;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public OAuth2Auth(String issuer, String audience) {
         this(issuer, audience, null, null);
@@ -119,9 +122,8 @@ public class OAuth2Auth implements AuthProvider {
 
         try {
             var decoder = java.util.Base64.getUrlDecoder();
-            String payload = new String(decoder.decode(parts[1]));
+            String payload = new String(decoder.decode(pad(parts[1])), StandardCharsets.UTF_8);
 
-            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             var claims = mapper.readTree(payload);
 
             String iss = claims.has("iss") ? claims.get("iss").asText() : null;
@@ -187,5 +189,21 @@ public class OAuth2Auth implements AuthProvider {
                 )
             )
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> decodePayload(String token) throws Exception {
+        var parts = token.split("\\.");
+        if (parts.length < 2) throw new IllegalArgumentException("Invalid JWT (need at least 2 parts)");
+        var bytes = Base64.getUrlDecoder().decode(pad(parts[1]));
+        return mapper.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
+    }
+
+    private static String pad(String s) {
+        return switch (s.length() % 4) {
+            case 2 -> s + "==";
+            case 3 -> s + "=";
+            default -> s;
+        };
     }
 }

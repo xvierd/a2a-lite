@@ -11,14 +11,12 @@ public record SkillDefinition(
     List<String> tags,
     SkillHandler handler,
     boolean isStreaming,
-    boolean needsTaskContext,
-    boolean needsInteraction
+    boolean needsTaskContext
 ) {
     /**
-     * Create a simple skill definition.
+     * Backwards-compatible constructor without needsTaskContext.
      */
-    public SkillDefinition(String name, String description, List<String> tags,
-                          SkillHandler handler, boolean isStreaming) {
-        this(name, description, tags, handler, isStreaming, false, false);
+    public SkillDefinition(String name, String description, List<String> tags, SkillHandler handler, boolean isStreaming) {
+        this(name, description, tags, handler, isStreaming, false);
     }
 }
