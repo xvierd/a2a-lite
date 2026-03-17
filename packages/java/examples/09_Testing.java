@@ -1,5 +1,5 @@
 import com.a2alite.Agent;
-import com.a2alite.testing.TestClient;
+import com.a2alite.testing.AgentTestClient;
 import java.util.Map;
 
 /**
@@ -20,7 +20,7 @@ class Testing {
         });
 
         System.out.println("Running tests...\n");
-        var client = new TestClient(agent);
+        var client = new AgentTestClient(agent);
 
         assert client.call("add", Map.of("a", 2, "b", 3)).equals(5) : "add failed";
         System.out.println("✅ test_add passed");
