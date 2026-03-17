@@ -1,10 +1,10 @@
 plugins {
     id 'java-library'
-    id 'maven-publish'
+    id 'com.vanniktech.maven.publish' version '0.30.0'
 }
 
-group = 'com.a2alite'
-version = '0.2.5'
+group = 'io.github.xvierd'
+version = '0.3.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -63,23 +63,37 @@ test {
     useJUnitPlatform()
 }
 
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            from components.java
+mavenPublishing {
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 
-            pom {
-                name = 'A2A Lite'
-                description = 'Build A2A agents in 8 lines. Wraps the official A2A Java SDK.'
-                url = 'https://github.com/xvierd/a2a-lite'
+    coordinates('io.github.xvierd', 'a2a-lite', version)
 
-                licenses {
-                    license {
-                        name = 'MIT License'
-                        url = 'https://opensource.org/licenses/MIT'
-                    }
-                }
+    pom {
+        name = 'A2A Lite'
+        description = 'Build A2A agents in 8 lines. Simplified wrapper for Google\'s A2A Protocol.'
+        url = 'https://github.com/xvierd/a2a-lite'
+        inceptionYear = '2025'
+
+        licenses {
+            license {
+                name = 'MIT License'
+                url = 'https://opensource.org/licenses/MIT'
             }
+        }
+
+        developers {
+            developer {
+                id = 'xvierd'
+                name = 'A2A Lite Contributors'
+                url = 'https://github.com/xvierd'
+            }
+        }
+
+        scm {
+            url = 'https://github.com/xvierd/a2a-lite'
+            connection = 'scm:git:git://github.com/xvierd/a2a-lite.git'
+            developerConnection = 'scm:git:ssh://git@github.com/xvierd/a2a-lite.git'
         }
     }
 }
