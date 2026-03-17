@@ -3,6 +3,10 @@ name: Publish Python to PyPI
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'python/v*'   # python-only release: python/v0.3.0
+      - 'v*'          # full release: v0.3.0 (all packages)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -44,7 +48,7 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
     environment:
       name: pypi
       url: https://pypi.org/project/a2a-lite/
