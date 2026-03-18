@@ -112,3 +112,11 @@ export { Router } from './router.js';
 // LLM (optional — requires peer deps)
 export { openaiSkill, anthropicSkill, ollamaSkill, bedrockSkill } from './llm.js';
 export type { OpenAISkillConfig, AnthropicSkillConfig, OllamaSkillConfig, BedrockSkillConfig } from './llm.js';
+
+// Push notifications (optional)
+export {
+  PushNotifier,
+  WebhookPushNotifier,
+  LogPushNotifier,
+  type PushEvent,
+} from './push-notifications.js';
