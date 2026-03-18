@@ -34,6 +34,7 @@ import type {
   Middleware,
   TaskStore,
 } from './types.js';
+import { type PushNotifier } from './push-notifications.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import type { AgentNetwork } from './orchestration.js';
@@ -54,6 +55,8 @@ export class Agent {
   private onShutdownHooks: Array<() => Promise<void> | void> = [];
   private onCompleteHooks: Array<(skill: string, result: unknown) => Promise<void> | void> = [];
   private taskStore?: TaskStore;
+  private protocolTaskStore?: unknown;
+  private pushNotifier?: PushNotifier;
   private auth: { authenticate: Function; getScheme: Function };
   private network?: AgentNetwork;
   private hasStreaming = false;
@@ -77,6 +80,12 @@ export class Agent {
     } else if (config.taskStore) {
       this.taskStore = config.taskStore;
     }
+
+    // Setup protocol task store
+    this.protocolTaskStore = config.protocolTaskStore;
+
+    // Setup push notifier
+    this.pushNotifier = config.pushNotifier;
 
     // Setup network
     this.network = config.network;
@@ -287,6 +296,25 @@ export class Agent {
   buildApp(): Express {
     const app = express();
 
+    // Auto-register push notifier as an onComplete hook
+    if (this.pushNotifier) {
+      const notifier = this.pushNotifier;
+      const agentName = this.name;
+      this.onCompleteHooks.unshift(async (skill: string, result: unknown) => {
+        try {
+          await notifier.notify({
+            skill,
+            result,
+            status: 'completed',
+            timestamp: Date.now() / 1000,
+            agent: agentName,
+          });
+        } catch (err) {
+          console.warn('[A2A] Push notifier error:', err);
+        }
+      });
+    }
+
     // Create the executor that bridges to our skills
     const executor = new LiteAgentExecutor({
       skills: this.skills,
@@ -302,7 +330,7 @@ export class Agent {
     const agentCard = this.buildAgentCard();
     const requestHandler = new DefaultRequestHandler(
       agentCard,
-      new InMemoryTaskStore(),
+      (this.protocolTaskStore as any) ?? new InMemoryTaskStore(),
       executor
     );
 
