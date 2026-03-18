@@ -4,6 +4,7 @@ import com.a2alite.auth.AuthProvider;
 import com.a2alite.auth.NoAuth;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
+import com.a2alite.push.PushNotifier;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,6 +72,25 @@ public class Agent {
         this.network = builder.network;
         this.taskStore = builder.taskStore != null ? builder.taskStore :
                          ("memory".equals(builder.taskStoreName) ? new InMemoryTaskStore() : null);
+
+        // Auto-register push notifier as a completion hook
+        if (builder.pushNotifier != null) {
+            final PushNotifier notifier = builder.pushNotifier;
+            final String agentName = this.name;
+            this.completeHooks.add(0, (skillName, result) -> {
+                try {
+                    java.util.Map<String, Object> event = new java.util.HashMap<>();
+                    event.put("skill", skillName);
+                    event.put("result", result);
+                    event.put("status", "completed");
+                    event.put("timestamp", System.currentTimeMillis());
+                    event.put("agent", agentName);
+                    notifier.notify(event);
+                } catch (Exception e) {
+                    LOGGER.warning("Push notifier error: " + e.getMessage());
+                }
+            });
+        }
     }
 
     public static Builder builder() {
@@ -661,6 +681,7 @@ public class Agent {
         private AgentNetwork network;
         private TaskStore taskStore;
         private String taskStoreName;
+        private PushNotifier pushNotifier;
 
         public Builder name(String name) {
             this.name = name;
@@ -709,6 +730,11 @@ public class Agent {
 
         public Builder taskStore(String name) {
             this.taskStoreName = name;
+            return this;
+        }
+
+        public Builder pushNotifier(PushNotifier pushNotifier) {
+            this.pushNotifier = pushNotifier;
             return this;
         }
 
