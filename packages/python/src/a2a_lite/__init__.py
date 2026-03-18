@@ -118,6 +118,13 @@ from .router import Router
 # MCP (requires optional dep)
 from .mcp import MCPClient
 
+# Push notifications
+from .push_notifications import (
+    PushNotifier,
+    WebhookPushNotifier,
+    LogPushNotifier,
+)
+
 __version__ = "0.2.5"
 
 __all__ = [
@@ -165,4 +172,8 @@ __all__ = [
     "Router",
     # MCP
     "MCPClient",
+    # Push notifications
+    "PushNotifier",
+    "WebhookPushNotifier",
+    "LogPushNotifier",
 ]

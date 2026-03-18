@@ -72,6 +72,28 @@ class Agent:
         async def process(data: str, task: TaskContext) -> str:
             await task.update("working", progress=0.5)
             return "done"
+
+    WITH PROTOCOL TASK STORE (opt-in, for production persistence):
+        from a2a_lite import Agent
+        from my_stores import RedisTaskStore  # any class implementing a2a.server.tasks.TaskStore
+
+        agent = Agent(
+            name="Bot",
+            description="...",
+            protocol_task_store=RedisTaskStore("redis://localhost"),
+        )
+
+    WITH PUSH NOTIFICATIONS (opt-in):
+        from a2a_lite import Agent, WebhookPushNotifier
+
+        agent = Agent(
+            name="Bot",
+            description="...",
+            push_notifier=WebhookPushNotifier(
+                url="https://my-app.com/webhook",
+                secret="signing-secret",
+            ),
+        )
     """
 
     name: str
@@ -85,6 +107,8 @@ class Agent:
     cors_origins: Optional[List[str]] = None
     production: bool = False
     network: Optional[Any] = None  # AgentNetwork
+    protocol_task_store: Optional[Any] = None  # SDK-level TaskStore for A2A protocol persistence (enables Redis, Postgres, etc.)
+    push_notifier: Optional[Any] = None  # PushNotifier for skill completion events
 
     def __post_init__(self):
         # Internal state
@@ -120,6 +144,9 @@ class Agent:
             self._auth = NoAuth()
         else:
             self._auth = self.auth
+
+        # Store push notifier
+        self._push_notifier = self.push_notifier
 
     def skill(
         self,
@@ -512,20 +539,44 @@ class Agent:
             The configured Starlette application.
         """
         agent_card = self.build_agent_card(host, port)
+
+        # Wire push notifier as first on_complete hook if configured
+        on_complete = list(self._on_complete)
+        if self._push_notifier is not None:
+            import time as _time
+            notifier = self._push_notifier
+            agent_name = self.name
+
+            async def _push_notify(skill_name: str, result: Any, ctx: Any) -> None:
+                event = {
+                    "skill": skill_name,
+                    "result": result,
+                    "status": "completed",
+                    "timestamp": _time.time(),
+                    "agent": agent_name,
+                }
+                try:
+                    await notifier.notify(event)
+                except Exception as e:
+                    logger.warning("Push notifier error: %s", e)
+
+            on_complete.insert(0, _push_notify)
+
         executor = LiteAgentExecutor(
             skills=self._skills,
             error_handler=self._error_handler,
             middleware=self._middleware,
-            on_complete=self._on_complete,
+            on_complete=on_complete,
             auth_provider=self._auth,
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
+        _protocol_store = self.protocol_task_store if self.protocol_task_store is not None else InMemoryTaskStore()
         request_handler = DefaultRequestHandler(
             agent_executor=executor,
-            task_store=InMemoryTaskStore(),
+            task_store=_protocol_store,
         )
 
         app_builder = A2AStarletteApplication(
