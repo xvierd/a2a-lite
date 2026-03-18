@@ -106,6 +106,15 @@ export {
 // Orchestration
 export { AgentNetwork, callRemoteSkill } from './orchestration.js';
 
+// Push notifications (optional)
+export {
+  PushNotifier,
+  LogPushNotifier,
+  WebhookPushNotifier,
+  WebhookPushError,
+} from './push-notifications.js';
+export type { PushEvent, WebhookPushNotifierOptions } from './push-notifications.js';
+
 // Router
 export { Router } from './router.js';
 

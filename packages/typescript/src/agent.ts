@@ -38,6 +38,7 @@ import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import type { AgentNetwork } from './orchestration.js';
 import { callRemoteSkill } from './orchestration.js';
+import type { PushNotifier } from './push-notifications.js';
 
 import { MCPClient } from './mcp/index.js';
 
@@ -54,6 +55,8 @@ export class Agent {
   private onShutdownHooks: Array<() => Promise<void> | void> = [];
   private onCompleteHooks: Array<(skill: string, result: unknown) => Promise<void> | void> = [];
   private taskStore?: TaskStore;
+  private protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
+  private pushNotifier?: PushNotifier;
   private auth: { authenticate: Function; getScheme: Function };
   private network?: AgentNetwork;
   private hasStreaming = false;
@@ -76,6 +79,18 @@ export class Agent {
       this.taskStore = new LiteTaskStore();
     } else if (config.taskStore) {
       this.taskStore = config.taskStore;
+    }
+
+    // Setup protocol-level task store (used by DefaultRequestHandler)
+    this.protocolTaskStore = config.protocolTaskStore;
+
+    // Setup push notifier and register as a completion hook
+    if (config.pushNotifier) {
+      this.pushNotifier = config.pushNotifier;
+      const notifier = config.pushNotifier;
+      this.onCompleteHooks.push(async (skill, result) => {
+        await notifier.notify({ skill, result, timestamp: new Date().toISOString() });
+      });
     }
 
     // Setup network
@@ -300,9 +315,10 @@ export class Agent {
 
     // Create the SDK's request handler
     const agentCard = this.buildAgentCard();
+    const sdkTaskStore = this.protocolTaskStore ?? new InMemoryTaskStore();
     const requestHandler = new DefaultRequestHandler(
       agentCard,
-      new InMemoryTaskStore(),
+      sdkTaskStore,
       executor
     );
 
