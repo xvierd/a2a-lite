@@ -29,6 +29,7 @@ from .decorators import SkillDefinition
 from .utils import extract_function_schemas, _is_or_subclass
 from .middleware import MiddlewareChain
 from .streaming import is_generator_function
+from .push_notifications import PushNotifier
 
 
 @dataclass
@@ -85,6 +86,13 @@ class Agent:
     cors_origins: Optional[List[str]] = None
     production: bool = False
     network: Optional[Any] = None  # AgentNetwork
+
+    # Protocol-level task store (passed to DefaultRequestHandler).
+    # When None, an InMemoryTaskStore() is created automatically.
+    protocol_task_store: Optional[Any] = None  # a2a.server.tasks.TaskStore impl
+
+    # Push notifier — called after every completed task.
+    push_notifier: Optional[PushNotifier] = None
 
     def __post_init__(self):
         # Internal state
@@ -512,20 +520,41 @@ class Agent:
             The configured Starlette application.
         """
         agent_card = self.build_agent_card(host, port)
+
+        # Build on_complete list — auto-prepend push_notifier if configured
+        on_complete = list(self._on_complete)
+        if self.push_notifier is not None:
+            notifier = self.push_notifier
+
+            async def _push_notify(skill_name: str, result: Any, ctx: Any) -> None:
+                event = {
+                    "skill": skill_name,
+                    "result": result,
+                }
+                try:
+                    await notifier.notify(event)
+                except Exception:
+                    logger.warning(
+                        "push_notifier failed for skill '%s'", skill_name, exc_info=True
+                    )
+
+            on_complete = [_push_notify] + on_complete
+
         executor = LiteAgentExecutor(
             skills=self._skills,
             error_handler=self._error_handler,
             middleware=self._middleware,
-            on_complete=self._on_complete,
+            on_complete=on_complete,
             auth_provider=self._auth,
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
+        protocol_store = self.protocol_task_store if self.protocol_task_store is not None else InMemoryTaskStore()
         request_handler = DefaultRequestHandler(
             agent_executor=executor,
-            task_store=InMemoryTaskStore(),
+            task_store=protocol_store,
         )
 
         app_builder = A2AStarletteApplication(
