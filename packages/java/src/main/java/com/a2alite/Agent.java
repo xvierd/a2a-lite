@@ -4,6 +4,7 @@ import com.a2alite.auth.AuthProvider;
 import com.a2alite.auth.NoAuth;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
+import com.a2alite.push.PushNotifier;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,6 +72,13 @@ public class Agent {
         this.network = builder.network;
         this.taskStore = builder.taskStore != null ? builder.taskStore :
                          ("memory".equals(builder.taskStoreName) ? new InMemoryTaskStore() : null);
+        if (builder.pushNotifier != null) {
+            final PushNotifier notifier = builder.pushNotifier;
+            this.completeHooks.add((skill, result) -> notifier.notify(Map.of(
+                "skill", skill,
+                "result", result != null ? result : ""
+            )));
+        }
     }
 
     public static Builder builder() {
@@ -661,6 +669,7 @@ public class Agent {
         private AgentNetwork network;
         private TaskStore taskStore;
         private String taskStoreName;
+        private PushNotifier pushNotifier;
 
         public Builder name(String name) {
             this.name = name;
@@ -709,6 +718,18 @@ public class Agent {
 
         public Builder taskStore(String name) {
             this.taskStoreName = name;
+            return this;
+        }
+
+        /**
+         * Set a {@link PushNotifier} that will be invoked after each skill completes.
+         *
+         * <p>This is a convenience shortcut equivalent to calling
+         * {@code agent.onComplete((skill, result) -> notifier.notify(Map.of("skill", skill, "result", result)))}
+         * after the agent is built.
+         */
+        public Builder pushNotifier(PushNotifier pushNotifier) {
+            this.pushNotifier = pushNotifier;
             return this;
         }
 
