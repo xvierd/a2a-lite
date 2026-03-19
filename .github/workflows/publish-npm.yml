@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          # No registry-url here — OIDC Trusted Publisher handles auth directly
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm install
@@ -52,3 +52,5 @@ jobs:
       - name: Publish to npm
         if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
