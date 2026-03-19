@@ -17,11 +17,20 @@ public enum TaskState {
 
     public String getValue() { return value; }
 
-    public static TaskState fromValue(String value) {
+    /**
+     * Parse a TaskState from its string value (e.g. "submitted", "working").
+     */
+    public static TaskState fromString(String text) {
         for (var state : values()) {
-            if (state.value.equals(value)) return state;
+            if (state.value.equalsIgnoreCase(text)) return state;
         }
-        throw new IllegalArgumentException("Unknown task state: " + value);
+        throw new IllegalArgumentException("Unknown task state: " + text);
+    }
+
+    /** @deprecated Use {@link #fromString(String)} instead. */
+    @Deprecated
+    public static TaskState fromValue(String value) {
+        return fromString(value);
     }
 
     @Override

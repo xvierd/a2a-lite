@@ -22,7 +22,14 @@ import java.util.logging.Logger;
 /**
  * Core Agent class - the heart of A2A Lite.
  *
- * Wraps the official A2A Java SDK with a simple, intuitive API.
+ * <p>Wraps the official A2A Java SDK with a simple, intuitive API.
+ *
+ * <p>For standalone HTTP serving, Javalin is used as an optional dependency
+ * loaded via reflection. This avoids forcing Javalin as a hard compile-time
+ * dependency — users who deploy on Quarkus or another container need not
+ * include it. If Javalin is not on the classpath, calling {@link #run()} will
+ * throw a {@link RuntimeException} with an actionable message. See
+ * {@link #run(String, int)} for details.
  *
  * <pre>{@code
  * var agent = Agent.builder()
@@ -70,8 +77,7 @@ public class Agent {
         this.corsOrigins = builder.corsOrigins;
         this.production = builder.production;
         this.network = builder.network;
-        this.taskStore = builder.taskStore != null ? builder.taskStore :
-                         ("memory".equals(builder.taskStoreName) ? new InMemoryTaskStore() : null);
+        this.taskStore = resolveTaskStore(builder);
 
         // Auto-register push notifier as a completion hook
         if (builder.pushNotifier != null) {
@@ -91,6 +97,17 @@ public class Agent {
                 }
             });
         }
+    }
+
+    /**
+     * Resolves the task store from the builder. If no store is explicitly
+     * provided, an {@link InMemoryTaskStore} is used as the default.
+     */
+    private static TaskStore resolveTaskStore(Builder builder) {
+        if (builder.taskStore != null) {
+            return builder.taskStore;
+        }
+        return new InMemoryTaskStore();
     }
 
     public static Builder builder() {
@@ -135,7 +152,7 @@ public class Agent {
      * Register a skill with configuration that receives a TaskContext.
      */
     public Agent skill(String name, SkillConfig config, SkillHandlerWithContext handler) {
-        final TaskStore store = this.taskStore != null ? this.taskStore : new InMemoryTaskStore();
+        final TaskStore store = this.taskStore;
         SkillHandler wrappedHandler = params -> {
             var task = store.create(name, params);
             var context = new TaskContext(task);
@@ -386,8 +403,16 @@ public class Agent {
     }
 
     /**
-     * Run with Javalin (standalone mode - requires javalin dependency).
-     * For Quarkus integration, use the agent card and executor producers instead.
+     * Run with Javalin (standalone mode).
+     *
+     * <p>Javalin is loaded via reflection so that it remains an optional
+     * dependency. Users deploying on Quarkus or another container can omit
+     * {@code io.javalin:javalin} from their classpath entirely and rely on the
+     * framework's own HTTP layer instead. If Javalin is not present at runtime,
+     * this method throws a {@link RuntimeException} with an actionable message.
+     *
+     * <p>For Quarkus integration, use the agent card and executor producers
+     * instead of calling {@code run()}.
      */
     public void run() {
         run(8787);
@@ -402,6 +427,11 @@ public class Agent {
 
     /**
      * Run with Javalin on specific host and port.
+     *
+     * <p>Javalin is an optional dependency loaded via reflection to avoid
+     * forcing it as a hard dependency. If Javalin is not on the classpath,
+     * the HTTP server features are unavailable and a {@link RuntimeException}
+     * with a descriptive message is thrown.
      */
     public void run(String host, int port) {
         // Production mode warning
@@ -419,7 +449,10 @@ public class Agent {
         }
 
         try {
-            // Use reflection to avoid compile-time dependency on Javalin
+            // Use reflection to avoid compile-time dependency on Javalin.
+            // Javalin is declared compileOnly so that Quarkus users are not forced
+            // to bundle it. At runtime it is available only when the user has added
+            // the dependency explicitly.
             var javalinClass = Class.forName("io.javalin.Javalin");
             var createMethod = javalinClass.getMethod("create");
             var app = createMethod.invoke(null);
@@ -532,53 +565,30 @@ public class Agent {
         }
     }
 
+    /**
+     * Handles a single HTTP request received from the Javalin context (passed
+     * as {@code Object} to avoid a compile-time dependency on Javalin).
+     *
+     * <p>The method is decomposed into focused private helpers:
+     * <ol>
+     *   <li>{@link #addCorsHeaders(Object)} — writes CORS response headers</li>
+     *   <li>{@link #extractHeaders(Object)} — reads request headers via reflection</li>
+     *   <li>{@link #authenticateRequest(Object, Map)} — validates auth and writes a 401 on failure</li>
+     *   <li>{@link #parseJsonRpcBody(Object)} — deserializes the JSON-RPC request body</li>
+     * </ol>
+     */
     private void handleRequest(Object ctx) throws Exception {
-        // Add CORS headers if configured
-        if (corsOrigins != null && !corsOrigins.isEmpty()) {
-            var headerMethod = ctx.getClass().getMethod("header", String.class, String.class);
-            headerMethod.invoke(ctx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
-            headerMethod.invoke(ctx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            headerMethod.invoke(ctx, "Access-Control-Allow-Headers", "*");
+        addCorsHeaders(ctx);
+
+        Map<String, String> headers = extractHeaders(ctx);
+        if (!authenticateRequest(ctx, headers)) {
+            return; // response already written
         }
 
-        // Authenticate the request
-        if (!(auth instanceof NoAuth)) {
-            var headerMethod = ctx.getClass().getMethod("header", String.class);
-            Map<String, String> headers = new HashMap<>();
-            // Extract common auth headers via reflection on Javalin context
-            try {
-                var headerMapMethod = ctx.getClass().getMethod("headerMap");
-                @SuppressWarnings("unchecked")
-                Map<String, String> headerMap = (Map<String, String>) headerMapMethod.invoke(ctx);
-                headers.putAll(headerMap);
-            } catch (NoSuchMethodException e) {
-                // Fallback: try individual headers
-                String apiKey = (String) headerMethod.invoke(ctx, "X-API-Key");
-                if (apiKey != null) headers.put("X-API-Key", apiKey);
-                String authHeader = (String) headerMethod.invoke(ctx, "Authorization");
-                if (authHeader != null) headers.put("Authorization", authHeader);
-            }
-
-            var authRequest = new com.a2alite.auth.AuthRequest(headers);
-            var authResult = auth.authenticate(authRequest);
-            if (!authResult.authenticated()) {
-                var statusMethod = ctx.getClass().getMethod("status", int.class);
-                var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-                statusMethod.invoke(ctx, 401);
-                jsonMethod.invoke(ctx, Map.of(
-                    "jsonrpc", "2.0",
-                    "error", Map.of("code", -32600, "message", authResult.error() != null ? authResult.error() : "Authentication failed")
-                ));
-                return;
-            }
-        }
-
-        var bodyMethod = ctx.getClass().getMethod("bodyAsBytes");
-        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-
-        var body = mapper.readTree((byte[]) bodyMethod.invoke(ctx));
+        JsonNode body = parseJsonRpcBody(ctx);
         var method = body.path("method").asText();
         var id = body.path("id").asText();
+        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
 
         if ("message/send".equals(method)) {
             var message = body.path("params").path("message");
@@ -604,6 +614,92 @@ public class Agent {
             error.put("message", "Method not found");
             jsonMethod.invoke(ctx, response);
         }
+    }
+
+    /**
+     * Writes CORS headers to the response if CORS origins are configured.
+     *
+     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
+     */
+    private void addCorsHeaders(Object ctx) throws Exception {
+        if (corsOrigins != null && !corsOrigins.isEmpty()) {
+            var headerMethod = ctx.getClass().getMethod("header", String.class, String.class);
+            headerMethod.invoke(ctx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
+            headerMethod.invoke(ctx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+            headerMethod.invoke(ctx, "Access-Control-Allow-Headers", "*");
+        }
+    }
+
+    /**
+     * Extracts all HTTP request headers from the Javalin context via reflection.
+     *
+     * <p>Falls back to extracting only common auth headers when the full header
+     * map is unavailable on the context type.
+     *
+     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
+     * @return a mutable map of header name to header value
+     */
+    private Map<String, String> extractHeaders(Object ctx) throws Exception {
+        Map<String, String> headers = new HashMap<>();
+        try {
+            var headerMapMethod = ctx.getClass().getMethod("headerMap");
+            @SuppressWarnings("unchecked")
+            Map<String, String> headerMap = (Map<String, String>) headerMapMethod.invoke(ctx);
+            headers.putAll(headerMap);
+        } catch (NoSuchMethodException e) {
+            // Fallback: extract only the headers relevant to authentication
+            var headerMethod = ctx.getClass().getMethod("header", String.class);
+            String apiKey = (String) headerMethod.invoke(ctx, "X-API-Key");
+            if (apiKey != null) headers.put("X-API-Key", apiKey);
+            String authHeader = (String) headerMethod.invoke(ctx, "Authorization");
+            if (authHeader != null) headers.put("Authorization", authHeader);
+        }
+        return headers;
+    }
+
+    /**
+     * Authenticates the request using the configured {@link AuthProvider}.
+     *
+     * <p>If authentication fails, writes a {@code 401} JSON-RPC error response
+     * and returns {@code false} so the caller can short-circuit.
+     *
+     * @param ctx     the Javalin context (as {@code Object} due to optional dependency)
+     * @param headers the headers extracted by {@link #extractHeaders(Object)}
+     * @return {@code true} if the request is authenticated (or auth is disabled),
+     *         {@code false} if a 401 was sent
+     */
+    private boolean authenticateRequest(Object ctx, Map<String, String> headers) throws Exception {
+        if (auth instanceof NoAuth) {
+            return true;
+        }
+
+        var authRequest = new com.a2alite.auth.AuthRequest(headers);
+        var authResult = auth.authenticate(authRequest);
+        if (!authResult.authenticated()) {
+            var statusMethod = ctx.getClass().getMethod("status", int.class);
+            var jsonMethod = ctx.getClass().getMethod("json", Object.class);
+            statusMethod.invoke(ctx, 401);
+            jsonMethod.invoke(ctx, Map.of(
+                "jsonrpc", "2.0",
+                "error", Map.of(
+                    "code", -32600,
+                    "message", authResult.error() != null ? authResult.error() : "Authentication failed"
+                )
+            ));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Reads and deserializes the JSON-RPC request body.
+     *
+     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
+     * @return the parsed {@link JsonNode} body
+     */
+    private JsonNode parseJsonRpcBody(Object ctx) throws Exception {
+        var bodyMethod = ctx.getClass().getMethod("bodyAsBytes");
+        return mapper.readTree((byte[]) bodyMethod.invoke(ctx));
     }
 
     /**
@@ -680,7 +776,6 @@ public class Agent {
         private boolean production = false;
         private AgentNetwork network;
         private TaskStore taskStore;
-        private String taskStoreName;
         private PushNotifier pushNotifier;
 
         public Builder name(String name) {
@@ -725,11 +820,6 @@ public class Agent {
 
         public Builder taskStore(TaskStore taskStore) {
             this.taskStore = taskStore;
-            return this;
-        }
-
-        public Builder taskStore(String name) {
-            this.taskStoreName = name;
             return this;
         }
 

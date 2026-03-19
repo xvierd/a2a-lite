@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MCPClient, MCPError, ToolNotFoundError } from '../src/mcp/index.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { MCPClient, MCPError } from '../src/mcp/index.js';
 
 describe('MCPClient', () => {
   let client: MCPClient;
@@ -39,8 +39,6 @@ describe('MCPClient', () => {
       client.addServer('http://example.com');
       
       // Mock the internal _isToolNotFoundError method
-      const mockError = new Error('Tool not found: unknown_tool');
-      
       await expect(client.callTool('unknown_tool')).rejects.toThrow();
     });
   });

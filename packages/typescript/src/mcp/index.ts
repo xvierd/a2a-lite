@@ -157,24 +157,25 @@ export class MCPClient {
       throw new MCPError('No MCP server URLs configured');
     }
 
-    let lastError: Error | null = null;
+    let _lastError: Error | null = null;
 
     for (const url of urls) {
       try {
-        const session = await this._getSession(url);
+        const _session = await this._getSession(url);
+        void _session; // Reserved for real MCP session call
         // In a real implementation:
-        // const result = await session.callTool(toolName, { arguments: args ?? {} });
+        // const result = await _session.callTool(toolName, { arguments: args ?? {} });
         // return this._extractContent(result);
-        
+
         // Stub: simulate a successful call
         return { result: 'stub', tool: toolName, args };
       } catch (error) {
         if (error instanceof MCPError) {
           throw error; // Re-throw SDK not installed error
         }
-        
+
         if (this._isToolNotFoundError(error as Error)) {
-          lastError = error as Error;
+          _lastError = error as Error;
           continue; // Try next server
         }
         
@@ -252,18 +253,15 @@ export class MCPClient {
 
     for (const url of urls) {
       try {
-        const session = await this._getSession(url);
+        const _session = await this._getSession(url);
+        void _session; // Reserved for real MCP session call
         // In a real implementation:
-        // const response = await session.listTools();
+        // const response = await _session.listTools();
         // for (const tool of response.tools) {
-        //   allTools.push({
-        //     name: tool.name,
-        //     description: tool.description ?? '',
-        //     inputSchema: tool.inputSchema ?? {},
-        //     serverUrl: url,
-        //   });
+        //   allTools.push({ name: tool.name, description: tool.description ?? '',
+        //     inputSchema: tool.inputSchema ?? {}, serverUrl: url });
         // }
-        
+
         // Stub: return empty
       } catch {
         // Silently skip servers that fail
@@ -288,10 +286,11 @@ export class MCPClient {
       throw new MCPError('No MCP server URLs configured');
     }
 
-    const session = await this._getSession(url);
+    const _session = await this._getSession(url);
+    void _session; // Reserved for real MCP session call
     // In a real implementation:
-    // return await session.readResource(uri);
-    
+    // return await _session.readResource(uri);
+
     // Stub
     return { uri, content: 'stub' };
   }
@@ -301,7 +300,7 @@ export class MCPClient {
    */
   async close(): Promise<void> {
     // Close all sessions
-    for (const [url, session] of this._sessions.entries()) {
+    for (const [_url, _session] of this._sessions.entries()) {
       try {
         // In a real implementation:
         // await session.close();

@@ -33,14 +33,13 @@ import type {
   SkillHandler,
   Middleware,
   TaskStore,
+  AuthProvider,
 } from './types.js';
 import { type PushNotifier } from './push-notifications.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import type { AgentNetwork } from './orchestration.js';
 import { callRemoteSkill } from './orchestration.js';
-
-import { MCPClient } from './mcp/index.js';
 
 export class Agent {
   readonly name: string;
@@ -55,9 +54,9 @@ export class Agent {
   private onShutdownHooks: Array<() => Promise<void> | void> = [];
   private onCompleteHooks: Array<(skill: string, result: unknown) => Promise<void> | void> = [];
   private taskStore?: TaskStore;
-  private protocolTaskStore?: unknown;
+  private protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
   private pushNotifier?: PushNotifier;
-  private auth: { authenticate: Function; getScheme: Function };
+  private auth: AuthProvider;
   private network?: AgentNetwork;
   private hasStreaming = false;
   private corsOrigins?: string[];
@@ -321,7 +320,7 @@ export class Agent {
       errorHandler: this.errorHandler,
       middlewares: this.middlewares,
       onCompleteHooks: this.onCompleteHooks,
-      authProvider: this.auth as any,
+      authProvider: this.auth,
       taskStore: this.taskStore,
       mcpServers: this.mcpServers,
     });
@@ -330,7 +329,7 @@ export class Agent {
     const agentCard = this.buildAgentCard();
     const requestHandler = new DefaultRequestHandler(
       agentCard,
-      (this.protocolTaskStore as any) ?? new InMemoryTaskStore(),
+      this.protocolTaskStore ?? new InMemoryTaskStore(),
       executor
     );
 
@@ -500,7 +499,7 @@ ${Array.from(this.skills.values())
   /**
    * Check if a function is a generator.
    */
-  private isGeneratorFunction(fn: Function): boolean {
+  private isGeneratorFunction(fn: SkillHandler): boolean {
     return (
       fn.constructor.name === 'AsyncGeneratorFunction' ||
       fn.constructor.name === 'GeneratorFunction'

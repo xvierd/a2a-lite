@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { Agent } from '../src/index.js';
 import { isZodSchema, zodToJsonSchema } from '../src/utils/schema-utils.js';
 
 describe('Zod Schema Detection', () => {

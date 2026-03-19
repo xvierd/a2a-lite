@@ -301,11 +301,17 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
     streaming = false,
   } = config;
 
-  async function getClient(): Promise<any> {
+  // Optional peer dependency: @aws-sdk/client-bedrock-runtime is not installed at compile time.
+  // We use a structural type that matches the subset of BedrockRuntimeClient we need.
+  interface BedrockClient {
+    send(command: unknown): Promise<Record<string, unknown>>;
+  }
+
+  async function getClient(): Promise<BedrockClient> {
     try {
       // @ts-ignore — @aws-sdk/client-bedrock-runtime is an optional peer dependency
       const { BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
-      return new BedrockRuntimeClient({ region });
+      return new BedrockRuntimeClient({ region }) as BedrockClient;
     } catch {
       throw new Error(
         "Bedrock integration requires '@aws-sdk/client-bedrock-runtime'. " +
@@ -332,8 +338,10 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
         inferenceConfig: { maxTokens, temperature },
       });
       const response = await client.send(command);
-      for await (const event of response.stream ?? []) {
-        const text = event.contentBlockDelta?.delta?.text;
+      const stream = response['stream'] as AsyncIterable<Record<string, unknown>> | undefined;
+      for await (const event of stream ?? []) {
+        const delta = (event['contentBlockDelta'] as Record<string, unknown> | undefined)?.['delta'] as Record<string, unknown> | undefined;
+        const text = delta?.['text'] as string | undefined;
         if (text) yield text;
       }
     };
@@ -356,10 +364,12 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
       inferenceConfig: { maxTokens, temperature },
     });
     const response = await client.send(command);
-    const content = response.output?.message?.content ?? [];
+    const output = response['output'] as Record<string, unknown> | undefined;
+    const message = output?.['message'] as Record<string, unknown> | undefined;
+    const content = message?.['content'] as Array<Record<string, unknown>> | undefined ?? [];
     return content
-      .filter((b: any) => b.text != null)
-      .map((b: any) => b.text as string)
+      .filter((b: Record<string, unknown>) => b['text'] != null)
+      .map((b: Record<string, unknown>) => b['text'] as string)
       .join('');
   };
 }

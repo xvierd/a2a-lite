@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LiteAgentExecutor } from '../src/executor.js';
-import { SkillNotFoundError, A2ALiteError } from '../src/errors.js';
+import { A2ALiteError } from '../src/errors.js';
 import type { SkillDefinition } from '../src/types.js';
 
 // ---------------------------------------------------------------------------

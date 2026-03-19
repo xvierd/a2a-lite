@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Agent, TaskContext, InMemoryTaskStore } from '../src/index.js';
 import { AgentTestClient } from '../src/testing.js';
 
@@ -201,7 +201,7 @@ describe('TaskContext Auto-Injection', () => {
         taskStore: 'memory'
       });
 
-      agent.skill('getParams', async ({ name, value, task }: { name: string; value: number; task: TaskContext }) => {
+      agent.skill('getParams', async ({ name: _name, value: _value, task }: { name: string; value: number; task: TaskContext }) => {
         expect(task.params).toEqual({ name: 'test', value: 42 });
         return task.params;
       });
