@@ -11,8 +11,6 @@ import logging
 from typing import Any, Callable, Optional, Dict, List
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
-
 import uvicorn
 
 from a2a.server.apps import A2AStarletteApplication
@@ -29,6 +27,8 @@ from .decorators import SkillDefinition
 from .utils import extract_function_schemas, _is_or_subclass
 from .middleware import MiddlewareChain
 from .streaming import is_generator_function
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

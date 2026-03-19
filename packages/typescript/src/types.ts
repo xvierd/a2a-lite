@@ -38,29 +38,6 @@ export interface AgentConfig {
   corsOrigins?: string[];
   production?: boolean;
   mcpServers?: string[];  // MCP server URLs
-  /**
-   * SDK-level task store for A2A protocol task lifecycle persistence.
-   * Enables Redis, PostgreSQL, or any custom persistent storage.
-   * Different from taskStore which is for skill-level TaskContext tracking.
-   *
-   * Must implement the SDK's TaskStore interface from @a2a-js/sdk.
-   *
-   * @example
-   * import { RedisTaskStore } from './my-stores';
-   * const agent = new Agent({ protocolTaskStore: new RedisTaskStore() });
-   */
-  protocolTaskStore?: unknown; // accepts any SDK-compatible TaskStore
-  /**
-   * Push notifier for skill completion events.
-   * Called after every successful or failed skill execution.
-   *
-   * @example
-   * import { WebhookPushNotifier } from './push-notifications';
-   * const agent = new Agent({
-   *   pushNotifier: new WebhookPushNotifier({ url: 'https://...' })
-   * });
-   */
-  pushNotifier?: import('./push-notifications.js').PushNotifier;
 }
 
 export interface SkillConfig {

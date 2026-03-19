@@ -9,8 +9,6 @@ import json
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
-
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 
@@ -24,6 +22,8 @@ from .errors import (
 from .middleware import MiddlewareChain, MiddlewareContext
 from .streaming import is_generator_function, stream_generator
 from .utils import _is_or_subclass
+
+logger = logging.getLogger(__name__)
 
 
 class LiteAgentExecutor(AgentExecutor):
