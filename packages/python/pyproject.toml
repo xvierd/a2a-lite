@@ -75,8 +75,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/a2a_lite"]
 
+[tool.ruff]
+line-length = 130
+
 [tool.ruff.lint]
 select = ["E", "F", "W"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["F401", "F811", "F841"]
