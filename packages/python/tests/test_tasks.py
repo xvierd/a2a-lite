@@ -1,12 +1,14 @@
 """
 Tests for task lifecycle management.
 """
+
 import pytest
+
 from a2a_lite.tasks import (
-    TaskState,
-    TaskStatus,
     Task,
     TaskContext,
+    TaskState,
+    TaskStatus,
     TaskStore,
 )
 
@@ -288,6 +290,7 @@ class TestTaskStoreEdgeCases:
     async def test_list_returns_sorted_by_created_at(self):
         """Test that list returns tasks sorted by creation time (newest first)."""
         import asyncio
+
         store = TaskStore()
         t1 = await store.create("skill", {"order": 1})
         await asyncio.sleep(0.01)

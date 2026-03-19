@@ -32,8 +32,6 @@ Individual agents remain accessible at:
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -58,7 +56,7 @@ class Router:
     """
 
     def __init__(self) -> None:
-        self._mounts: List[Tuple[str, Agent]] = []
+        self._mounts: list[tuple[str, Agent]] = []
 
     def mount(self, prefix: str, agent: Agent) -> None:
         """
@@ -94,14 +92,16 @@ class Router:
             names.append(agent.name)
             descriptions.append(agent.description)
             for skill_def in agent._skills.values():
-                all_skills.append({
-                    "id": f"{prefix.lstrip('/')}/{skill_def.name}",
-                    "name": skill_def.name,
-                    "description": f"[{agent.name}] {skill_def.description}",
-                    "tags": skill_def.tags,
-                    "inputModes": ["application/json"],
-                    "outputModes": ["application/json"],
-                })
+                all_skills.append(
+                    {
+                        "id": f"{prefix.lstrip('/')}/{skill_def.name}",
+                        "name": skill_def.name,
+                        "description": f"[{agent.name}] {skill_def.description}",
+                        "tags": skill_def.tags,
+                        "inputModes": ["application/json"],
+                        "outputModes": ["application/json"],
+                    }
+                )
 
         return {
             "name": " + ".join(names) if names else "Router",
@@ -110,10 +110,7 @@ class Router:
             "url": f"http://{host}:{port}",
             "protocolVersion": "0.3.0",
             "capabilities": {
-                "streaming": any(
-                    agent._has_streaming
-                    for _, agent in self._mounts
-                ),
+                "streaming": any(agent._has_streaming for _, agent in self._mounts),
                 "pushNotifications": False,
             },
             "defaultInputModes": ["application/json"],

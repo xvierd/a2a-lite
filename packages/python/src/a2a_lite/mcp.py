@@ -17,18 +17,20 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class MCPError(Exception):
     """Base exception for MCP-related errors."""
+
     pass
 
 
 class ToolNotFoundError(MCPError):
     """Raised when a tool is not found on any MCP server."""
+
     pass
 
 
@@ -47,9 +49,9 @@ class MCPClient:
         tools = await mcp.list_tools()
     """
 
-    def __init__(self, server_urls: Optional[List[str]] = None) -> None:
-        self._server_urls: List[str] = list(server_urls) if server_urls else []
-        self._sessions: Dict[str, Any] = {}
+    def __init__(self, server_urls: list[str] | None = None) -> None:
+        self._server_urls: list[str] = list(server_urls) if server_urls else []
+        self._sessions: dict[str, Any] = {}
 
     def add_server(self, url: str) -> None:
         """Add an MCP server URL.
@@ -78,10 +80,7 @@ class MCPClient:
             from mcp import ClientSession
             from mcp.client.sse import sse_client
         except ImportError:
-            raise ImportError(
-                "MCP integration requires the 'mcp' package. "
-                "Install it with: pip install a2a-lite[mcp]"
-            )
+            raise ImportError("MCP integration requires the 'mcp' package. Install it with: pip install a2a-lite[mcp]")
 
         read_stream, write_stream = sse_client(url)
         session = ClientSession(read_stream, write_stream)
@@ -92,7 +91,7 @@ class MCPClient:
     async def call_tool(
         self,
         tool_name: str,
-        server_url: Optional[str] = None,
+        server_url: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Call an MCP tool by name.
@@ -113,7 +112,7 @@ class MCPClient:
             ImportError: If the ``mcp`` package is not installed.
         """
         urls = [server_url] if server_url else self._server_urls
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for url in urls:
             try:
@@ -130,10 +129,7 @@ class MCPClient:
                 raise
 
         # Tool not found on any server
-        raise ValueError(
-            f"Tool '{tool_name}' not found on any MCP server. "
-            f"Servers: {urls}"
-        ) from last_error
+        raise ValueError(f"Tool '{tool_name}' not found on any MCP server. Servers: {urls}") from last_error
 
     def _is_tool_not_found_error(self, error: Exception) -> bool:
         """Check if an exception indicates a tool was not found.
@@ -183,8 +179,8 @@ class MCPClient:
 
     async def list_tools(
         self,
-        server_url: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        server_url: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List available tools from MCP servers.
 
         Args:
@@ -194,7 +190,7 @@ class MCPClient:
             List of tool descriptors with name, description, and input schema.
         """
         urls = [server_url] if server_url else self._server_urls
-        all_tools: List[Dict[str, Any]] = []
+        all_tools: list[dict[str, Any]] = []
 
         for url in urls:
             try:
@@ -219,7 +215,7 @@ class MCPClient:
     async def read_resource(
         self,
         uri: str,
-        server_url: Optional[str] = None,
+        server_url: str | None = None,
     ) -> Any:
         """Read a resource from an MCP server.
 
@@ -247,7 +243,7 @@ class MCPClient:
                 logger.warning("Error closing MCP session for %s", url, exc_info=True)
         self._sessions.clear()
 
-    async def __aenter__(self) -> "MCPClient":
+    async def __aenter__(self) -> MCPClient:
         """Enter async context manager."""
         return self
 

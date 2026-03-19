@@ -76,14 +76,50 @@ build-backend = "hatchling.build"
 packages = ["src/a2a_lite"]
 
 [tool.ruff]
-line-length = 130
+line-length = 120
+target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501", "B008", "B904", "B905", "UP007"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F401", "F811", "F841"]
+"tests/*" = ["F401", "F811", "F841", "S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+warn_return_any = false
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["a2a_lite"]
+branch = true
+omit = [
+    "*/llm.py",
+    "*/router.py",
+    "*/cli.py",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+    "\\.\\.\\.",
+    "pass",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

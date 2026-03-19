@@ -1,9 +1,12 @@
 """
 Tests for utility functions.
 """
+
+from typing import Any
+
 import pytest
-from typing import List, Dict, Optional, Any
-from a2a_lite.utils import type_to_json_schema, extract_function_schemas
+
+from a2a_lite.utils import extract_function_schemas, type_to_json_schema
 
 
 class TestTypeToJsonSchema:
@@ -28,40 +31,32 @@ class TestTypeToJsonSchema:
 
     def test_list_generic(self):
         """Test List[X] generic."""
-        schema = type_to_json_schema(List[str])
+        schema = type_to_json_schema(list[str])
         assert schema == {"type": "array", "items": {"type": "string"}}
 
     def test_list_of_int(self):
         """Test List[int]."""
-        schema = type_to_json_schema(List[int])
+        schema = type_to_json_schema(list[int])
         assert schema == {"type": "array", "items": {"type": "integer"}}
 
     def test_dict_generic(self):
         """Test Dict[K, V] generic."""
-        schema = type_to_json_schema(Dict[str, int])
-        assert schema == {
-            "type": "object",
-            "additionalProperties": {"type": "integer"}
-        }
+        schema = type_to_json_schema(dict[str, int])
+        assert schema == {"type": "object", "additionalProperties": {"type": "integer"}}
 
     def test_optional_type(self):
         """Test Optional[X] type."""
-        schema = type_to_json_schema(Optional[str])
+        schema = type_to_json_schema(str | None)
         assert schema == {"type": "string"}
 
     def test_nested_list(self):
         """Test nested List[List[X]]."""
-        schema = type_to_json_schema(List[List[int]])
-        assert schema == {
-            "type": "array",
-            "items": {
-                "type": "array",
-                "items": {"type": "integer"}
-            }
-        }
+        schema = type_to_json_schema(list[list[int]])
+        assert schema == {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}}
 
     def test_unknown_type_fallback(self):
         """Test fallback for unknown types."""
+
         class CustomClass:
             pass
 
@@ -74,6 +69,7 @@ class TestExtractFunctionSchemas:
 
     def test_simple_function(self):
         """Test schema extraction from simple function."""
+
         async def add(a: int, b: int) -> int:
             return a + b
 
@@ -87,6 +83,7 @@ class TestExtractFunctionSchemas:
 
     def test_function_with_defaults(self):
         """Test schema extraction with default parameters."""
+
         async def greet(name: str = "World") -> str:
             return f"Hello, {name}"
 
@@ -97,22 +94,18 @@ class TestExtractFunctionSchemas:
 
     def test_function_with_complex_types(self):
         """Test schema extraction with complex types."""
-        async def process(items: List[str], options: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+        async def process(items: list[str], options: dict[str, Any]) -> list[dict[str, Any]]:
             return []
 
         input_schema, output_schema = extract_function_schemas(process)
 
-        assert input_schema["properties"]["items"] == {
-            "type": "array",
-            "items": {"type": "string"}
-        }
-        assert input_schema["properties"]["options"] == {
-            "type": "object",
-            "additionalProperties": {"type": "object"}
-        }
+        assert input_schema["properties"]["items"] == {"type": "array", "items": {"type": "string"}}
+        assert input_schema["properties"]["options"] == {"type": "object", "additionalProperties": {"type": "object"}}
 
     def test_function_no_annotations(self):
         """Test schema extraction with no annotations."""
+
         def no_hints(x, y):
             return x + y
 
@@ -124,6 +117,7 @@ class TestExtractFunctionSchemas:
 
     def test_function_with_self(self):
         """Test that 'self' parameter is excluded."""
+
         class MyClass:
             async def method(self, x: int) -> int:
                 return x
@@ -135,6 +129,7 @@ class TestExtractFunctionSchemas:
 
     def test_function_with_cls(self):
         """Test that 'cls' parameter is excluded."""
+
         class MyClass:
             @classmethod
             async def method(cls, x: int) -> int:
@@ -145,6 +140,7 @@ class TestExtractFunctionSchemas:
 
     def test_function_no_return_type(self):
         """Test function without return type annotation."""
+
         def func(x: int):
             return x
 
@@ -153,6 +149,7 @@ class TestExtractFunctionSchemas:
 
     def test_function_return_none(self):
         """Test function returning None."""
+
         def func() -> None:
             pass
 
@@ -161,7 +158,8 @@ class TestExtractFunctionSchemas:
 
     def test_function_return_list(self):
         """Test function returning List[str]."""
-        async def func() -> List[str]:
+
+        async def func() -> list[str]:
             return ["a", "b"]
 
         _, output_schema = extract_function_schemas(func)
@@ -169,6 +167,7 @@ class TestExtractFunctionSchemas:
 
     def test_empty_function(self):
         """Test function with no parameters and no return type."""
+
         def func():
             pass
 
@@ -181,6 +180,7 @@ class TestTypeToJsonSchemaAdvanced:
     def test_union_type(self):
         """Test Union[int, str] type."""
         from typing import Union
+
         schema = type_to_json_schema(Union[int, str])
         assert "oneOf" in schema
         assert len(schema["oneOf"]) == 2
@@ -200,12 +200,12 @@ class TestTypeToJsonSchemaAdvanced:
 
     def test_optional_int(self):
         """Test Optional[int]."""
-        schema = type_to_json_schema(Optional[int])
+        schema = type_to_json_schema(int | None)
         assert schema == {"type": "integer"}
 
     def test_dict_str_str(self):
         """Test Dict[str, str]."""
-        schema = type_to_json_schema(Dict[str, str])
+        schema = type_to_json_schema(dict[str, str])
         assert schema == {
             "type": "object",
             "additionalProperties": {"type": "string"},
@@ -213,7 +213,7 @@ class TestTypeToJsonSchemaAdvanced:
 
     def test_list_of_dict(self):
         """Test List[Dict[str, int]]."""
-        schema = type_to_json_schema(List[Dict[str, int]])
+        schema = type_to_json_schema(list[dict[str, int]])
         assert schema == {
             "type": "array",
             "items": {
@@ -226,6 +226,7 @@ class TestTypeToJsonSchemaAdvanced:
 class TestIsOrSubclass:
     def test_exact_match(self):
         from a2a_lite.utils import _is_or_subclass
+
         assert _is_or_subclass(int, int) is True
 
     def test_subclass(self):
@@ -241,22 +242,26 @@ class TestIsOrSubclass:
 
     def test_no_match(self):
         from a2a_lite.utils import _is_or_subclass
+
         assert _is_or_subclass(str, int) is False
 
     def test_non_type_hint(self):
         from a2a_lite.utils import _is_or_subclass
+
         # Generic types may raise TypeError in issubclass
-        assert _is_or_subclass(List[str], int) is False
+        assert _is_or_subclass(list[str], int) is False
 
     def test_optional_str(self):
         """Test that Optional[str] is detected as subclass of str."""
         from a2a_lite.utils import _is_or_subclass
-        assert _is_or_subclass(Optional[str], str) is True
+
+        assert _is_or_subclass(str | None, str) is True
 
     def test_optional_int(self):
         """Test that Optional[int] is detected as subclass of int."""
         from a2a_lite.utils import _is_or_subclass
-        assert _is_or_subclass(Optional[int], int) is True
+
+        assert _is_or_subclass(int | None, int) is True
 
     def test_optional_custom_class(self):
         """Test that Optional[CustomClass] is detected as subclass of CustomClass."""
@@ -265,24 +270,29 @@ class TestIsOrSubclass:
         class MyClass:
             pass
 
-        assert _is_or_subclass(Optional[MyClass], MyClass) is True
+        assert _is_or_subclass(MyClass | None, MyClass) is True
 
     def test_optional_no_match(self):
         """Test that Optional[str] is NOT detected as subclass of int."""
         from a2a_lite.utils import _is_or_subclass
-        assert _is_or_subclass(Optional[str], int) is False
+
+        assert _is_or_subclass(str | None, int) is False
 
     def test_union_with_none(self):
         """Test that Union[str, None] works like Optional[str]."""
-        from a2a_lite.utils import _is_or_subclass
         from typing import Union
+
+        from a2a_lite.utils import _is_or_subclass
+
         assert _is_or_subclass(Union[str, None], str) is True
         assert _is_or_subclass(Union[int, None], int) is True
 
     def test_union_multiple_types(self):
         """Test that Union with multiple non-None types returns False."""
-        from a2a_lite.utils import _is_or_subclass
         from typing import Union
+
+        from a2a_lite.utils import _is_or_subclass
+
         # Union[str, int, None] is Optional[Union[str, int]]
         # Should NOT match str exactly
         assert _is_or_subclass(Union[str, int, None], str) is False

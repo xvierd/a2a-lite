@@ -1,8 +1,10 @@
 """
 Tests for MCP Client resource cleanup (memory leak fix).
 """
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 class TestMCPClientCleanup:
@@ -47,8 +49,8 @@ class TestMCPClientCleanup:
 
         client = MCPClient()
 
-        assert hasattr(client, '__aenter__')
-        assert hasattr(client, '__aexit__')
+        assert hasattr(client, "__aenter__")
+        assert hasattr(client, "__aexit__")
         assert callable(client.__aenter__)
         assert callable(client.__aexit__)
 
@@ -73,23 +75,23 @@ class TestMCPClientCleanup:
     @pytest.mark.asyncio
     async def test_async_agent_test_client_has_aenter_aexit(self):
         """Test that AsyncAgentTestClient has context manager support."""
-        from a2a_lite.testing import AsyncAgentTestClient
         from a2a_lite import Agent
+        from a2a_lite.testing import AsyncAgentTestClient
 
         agent = Agent(name="Test", description="Test")
         client = AsyncAgentTestClient(agent)
 
         # Check for context manager methods
-        assert hasattr(client, '__aenter__')
-        assert hasattr(client, '__aexit__')
+        assert hasattr(client, "__aenter__")
+        assert hasattr(client, "__aexit__")
         assert callable(client.__aenter__)
         assert callable(client.__aexit__)
 
     @pytest.mark.asyncio
     async def test_async_agent_test_client_context_manager(self):
         """Test AsyncAgentTestClient as context manager closes client."""
-        from a2a_lite.testing import AsyncAgentTestClient
         from a2a_lite import Agent
+        from a2a_lite.testing import AsyncAgentTestClient
 
         agent = Agent(name="Test", description="Test")
         client = AsyncAgentTestClient(agent)
@@ -106,8 +108,8 @@ class TestMCPClientCleanup:
     @pytest.mark.asyncio
     async def test_async_agent_test_client_context_manager_exception(self):
         """Test AsyncAgentTestClient closes on exception."""
-        from a2a_lite.testing import AsyncAgentTestClient
         from a2a_lite import Agent
+        from a2a_lite.testing import AsyncAgentTestClient
 
         agent = Agent(name="Test", description="Test")
         client = AsyncAgentTestClient(agent)

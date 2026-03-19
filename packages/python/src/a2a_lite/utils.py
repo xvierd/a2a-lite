@@ -3,28 +3,40 @@ Helper functions for A2A Lite.
 """
 
 import dataclasses
-import logging
-import typing
-from typing import Any, Dict, Type, get_origin, get_args, Union
 import inspect
+import logging
+import sys
+import types
+import typing
+from typing import Any, Union, get_args, get_origin
 
 logger = logging.getLogger(__name__)
 
+# Python 3.10+ introduced `X | Y` union syntax backed by types.UnionType
+_UNION_TYPE = types.UnionType if sys.version_info >= (3, 10) else None
 
-def _is_or_subclass(hint: Any, target_class: Type) -> bool:
+
+def _is_union(hint: Any) -> bool:
+    """Return True if *hint* is any form of Union (typing.Union or X | Y)."""
+    if get_origin(hint) is Union:
+        return True
+    if _UNION_TYPE is not None and isinstance(hint, _UNION_TYPE):
+        return True
+    return False
+
+
+def _is_or_subclass(hint: Any, target_class: type) -> bool:
     """
     Check if a type hint is, or is a subclass of, the target class.
 
     Works with raw classes and string annotations.
-    Also handles Optional[X] (Union[X, None]) by extracting the inner type.
+    Also handles Optional[X] / X | None by extracting the inner type.
     """
-    # Handle Optional[X] (Union[X, None]) by extracting the non-None type
-    origin = get_origin(hint)
-    if origin is Union:
+    # Handle Optional[X] (Union[X, None] or X | None) by extracting the non-None type
+    if _is_union(hint):
         args = get_args(hint)
         non_none_args = [a for a in args if a is not type(None)]
         if len(non_none_args) == 1:
-            # This is Optional[X], check against the inner type
             hint = non_none_args[0]
 
     try:
@@ -37,7 +49,7 @@ def _is_or_subclass(hint: Any, target_class: Type) -> bool:
     return False
 
 
-def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
+def type_to_json_schema(python_type: type) -> dict[str, Any]:
     """
     Convert Python type to JSON Schema.
 
@@ -66,13 +78,11 @@ def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
     origin = get_origin(python_type)
     args = get_args(python_type)
 
-    # Handle Optional (Union[X, None])
-    if origin is Union:
+    # Handle Optional[X] / X | None and other Union forms
+    if _is_union(python_type):
         non_none_args = [a for a in args if a is not type(None)]
         if len(non_none_args) == 1:
-            # This is Optional[X]
             return type_to_json_schema(non_none_args[0])
-        # Union of multiple types
         return {"oneOf": [type_to_json_schema(a) for a in args]}
 
     # Handle List[X]
@@ -93,10 +103,7 @@ def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
         required = []
         for field_name, field_info in python_type.__dataclass_fields__.items():
             properties[field_name] = type_to_json_schema(field_info.type)
-            if (
-                field_info.default is dataclasses.MISSING
-                and field_info.default_factory is dataclasses.MISSING
-            ):
+            if field_info.default is dataclasses.MISSING and field_info.default_factory is dataclasses.MISSING:
                 required.append(field_name)
         return {
             "type": "object",
@@ -108,7 +115,7 @@ def type_to_json_schema(python_type: Type) -> Dict[str, Any]:
     return {"type": "object"}
 
 
-def extract_function_schemas(func) -> tuple[Dict[str, Any], Dict[str, Any]]:
+def extract_function_schemas(func) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Extract input and output JSON schemas from a function's type hints.
 

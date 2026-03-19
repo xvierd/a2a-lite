@@ -1,10 +1,12 @@
 """
 Tests for the LLM skill decorators.
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from a2a_lite.llm import openai_skill, anthropic_skill, ollama_skill, bedrock_skill, _extract_user_message
+import pytest
+
+from a2a_lite.llm import _extract_user_message, anthropic_skill, bedrock_skill, ollama_skill, openai_skill
 
 
 class TestExtractUserMessage:
@@ -34,21 +36,20 @@ class TestExtractUserMessage:
 class TestOpenAISkill:
     def test_non_streaming_decorator_is_callable(self):
         @openai_skill(model="gpt-4o-mini", system_prompt="You are helpful.")
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         # Test the wrapper function was created
         assert chat is not None
         assert callable(chat)
 
         import asyncio
+
         assert asyncio.iscoroutinefunction(chat)
 
     @pytest.mark.asyncio
     async def test_openai_import_error(self):
         @openai_skill(model="gpt-4o-mini")
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         # Should raise ImportError when openai is not installed
         with patch.dict("sys.modules", {"openai": None}):
@@ -57,18 +58,18 @@ class TestOpenAISkill:
 
     def test_streaming_decorator_creates_generator(self):
         @openai_skill(model="gpt-4o-mini", streaming=True)
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         import inspect
+
         assert inspect.isasyncgenfunction(chat)
 
     def test_non_streaming_decorator_is_coroutine(self):
         @openai_skill(model="gpt-4o-mini")
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         import asyncio
+
         assert asyncio.iscoroutinefunction(chat)
 
 
@@ -76,8 +77,7 @@ class TestAnthropicSkill:
     @pytest.mark.asyncio
     async def test_anthropic_import_error(self):
         @anthropic_skill(model="claude-opus-4-6")
-        async def analyze(text: str) -> str:
-            ...
+        async def analyze(text: str) -> str: ...
 
         with patch.dict("sys.modules", {"anthropic": None}):
             with pytest.raises(ImportError, match="anthropic"):
@@ -85,48 +85,45 @@ class TestAnthropicSkill:
 
     def test_streaming_decorator_creates_generator(self):
         @anthropic_skill(model="claude-opus-4-6", streaming=True)
-        async def analyze(text: str) -> str:
-            ...
+        async def analyze(text: str) -> str: ...
 
         import inspect
+
         assert inspect.isasyncgenfunction(analyze)
 
     def test_non_streaming_decorator_is_coroutine(self):
         @anthropic_skill(model="claude-opus-4-6")
-        async def analyze(text: str) -> str:
-            ...
+        async def analyze(text: str) -> str: ...
 
         import asyncio
+
         assert asyncio.iscoroutinefunction(analyze)
 
 
 class TestOllamaSkill:
     def test_non_streaming_is_coroutine(self):
         @ollama_skill(model="llama3.2")
-        async def local(message: str) -> str:
-            ...
+        async def local(message: str) -> str: ...
 
         import asyncio
+
         assert asyncio.iscoroutinefunction(local)
 
     def test_streaming_is_generator(self):
         @ollama_skill(model="llama3.2", streaming=True)
-        async def local(message: str) -> str:
-            ...
+        async def local(message: str) -> str: ...
 
         import inspect
+
         assert inspect.isasyncgenfunction(local)
 
     @pytest.mark.asyncio
     async def test_non_streaming_calls_httpx(self):
         @ollama_skill(model="llama3.2", base_url="http://localhost:11434")
-        async def local(message: str) -> str:
-            ...
+        async def local(message: str) -> str: ...
 
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "message": {"content": "Ollama says hi"}
-        }
+        mock_response.json.return_value = {"message": {"content": "Ollama says hi"}}
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
@@ -142,25 +139,24 @@ class TestOllamaSkill:
 class TestBedrockSkill:
     def test_non_streaming_is_coroutine(self):
         @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         import asyncio
+
         assert asyncio.iscoroutinefunction(chat)
 
     def test_streaming_is_generator(self):
         @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0", streaming=True)
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         import inspect
+
         assert inspect.isasyncgenfunction(chat)
 
     @pytest.mark.asyncio
     async def test_bedrock_import_error(self):
         @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         with patch.dict("sys.modules", {"boto3": None}):
             with pytest.raises(ImportError, match="boto3"):
@@ -172,8 +168,7 @@ class TestBedrockSkill:
             model="anthropic.claude-3-haiku-20240307-v1:0",
             region_name="us-east-1",
         )
-        async def chat(message: str) -> str:
-            ...
+        async def chat(message: str) -> str: ...
 
         mock_client = MagicMock()
         mock_client.converse.return_value = {
@@ -190,36 +185,30 @@ class TestBedrockSkill:
         with patch.dict("sys.modules", {"boto3": mock_boto3}):
             result = await chat(message="hello")
             assert result == "Bedrock says hi"
-            mock_boto3.client.assert_called_once_with(
-                "bedrock-runtime", region_name="us-east-1"
-            )
+            mock_boto3.client.assert_called_once_with("bedrock-runtime", region_name="us-east-1")
 
 
 class TestDecoratorPreservesMetadata:
     def test_openai_preserves_name(self):
         @openai_skill(model="gpt-4o-mini")
-        async def my_chat(message: str) -> str:
-            ...
+        async def my_chat(message: str) -> str: ...
 
         assert my_chat.__name__ == "my_chat"
 
     def test_anthropic_preserves_name(self):
         @anthropic_skill(model="claude-opus-4-6")
-        async def my_analyze(text: str) -> str:
-            ...
+        async def my_analyze(text: str) -> str: ...
 
         assert my_analyze.__name__ == "my_analyze"
 
     def test_ollama_preserves_name(self):
         @ollama_skill(model="llama3.2")
-        async def my_local(message: str) -> str:
-            ...
+        async def my_local(message: str) -> str: ...
 
         assert my_local.__name__ == "my_local"
 
     def test_bedrock_preserves_name(self):
         @bedrock_skill(model="anthropic.claude-3-haiku-20240307-v1:0")
-        async def my_bedrock(message: str) -> str:
-            ...
+        async def my_bedrock(message: str) -> str: ...
 
         assert my_bedrock.__name__ == "my_bedrock"

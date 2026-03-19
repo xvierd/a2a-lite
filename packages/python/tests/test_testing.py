@@ -1,7 +1,11 @@
 """
 Tests for the testing utilities.
 """
+
+import json
+
 import pytest
+
 from a2a_lite import Agent, AgentTestClient
 from a2a_lite.testing import TestResult
 
@@ -86,7 +90,7 @@ class TestTestResult:
 
     def test_json_invalid(self):
         result = TestResult(_data="not json", _text="not json", raw_response={})
-        with pytest.raises(Exception):
+        with pytest.raises(json.JSONDecodeError):
             result.json()
 
     def test_eq_with_value(self):
@@ -135,8 +139,7 @@ class TestAgentTestClientStream:
 
         @agent.skill("words", streaming=True)
         def words(text: str = "hello world"):
-            for word in text.split():
-                yield word
+            yield from text.split()
 
         client = AgentTestClient(agent)
         results = client.stream("words", text="a b c")

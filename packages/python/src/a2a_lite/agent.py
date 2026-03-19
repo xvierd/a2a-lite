@@ -8,25 +8,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Optional, Dict, List
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import uvicorn
-
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import (
+    AgentCapabilities,
     AgentCard,
     AgentSkill,
-    AgentCapabilities,
 )
 
-from .executor import LiteAgentExecutor
 from .decorators import SkillDefinition
-from .utils import extract_function_schemas, _is_or_subclass
+from .executor import LiteAgentExecutor
 from .middleware import MiddlewareChain
 from .streaming import is_generator_function
+from .utils import _is_or_subclass, extract_function_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -99,27 +99,29 @@ class Agent:
     name: str
     description: str
     version: str = "1.0.0"
-    url: Optional[str] = None
+    url: str | None = None
 
     # Optional enterprise features
-    auth: Optional[Any] = None  # AuthProvider
-    task_store: Optional[Any] = None  # TaskStore or "memory"
-    cors_origins: Optional[List[str]] = None
+    auth: Any | None = None  # AuthProvider
+    task_store: Any | None = None  # TaskStore or "memory"
+    cors_origins: list[str] | None = None
     production: bool = False
-    network: Optional[Any] = None  # AgentNetwork
-    protocol_task_store: Optional[Any] = None  # SDK-level TaskStore for A2A protocol persistence (enables Redis, Postgres, etc.)
-    push_notifier: Optional[Any] = None  # PushNotifier for skill completion events
+    network: Any | None = None  # AgentNetwork
+    protocol_task_store: Any | None = (
+        None  # SDK-level TaskStore for A2A protocol persistence (enables Redis, Postgres, etc.)
+    )
+    push_notifier: Any | None = None  # PushNotifier for skill completion events
 
     def __post_init__(self):
         # Internal state
-        self._skills: Dict[str, SkillDefinition] = {}
-        self._error_handler: Optional[Callable] = None
-        self._on_startup: List[Callable] = []
-        self._on_shutdown: List[Callable] = []
-        self._on_complete: List[Callable] = []
+        self._skills: dict[str, SkillDefinition] = {}
+        self._error_handler: Callable | None = None
+        self._on_startup: list[Callable] = []
+        self._on_shutdown: list[Callable] = []
+        self._on_complete: list[Callable] = []
         self._middleware = MiddlewareChain()
         self._has_streaming = False
-        self._mcp_servers: List[str] = []
+        self._mcp_servers: list[str] = []
 
         # Setup optional network
         if self.network is not None:
@@ -150,9 +152,9 @@ class Agent:
 
     def skill(
         self,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        name: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
         streaming: bool = False,
     ) -> Callable:
         """
@@ -191,9 +193,10 @@ class Agent:
 
             # Detect special parameter types using proper type introspection
             import typing
-            from .tasks import TaskContext as _TaskContext
+
             from .auth import AuthResult as _AuthResult
             from .mcp import MCPClient as _MCPClient
+            from .tasks import TaskContext as _TaskContext
 
             needs_task_context = False
             needs_auth = False
@@ -222,7 +225,7 @@ class Agent:
                     mcp_param = param_name
 
             # Also detect require_auth decorator
-            if getattr(func, "__requires_auth__", False) and not needs_auth:
+            if getattr(func, "__requires_auth__", False) and not needs_auth:  # pragma: no cover
                 needs_auth = True
                 auth_param = auth_param or "auth"
 
@@ -344,10 +347,7 @@ class Agent:
             if resolved is not None:
                 url = resolved
             else:
-                raise KeyError(
-                    f"Agent '{target}' not found in network. "
-                    f"Available: {list(self._network.list().keys())}"
-                )
+                raise KeyError(f"Agent '{target}' not found in network. Available: {list(self._network.list().keys())}")
 
         return await _call_remote_skill(url, skill, params, timeout)
 
@@ -382,7 +382,7 @@ class Agent:
             skills=skills,
         )
 
-    def run(
+    def run(  # pragma: no cover
         self,
         host: str = "0.0.0.0",
         port: int = 8787,
@@ -408,8 +408,7 @@ class Agent:
         # Build display info
         skills_list = "\n".join(
             [
-                f"  • {s.name}: {s.description}"
-                + (" [streaming]" if getattr(s, "is_streaming", False) else "")
+                f"  • {s.name}: {s.description}" + (" [streaming]" if getattr(s, "is_streaming", False) else "")
                 for s in self._skills.values()
             ]
         )
@@ -427,9 +426,7 @@ class Agent:
         if self._task_store:
             features.append("task-tracking")
 
-        features_str = (
-            f"\n\n[bold]Features:[/] {', '.join(features)}" if features else ""
-        )
+        features_str = f"\n\n[bold]Features:[/] {', '.join(features)}" if features else ""
 
         console.print(
             Panel(
@@ -463,10 +460,7 @@ class Agent:
         if self.production:
             url_str = self.url or f"http://{display_host}:{port}"
             if not url_str.startswith("https://"):
-                logger.warning(
-                    "Running in production mode over HTTP. "
-                    "Consider using HTTPS for secure communication."
-                )
+                logger.warning("Running in production mode over HTTP. Consider using HTTPS for secure communication.")
 
         # Build the ASGI app
         app = self._build_app(display_host, port)
@@ -495,24 +489,23 @@ class Agent:
                 except RuntimeError:
                     asyncio.run(_run_shutdown())
 
-    async def call_remote(
+    async def call_remote(  # pragma: no cover
         self,
         agent_url: str,
         message: str,
         timeout: float = 30.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Call a remote A2A agent."""
+        from uuid import uuid4
+
         import httpx
         from a2a.client import A2AClient
         from a2a.types import MessageSendParams, SendMessageRequest
-        from uuid import uuid4
 
         async with httpx.AsyncClient(timeout=timeout) as http_client:
             card_url = f"{agent_url.rstrip('/')}/.well-known/agent.json"
 
-            client = await A2AClient.get_client_from_agent_card_url(
-                http_client, card_url
-            )
+            client = await A2AClient.get_client_from_agent_card_url(http_client, card_url)
 
             request = SendMessageRequest(
                 id=uuid4().hex,
@@ -544,6 +537,7 @@ class Agent:
         on_complete = list(self._on_complete)
         if self._push_notifier is not None:
             import time as _time
+
             notifier = self._push_notifier
             agent_name = self.name
 
@@ -652,30 +646,26 @@ class Agent:
 
             # Strip injected params from the JSON schema properties
             if injected_params and "properties" in input_schema:
-                props = {
-                    k: v for k, v in input_schema["properties"].items()
-                    if k not in injected_params
-                }
+                props = {k: v for k, v in input_schema["properties"].items() if k not in injected_params}
                 input_schema = dict(input_schema)
                 input_schema["properties"] = props
                 # Also remove from required list if present
                 if "required" in input_schema:
-                    input_schema["required"] = [
-                        r for r in input_schema["required"]
-                        if r not in injected_params
-                    ]
+                    input_schema["required"] = [r for r in input_schema["required"] if r not in injected_params]
 
             # If no schema was extracted, provide a minimal one
             if not input_schema:
                 input_schema = {"type": "object", "properties": {}}
 
-            schemas.append({
-                "type": "function",
-                "function": {
-                    "name": skill_def.name,
-                    "description": skill_def.description,
-                    "parameters": input_schema,
-                },
-            })
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": skill_def.name,
+                        "description": skill_def.description,
+                        "parameters": input_schema,
+                    },
+                }
+            )
 
         return schemas

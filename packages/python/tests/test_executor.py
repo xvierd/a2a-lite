@@ -1,20 +1,23 @@
 """
 Tests for the LiteAgentExecutor.
 """
-import pytest
-import json
+
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from a2a_lite.executor import LiteAgentExecutor
+import pytest
+
+from a2a_lite.auth import APIKeyAuth, AuthResult, NoAuth
 from a2a_lite.decorators import SkillDefinition
+from a2a_lite.executor import LiteAgentExecutor
 from a2a_lite.middleware import MiddlewareChain, MiddlewareContext
-from a2a_lite.auth import NoAuth, APIKeyAuth, AuthResult
 
 
 def _make_skill(name, handler, **kwargs):
     """Helper to build a SkillDefinition from a handler function."""
     from a2a_lite.utils import extract_function_schemas
+
     input_schema, output_schema = extract_function_schemas(handler)
     return SkillDefinition(
         name=name,
@@ -85,10 +88,12 @@ class TestExecuteSkill:
         async def s2() -> str:
             return "two"
 
-        executor = LiteAgentExecutor(skills={
-            "s1": _make_skill("s1", s1),
-            "s2": _make_skill("s2", s2),
-        })
+        executor = LiteAgentExecutor(
+            skills={
+                "s1": _make_skill("s1", s1),
+                "s2": _make_skill("s2", s2),
+            }
+        )
         result = await executor._execute_skill(None, {}, MagicMock(), {})
         assert "error" in result
         assert "available_skills" in result
@@ -170,6 +175,7 @@ class TestConvertParams:
 
     def test_filepart_conversion_a2a_format(self):
         import base64
+
         from a2a_lite.parts import FilePart
 
         async def process(file: FilePart) -> str:

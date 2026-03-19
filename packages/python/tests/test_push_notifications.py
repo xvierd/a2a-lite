@@ -8,13 +8,12 @@ import hashlib
 import hmac
 import json
 import logging
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from a2a_lite.push_notifications import LogPushNotifier, PushNotifier, WebhookPushNotifier
-
 
 # ---------------------------------------------------------------------------
 # LogPushNotifier
@@ -63,6 +62,7 @@ class TestLogPushNotifier:
 def _make_response(status_code: int) -> MagicMock:
     """Return a mock httpx Response object."""
     import httpx
+
     resp = MagicMock()
     resp.status_code = status_code
     resp.is_success = 200 <= status_code < 300
@@ -75,7 +75,7 @@ def _make_response(status_code: int) -> MagicMock:
     return resp
 
 
-def _verify_signature(body: "bytes | str", secret: str, header_value: str) -> bool:
+def _verify_signature(body: bytes | str, secret: str, header_value: str) -> bool:
     """Verify an HMAC-SHA256 signature matches the header value."""
     if isinstance(body, str):
         body = body.encode("utf-8")
@@ -353,6 +353,7 @@ class TestProtocolTaskStoreWiring:
     def test_protocol_task_store_defaults_to_in_memory(self):
         """When protocol_task_store is None, _build_app creates an InMemoryTaskStore."""
         from a2a.server.tasks import InMemoryTaskStore
+
         from a2a_lite import Agent
 
         agent = Agent(name="Test", description="Test")
@@ -372,6 +373,7 @@ class TestProtocolTaskStoreWiring:
     def test_custom_protocol_task_store_passed_through(self):
         """When protocol_task_store is set, it is passed to DefaultRequestHandler."""
         from a2a.server.tasks import InMemoryTaskStore
+
         from a2a_lite import Agent
 
         custom_store = InMemoryTaskStore()
@@ -403,10 +405,10 @@ class TestPushNotifierWiring:
         from a2a_lite import Agent
         from a2a_lite.executor import LiteAgentExecutor
 
-        notified_events: list[Dict[str, Any]] = []
+        notified_events: list[dict[str, Any]] = []
 
         class CapturingNotifier(PushNotifier):
-            async def notify(self, event: Dict[str, Any]) -> None:
+            async def notify(self, event: dict[str, Any]) -> None:
                 notified_events.append(event)
 
         agent = Agent(
@@ -440,6 +442,7 @@ class TestPushNotifierWiring:
         # Simulate the on_complete call
         for hook in executor.on_complete:
             import asyncio
+
             if asyncio.iscoroutinefunction(hook):
                 await hook("greet", "Hello, World", MagicMock())
             else:
@@ -487,7 +490,7 @@ class TestPushNotifierWiring:
         from a2a_lite.executor import LiteAgentExecutor
 
         class BrokenNotifier(PushNotifier):
-            async def notify(self, event: Dict[str, Any]) -> None:
+            async def notify(self, event: dict[str, Any]) -> None:
                 raise RuntimeError("network down")
 
         agent = Agent(
@@ -515,6 +518,7 @@ class TestPushNotifierWiring:
 
         # Should not raise even though notifier throws
         import asyncio
+
         for hook in executor.on_complete:
             if asyncio.iscoroutinefunction(hook):
                 await hook("ping", "pong", MagicMock())

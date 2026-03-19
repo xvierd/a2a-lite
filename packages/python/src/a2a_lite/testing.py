@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 from uuid import uuid4
 
 
@@ -33,7 +33,7 @@ class TestResult:
 
     _data: Any
     _text: str
-    raw_response: Dict[str, Any]
+    raw_response: dict[str, Any]
 
     @property
     def data(self) -> Any:
@@ -132,7 +132,7 @@ class AgentTestClient:
         # Extract the actual result from A2A response
         return self._extract_result(data)
 
-    def _extract_result(self, response: Dict) -> TestResult:
+    def _extract_result(self, response: dict) -> TestResult:
         """Extract the skill result from A2A response."""
         if "error" in response:
             raise TestClientError(response["error"])
@@ -153,7 +153,7 @@ class AgentTestClient:
 
         return TestResult(_data=result, _text=json.dumps(result), raw_response=response)
 
-    def get_agent_card(self) -> Dict[str, Any]:
+    def get_agent_card(self) -> dict[str, Any]:
         """
         Fetch the agent card.
 
@@ -305,7 +305,7 @@ class AsyncAgentTestClient:
 
         return self._extract_result(data)
 
-    def _extract_result(self, response: Dict) -> TestResult:
+    def _extract_result(self, response: dict) -> TestResult:
         """Extract the skill result from A2A response."""
         if "error" in response:
             raise TestClientError(response["error"])
@@ -330,7 +330,7 @@ class AsyncAgentTestClient:
             await self._client.aclose()
             self._client = None
 
-    async def __aenter__(self) -> "AsyncAgentTestClient":
+    async def __aenter__(self) -> AsyncAgentTestClient:
         """Enter async context manager."""
         return self
 

@@ -32,6 +32,7 @@ def load_example(filename: str) -> types.ModuleType:
 # 01 — Hello World
 # ---------------------------------------------------------------------------
 
+
 class TestHelloWorld:
     def setup_method(self):
         self.mod = load_example("01_hello_world.py")
@@ -52,6 +53,7 @@ class TestHelloWorld:
 # ---------------------------------------------------------------------------
 # 02 — Calculator
 # ---------------------------------------------------------------------------
+
 
 class TestCalculator:
     def setup_method(self):
@@ -79,6 +81,7 @@ class TestCalculator:
 # ---------------------------------------------------------------------------
 # 03 — Async Agent
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncAgent:
     def setup_method(self):
@@ -110,6 +113,7 @@ class TestAsyncAgent:
 # 05 — LLM Integration (import + agent card only — requires API key)
 # ---------------------------------------------------------------------------
 
+
 class TestLLMAgent:
     def setup_method(self):
         self.mod = load_example("05_with_llm.py")
@@ -127,6 +131,7 @@ class TestLLMAgent:
 # ---------------------------------------------------------------------------
 # 06 — Pydantic Models
 # ---------------------------------------------------------------------------
+
 
 class TestPydanticModels:
     def setup_method(self):
@@ -152,6 +157,7 @@ class TestPydanticModels:
 # 07 — Middleware
 # ---------------------------------------------------------------------------
 
+
 class TestMiddleware:
     def setup_method(self):
         self.mod = load_example("07_middleware.py")
@@ -169,6 +175,7 @@ class TestMiddleware:
 # ---------------------------------------------------------------------------
 # 08 — Streaming
 # ---------------------------------------------------------------------------
+
 
 class TestStreaming:
     def setup_method(self):
@@ -192,6 +199,7 @@ class TestStreaming:
 # 09 — Testing (example already tests itself; just confirm it runs)
 # ---------------------------------------------------------------------------
 
+
 class TestTestingExample:
     def setup_method(self):
         self.mod = load_example("09_testing.py")
@@ -212,6 +220,7 @@ class TestTestingExample:
 # 11 — Task Tracking
 # ---------------------------------------------------------------------------
 
+
 class TestTaskTracking:
     def setup_method(self):
         self.mod = load_example("11_task_tracking.py")
@@ -229,6 +238,7 @@ class TestTaskTracking:
 # ---------------------------------------------------------------------------
 # 12 — Auth (test public skill; secret skill tested with and without auth)
 # ---------------------------------------------------------------------------
+
 
 class TestAuth:
     def setup_method(self):

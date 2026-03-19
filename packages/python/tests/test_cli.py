@@ -1,10 +1,11 @@
 """
 Tests for the CLI module.
 """
+
 import pytest
 from typer.testing import CliRunner
-from a2a_lite.cli import app
 
+from a2a_lite.cli import app
 
 runner = CliRunner()
 
@@ -123,10 +124,13 @@ class TestTest:
 class TestDiscover:
     def test_discover_invalid_urls(self):
         """Discover should handle invalid URLs gracefully."""
-        result = runner.invoke(app, [
-            "discover",
-            "http://invalid-nonexistent-url-12345.example.com",
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "discover",
+                "http://invalid-nonexistent-url-12345.example.com",
+            ],
+        )
         # Should not crash, shows error in table
         assert result.exit_code == 0
         assert "Error" in result.stdout or "error" in result.stdout.lower()

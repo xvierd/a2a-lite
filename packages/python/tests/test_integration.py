@@ -1,9 +1,11 @@
 """
 Integration tests using httpx to test running agents.
 """
-import pytest
+
 import json
 from uuid import uuid4
+
+import pytest
 
 from a2a_lite import Agent
 
@@ -93,7 +95,7 @@ async def test_skill_invocation(calculator_agent):
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -123,7 +125,7 @@ async def test_unknown_skill(calculator_agent):
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -150,7 +152,7 @@ async def test_greeting_skill(greeting_agent):
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -177,7 +179,7 @@ async def test_default_parameter(greeting_agent):
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -242,7 +244,7 @@ def test_sync_skill_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -277,7 +279,7 @@ def test_skill_returning_dict_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -314,7 +316,7 @@ def test_skill_returning_list_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -354,7 +356,7 @@ def test_error_handler_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -369,6 +371,7 @@ def test_error_handler_via_http():
 def test_middleware_via_http():
     """Test middleware execution via HTTP."""
     from starlette.testclient import TestClient
+
     from a2a_lite.middleware import timing_middleware
 
     agent = Agent(name="MWTest", description="Middleware test")
@@ -392,7 +395,7 @@ def test_middleware_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -427,7 +430,7 @@ def test_plain_text_message():
                 "parts": [{"type": "text", "text": "Hello there"}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -436,8 +439,8 @@ def test_plain_text_message():
 
 def test_pydantic_model_via_http():
     """Test Pydantic model parameter via HTTP."""
-    from starlette.testclient import TestClient
     from pydantic import BaseModel
+    from starlette.testclient import TestClient
 
     class UserInput(BaseModel):
         name: str
@@ -452,10 +455,12 @@ def test_pydantic_model_via_http():
     app = agent.get_app()
     client = TestClient(app)
 
-    message = json.dumps({
-        "skill": "create_user",
-        "params": {"user": {"name": "Alice", "age": 30}},
-    })
+    message = json.dumps(
+        {
+            "skill": "create_user",
+            "params": {"user": {"name": "Alice", "age": 30}},
+        }
+    )
     request_body = {
         "jsonrpc": "2.0",
         "method": "message/send",
@@ -466,7 +471,7 @@ def test_pydantic_model_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -498,7 +503,7 @@ def test_agent_with_no_skills():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -534,7 +539,7 @@ def test_completion_hook_via_http():
                 "parts": [{"type": "text", "text": message}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)
@@ -566,7 +571,7 @@ def test_single_skill_auto_dispatch():
                 "parts": [{"type": "text", "text": "Hello there"}],
                 "messageId": uuid4().hex,
             }
-        }
+        },
     }
 
     response = client.post("/", json=request_body)

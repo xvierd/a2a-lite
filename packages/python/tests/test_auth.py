@@ -1,14 +1,16 @@
 """
 Tests for authentication providers.
 """
+
 import pytest
+
 from a2a_lite.auth import (
+    APIKeyAuth,
     AuthRequest,
     AuthResult,
-    NoAuth,
-    APIKeyAuth,
     BearerAuth,
     CompositeAuth,
+    NoAuth,
     require_auth,
 )
 
@@ -150,10 +152,12 @@ class TestBearerAuth:
 class TestCompositeAuth:
     @pytest.mark.asyncio
     async def test_first_match_wins(self):
-        auth = CompositeAuth([
-            APIKeyAuth(keys=["api-key"]),
-            BearerAuth(validator=lambda t: "bearer-user" if t == "token" else None),
-        ])
+        auth = CompositeAuth(
+            [
+                APIKeyAuth(keys=["api-key"]),
+                BearerAuth(validator=lambda t: "bearer-user" if t == "token" else None),
+            ]
+        )
 
         # API key should work
         request1 = AuthRequest(headers={"X-API-Key": "api-key"})
@@ -167,10 +171,12 @@ class TestCompositeAuth:
 
     @pytest.mark.asyncio
     async def test_all_fail(self):
-        auth = CompositeAuth([
-            APIKeyAuth(keys=["key1"]),
-            APIKeyAuth(keys=["key2"]),
-        ])
+        auth = CompositeAuth(
+            [
+                APIKeyAuth(keys=["key1"]),
+                APIKeyAuth(keys=["key2"]),
+            ]
+        )
 
         request = AuthRequest(headers={"X-API-Key": "wrong"})
         result = await auth.authenticate(request)
@@ -183,6 +189,7 @@ class TestAuthIntegration:
 
     def _make_agent_with_auth(self):
         from a2a_lite import Agent
+
         agent = Agent(
             name="SecureAgent",
             description="Auth integration test",
@@ -197,9 +204,10 @@ class TestAuthIntegration:
 
     def test_unauthenticated_request_rejected(self):
         """Requests without a valid API key should be rejected."""
-        from starlette.testclient import TestClient
         import json
         from uuid import uuid4
+
+        from starlette.testclient import TestClient
 
         agent = self._make_agent_with_auth()
         app = agent.get_app()
@@ -215,7 +223,7 @@ class TestAuthIntegration:
                     "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = client.post("/", json=request_body)
@@ -228,9 +236,10 @@ class TestAuthIntegration:
 
     def test_authenticated_request_succeeds(self):
         """Requests with a valid API key should succeed."""
-        from starlette.testclient import TestClient
         import json
         from uuid import uuid4
+
+        from starlette.testclient import TestClient
 
         agent = self._make_agent_with_auth()
         app = agent.get_app()
@@ -246,7 +255,7 @@ class TestAuthIntegration:
                     "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = client.post(
@@ -261,9 +270,10 @@ class TestAuthIntegration:
 
     def test_wrong_key_rejected(self):
         """Requests with an invalid API key should be rejected."""
-        from starlette.testclient import TestClient
         import json
         from uuid import uuid4
+
+        from starlette.testclient import TestClient
 
         agent = self._make_agent_with_auth()
         app = agent.get_app()
@@ -279,7 +289,7 @@ class TestAuthIntegration:
                     "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = client.post(
@@ -298,11 +308,13 @@ class TestRequireAuth:
 
     def test_require_auth_receives_auth_result(self):
         """Skills decorated with require_auth should receive the AuthResult."""
-        from a2a_lite import Agent
-        from a2a_lite.testing import AgentTestClient
-        from starlette.testclient import TestClient
         import json
         from uuid import uuid4
+
+        from starlette.testclient import TestClient
+
+        from a2a_lite import Agent
+        from a2a_lite.testing import AgentTestClient
 
         agent = Agent(
             name="AuthTest",
@@ -329,7 +341,7 @@ class TestRequireAuth:
                     "parts": [{"type": "text", "text": json.dumps({"skill": "admin", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
         response = client.post("/", json=request_body)
         result_text = response.json().get("result", {}).get("parts", [{}])[0].get("text", "")
@@ -342,10 +354,12 @@ class TestRequireAuth:
 
     def test_auth_param_injected_without_decorator(self):
         """Skills with auth: AuthResult parameter should receive it directly."""
-        from a2a_lite import Agent
-        from starlette.testclient import TestClient
         import json
         from uuid import uuid4
+
+        from starlette.testclient import TestClient
+
+        from a2a_lite import Agent
 
         agent = Agent(
             name="AuthTest2",
@@ -370,7 +384,7 @@ class TestRequireAuth:
                     "parts": [{"type": "text", "text": json.dumps({"skill": "whoami", "params": {}})}],
                     "messageId": uuid4().hex,
                 }
-            }
+            },
         }
 
         response = client.post("/", json=request_body, headers={"X-API-Key": "my-key"})
@@ -447,6 +461,7 @@ class TestAPIKeyAuthEdgeCases:
 class TestOAuth2Auth:
     def test_scheme(self):
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -459,6 +474,7 @@ class TestOAuth2Auth:
     @pytest.mark.asyncio
     async def test_missing_bearer_token(self):
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -472,6 +488,7 @@ class TestOAuth2Auth:
     async def test_invalid_token(self):
         """OAuth2Auth should fail for invalid tokens."""
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -486,6 +503,7 @@ class TestOAuth2Auth:
 
     def test_default_jwks_uri(self):
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -494,6 +512,7 @@ class TestOAuth2Auth:
 
     def test_custom_jwks_uri(self):
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -503,6 +522,7 @@ class TestOAuth2Auth:
 
     def test_default_algorithms(self):
         from a2a_lite.auth import OAuth2Auth
+
         auth = OAuth2Auth(
             issuer="https://auth.example.com",
             audience="my-agent",
@@ -512,10 +532,12 @@ class TestOAuth2Auth:
 
 class TestCompositeAuthEdgeCases:
     def test_get_scheme_returns_first_provider(self):
-        auth = CompositeAuth([
-            APIKeyAuth(keys=["key"]),
-            BearerAuth(validator=lambda t: None),
-        ])
+        auth = CompositeAuth(
+            [
+                APIKeyAuth(keys=["key"]),
+                BearerAuth(validator=lambda t: None),
+            ]
+        )
         scheme = auth.get_scheme()
         assert scheme["type"] == "apiKey"
 
@@ -526,10 +548,12 @@ class TestCompositeAuthEdgeCases:
 
     @pytest.mark.asyncio
     async def test_composite_error_messages_combined(self):
-        auth = CompositeAuth([
-            APIKeyAuth(keys=["key1"]),
-            BearerAuth(validator=lambda t: None),
-        ])
+        auth = CompositeAuth(
+            [
+                APIKeyAuth(keys=["key1"]),
+                BearerAuth(validator=lambda t: None),
+            ]
+        )
         request = AuthRequest(headers={})
         result = await auth.authenticate(request)
         assert result.authenticated is False

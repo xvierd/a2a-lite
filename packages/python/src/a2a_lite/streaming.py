@@ -11,8 +11,9 @@ Enables generator-based streaming for LLM-style responses:
 
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator, Callable, Generator, Union
 import inspect
+from collections.abc import AsyncGenerator, Callable, Generator
+from typing import Any, Union
 
 
 def is_generator_function(func: Callable) -> bool:

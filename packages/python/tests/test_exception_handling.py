@@ -1,9 +1,11 @@
 """
 Tests for exception handling - verifies errors are logged not swallowed.
 """
+
 import logging
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestExceptionHandling:
@@ -12,13 +14,14 @@ class TestExceptionHandling:
     def test_get_type_hints_failure_logged_in_utils(self, caplog):
         """Test that get_type_hints failure is logged in utils.extract_function_schemas."""
         import typing
+
         from a2a_lite.utils import extract_function_schemas
 
         def sample_func(x: int) -> int:
             return x
 
         with caplog.at_level(logging.DEBUG):
-            with patch.object(typing, 'get_type_hints', side_effect=Exception("Test error")):
+            with patch.object(typing, "get_type_hints", side_effect=Exception("Test error")):
                 # Should not raise, should fallback to __annotations__
                 extract_function_schemas(sample_func)
 
@@ -28,10 +31,11 @@ class TestExceptionHandling:
     def test_get_type_hints_failure_logged_in_agent(self, caplog):
         """Test that get_type_hints failure is logged in agent.skill decorator."""
         import typing
+
         from a2a_lite import Agent
 
         with caplog.at_level(logging.DEBUG):
-            with patch.object(typing, 'get_type_hints', side_effect=Exception("Agent test error")):
+            with patch.object(typing, "get_type_hints", side_effect=Exception("Agent test error")):
                 agent = Agent(name="Test", description="Test")
 
                 @agent.skill("test")
@@ -49,19 +53,21 @@ class TestExceptionHandling:
 
         # Create a mock handler to test the logging directly
         mock_handler = MagicMock()
-        mock_handler.__annotations__ = {'x': int, 'return': int}
-        mock_handler.__name__ = 'test_handler'
+        mock_handler.__annotations__ = {"x": int, "return": int}
+        mock_handler.__name__ = "test_handler"
 
         # Simulate what _convert_params does when get_type_hints fails
-        logger = logging.getLogger('a2a_lite.executor')
+        logger = logging.getLogger("a2a_lite.executor")
 
-        with caplog.at_level(logging.DEBUG, logger='a2a_lite.executor'):
-            with patch.object(typing, 'get_type_hints', side_effect=Exception("Executor test error")):
+        with caplog.at_level(logging.DEBUG, logger="a2a_lite.executor"):
+            with patch.object(typing, "get_type_hints", side_effect=Exception("Executor test error")):
                 try:
                     hints = typing.get_type_hints(mock_handler)
                 except Exception as e:
                     # This is the pattern we implemented
-                    logger.debug("Failed to get type hints for handler '%s': %s", getattr(mock_handler, '__name__', 'unknown'), e)
+                    logger.debug(
+                        "Failed to get type hints for handler '%s': %s", getattr(mock_handler, "__name__", "unknown"), e
+                    )
                     hints = getattr(mock_handler, "__annotations__", {})
 
         # Check that error was logged
@@ -69,9 +75,10 @@ class TestExceptionHandling:
 
     def test_mcp_list_tools_exception_logged(self, caplog):
         """Test that MCP list_tools exceptions are properly logged."""
-        import logging
         import asyncio
-        from unittest.mock import patch, AsyncMock
+        import logging
+        from unittest.mock import AsyncMock, patch
+
         from a2a_lite.mcp import MCPClient
 
         client = MCPClient(server_urls=["http://localhost:5001"])
@@ -99,6 +106,7 @@ class TestExceptionHandling:
 
         with caplog.at_level(logging.WARNING):
             import asyncio
+
             asyncio.run(client.close())
 
         # Should have logged the warning
