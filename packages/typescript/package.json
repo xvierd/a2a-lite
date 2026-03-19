@@ -1,6 +1,6 @@
 {
   "name": "a2a-lite",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Build A2A agents in 8 lines. Add enterprise features when you need them.",
   "type": "module",
   "main": "dist/index.js",

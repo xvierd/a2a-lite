@@ -125,7 +125,7 @@ from .push_notifications import (
     LogPushNotifier,
 )
 
-__version__ = "0.2.5"
+__version__ = "0.3.5"
 
 __all__ = [
     # Core
