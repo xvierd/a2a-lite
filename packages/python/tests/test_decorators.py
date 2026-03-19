@@ -1,12 +1,15 @@
 """
 Tests for decorator functionality.
 """
+
 import pytest
+
 from a2a_lite.decorators import SkillDefinition
 
 
 def test_skill_definition_creation():
     """Test SkillDefinition dataclass."""
+
     async def handler(x: int) -> int:
         return x
 
@@ -28,6 +31,7 @@ def test_skill_definition_creation():
 
 def test_skill_definition_to_dict():
     """Test SkillDefinition serialization."""
+
     async def handler() -> str:
         return "test"
 
@@ -53,6 +57,7 @@ def test_skill_definition_to_dict():
 
 def test_skill_definition_defaults():
     """Test SkillDefinition default values."""
+
     def handler() -> None:
         pass
 
@@ -70,6 +75,7 @@ def test_skill_definition_defaults():
 
 def test_skill_definition_streaming():
     """Test SkillDefinition with streaming flag."""
+
     async def handler():
         yield "data"
 
@@ -90,6 +96,7 @@ def test_skill_definition_streaming():
 
 def test_skill_definition_task_context():
     """Test SkillDefinition with task context fields."""
+
     async def handler():
         return ""
 
@@ -109,6 +116,7 @@ def test_skill_definition_task_context():
 
 def test_skill_definition_auth():
     """Test SkillDefinition with auth fields."""
+
     async def handler():
         return ""
 

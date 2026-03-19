@@ -1,9 +1,12 @@
 """
 Tests for multi-modal parts (FilePart, DataPart, Artifact).
 """
-import pytest
+
 import base64
-from a2a_lite.parts import TextPart, FilePart, DataPart, Artifact, parse_part
+
+import pytest
+
+from a2a_lite.parts import Artifact, DataPart, FilePart, TextPart, parse_part
 
 
 class TestTextPart:
@@ -64,7 +67,7 @@ class TestFilePart:
                 "name": "test.txt",
                 "mimeType": "text/plain",
                 "bytes": base64.b64encode(data).decode(),
-            }
+            },
         }
         part = FilePart.from_a2a(a2a_data)
 
@@ -77,7 +80,7 @@ class TestFilePart:
             "file": {
                 "name": "remote.txt",
                 "uri": "https://example.com/file.txt",
-            }
+            },
         }
         part = FilePart.from_a2a(a2a_data)
 
@@ -143,11 +146,7 @@ class TestArtifact:
         assert artifact.parts[0].data == {"key": "value"}
 
     def test_chaining(self):
-        artifact = (
-            Artifact(name="combined")
-            .add_text("Summary")
-            .add_data({"count": 10})
-        )
+        artifact = Artifact(name="combined").add_text("Summary").add_data({"count": 10})
 
         assert len(artifact.parts) == 2
 
@@ -169,10 +168,7 @@ class TestParsePart:
         assert part.text == "Hello"
 
     def test_parse_file(self):
-        part = parse_part({
-            "type": "file",
-            "file": {"name": "test.txt", "bytes": base64.b64encode(b"data").decode()}
-        })
+        part = parse_part({"type": "file", "file": {"name": "test.txt", "bytes": base64.b64encode(b"data").decode()}})
         assert isinstance(part, FilePart)
 
     def test_parse_data(self):

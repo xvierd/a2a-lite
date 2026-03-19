@@ -29,11 +29,13 @@ Example (with task tracking - opt-in):
 from __future__ import annotations
 
 import asyncio
+import builtins
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -56,11 +58,11 @@ class TaskStatus:
     """Current status of a task."""
 
     state: TaskState
-    message: Optional[str] = None
-    progress: Optional[float] = None  # 0.0 to 1.0
+    message: str | None = None
+    progress: float | None = None  # 0.0 to 1.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "state": self.state.value,
             "message": self.message,
@@ -75,20 +77,20 @@ class Task:
 
     id: str
     skill: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
     status: TaskStatus
     result: Any = None
-    error: Optional[str] = None
-    artifacts: List[Any] = field(default_factory=list)
-    history: List[TaskStatus] = field(default_factory=list)
+    error: str | None = None
+    artifacts: list[Any] = field(default_factory=list)
+    history: list[TaskStatus] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def update_status(
         self,
         state: TaskState,
-        message: Optional[str] = None,
-        progress: Optional[float] = None,
+        message: str | None = None,
+        progress: float | None = None,
     ) -> None:
         """Update task status."""
         self.history.append(self.status)
@@ -114,7 +116,7 @@ class TaskContext:
         self._task = task
         self._event_queue = event_queue
         self._input_handler = input_handler
-        self._status_callbacks: List[Callable] = []
+        self._status_callbacks: list[Callable] = []
 
     @property
     def task_id(self) -> str:
@@ -127,8 +129,8 @@ class TaskContext:
     async def update(
         self,
         state: str = "working",
-        message: Optional[str] = None,
-        progress: Optional[float] = None,
+        message: str | None = None,
+        progress: float | None = None,
     ) -> None:
         """
         Update task status.
@@ -152,9 +154,7 @@ class TaskContext:
                 else:
                     callback(self._task.status)
             except Exception:
-                logger.warning(
-                    "Status callback error for task '%s'", self._task.id, exc_info=True
-                )
+                logger.warning("Status callback error for task '%s'", self._task.id, exc_info=True)
 
         # Send SSE event if streaming
         if self._event_queue:
@@ -163,8 +163,9 @@ class TaskContext:
     async def _send_status_event(self) -> None:
         """Send status update via SSE."""
         if self._event_queue:
-            from a2a.utils import new_agent_text_message
             import json
+
+            from a2a.utils import new_agent_text_message
 
             status_msg = json.dumps(
                 {
@@ -188,7 +189,7 @@ class TaskStore:
     """
 
     def __init__(self, max_size: int = 10000, ttl_seconds: float = 3600):
-        self._tasks: Dict[str, Task] = {}
+        self._tasks: dict[str, Task] = {}
         self._lock = asyncio.Lock()
         self._max_size = max_size
         self._ttl_seconds = ttl_seconds
@@ -198,24 +199,18 @@ class TaskStore:
         now = datetime.now(timezone.utc)
 
         # Remove tasks older than TTL
-        expired = [
-            tid
-            for tid, t in self._tasks.items()
-            if (now - t.created_at).total_seconds() > self._ttl_seconds
-        ]
+        expired = [tid for tid, t in self._tasks.items() if (now - t.created_at).total_seconds() > self._ttl_seconds]
         for tid in expired:
             del self._tasks[tid]
 
         # Evict oldest if still over max_size
         if len(self._tasks) >= self._max_size:
-            sorted_tasks = sorted(
-                self._tasks.items(), key=lambda item: item[1].created_at
-            )
+            sorted_tasks = sorted(self._tasks.items(), key=lambda item: item[1].created_at)
             excess = len(self._tasks) - self._max_size + 1
             for tid, _ in sorted_tasks[:excess]:
                 del self._tasks[tid]
 
-    async def create(self, skill: str, params: Dict[str, Any]) -> Task:
+    async def create(self, skill: str, params: dict[str, Any]) -> Task:
         """Create a new task."""
         async with self._lock:
             self._evict()
@@ -228,7 +223,7 @@ class TaskStore:
             self._tasks[task.id] = task
             return task
 
-    async def get(self, task_id: str) -> Optional[Task]:
+    async def get(self, task_id: str) -> Task | None:
         """Get task by ID."""
         async with self._lock:
             return self._tasks.get(task_id)
@@ -240,10 +235,10 @@ class TaskStore:
 
     async def list(
         self,
-        state: Optional[TaskState] = None,
-        skill: Optional[str] = None,
+        state: TaskState | None = None,
+        skill: str | None = None,
         limit: int = 100,
-    ) -> List[Task]:
+    ) -> builtins.list[Task]:
         """List tasks with optional filters."""
         async with self._lock:
             tasks = list(self._tasks.values())

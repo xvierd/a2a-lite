@@ -106,6 +106,13 @@ public class WebhookPushNotifier implements PushNotifier {
      * Sends the event to the webhook. Retries up to {@code maxRetries} times on
      * transient failures. {@code maxRetries=0} means one attempt, no retries.
      *
+     * <p>The high-level steps are:
+     * <ol>
+     *   <li>Serialize the event to JSON</li>
+     *   <li>Execute the HTTP request with retry and exponential backoff via
+     *       {@link #executeWithRetry(String, Map)}</li>
+     * </ol>
+     *
      * @throws PushNotifierException if all attempts fail
      */
     @Override
@@ -117,67 +124,106 @@ public class WebhookPushNotifier implements PushNotifier {
             throw new PushNotifierException("Failed to serialize push notification event", e);
         }
 
+        executeWithRetry(payload, event);
+    }
+
+    /**
+     * Executes the HTTP POST to the webhook URL, retrying on failure with
+     * exponential backoff. Total attempts = {@code maxRetries + 1}.
+     *
+     * <p>Only {@link InterruptedException} causes an immediate abort without further
+     * retries. All other failures (network errors and non-2xx HTTP responses) are
+     * treated as transient and will be retried up to {@code maxRetries} times.
+     *
+     * @param payload   the serialized JSON body to send
+     * @param event     the original event map (used for logging and headers)
+     * @throws PushNotifierException if all attempts are exhausted
+     */
+    private void executeWithRetry(String payload, Map<String, Object> event) {
         Exception lastError = null;
         int totalAttempts = maxRetries + 1; // maxRetries=0 → 1 attempt, maxRetries=3 → 4 attempts
 
         for (int attempt = 0; attempt < totalAttempts; attempt++) {
             try {
-                HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(timeout)
-                        .header("Content-Type", "application/json")
-                        .header("X-A2A-Event", String.valueOf(event.get("skill")));
-
-                // Apply custom headers
-                headers.forEach(requestBuilder::header);
-
-                // Apply HMAC signature if secret configured
-                if (secret != null && !secret.isEmpty()) {
-                    requestBuilder.header("X-A2A-Signature", "sha256=" + sign(payload));
-                }
-
-                HttpRequest request = requestBuilder
-                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
-
-                int status = response.statusCode();
-                if (status >= 200 && status < 300) {
-                    logger.fine("Push notification sent: skill=" + event.get("skill")
-                            + " status=" + status);
-                    return; // success
-                }
-
-                lastError = new PushNotifierException("Webhook responded with HTTP " + status);
-
+                sendHttpRequest(payload, event);
+                return; // success — no further attempts needed
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new PushNotifierException("Push notification interrupted", e);
-            } catch (PushNotifierException e) {
-                throw e; // don't wrap
             } catch (Exception e) {
                 lastError = e;
             }
 
             if (attempt < totalAttempts - 1) {
-                long waitMs = (long) (1000 * Math.pow(2, attempt)); // 1s, 2s, 4s
-                logger.warning("Push notification failed (attempt " + (attempt + 1) + "/"
-                        + totalAttempts + "), retrying in " + waitMs + "ms: " + lastError);
-                try {
-                    Thread.sleep(waitMs);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new PushNotifierException("Push notification interrupted during retry", ie);
-                }
+                waitBeforeRetry(attempt, totalAttempts, lastError);
             }
         }
 
         String reason = lastError != null ? lastError.getMessage() : "unknown error";
-        throw new PushNotifierException("Push notification failed after " + totalAttempts + " attempt(s): " + reason, lastError);
+        throw new PushNotifierException(
+            "Push notification failed after " + totalAttempts + " attempt(s): " + reason, lastError);
+    }
+
+    /**
+     * Builds and sends a single HTTP POST request to the webhook.
+     *
+     * @param payload the JSON body
+     * @param event   the original event (used to populate the {@code X-A2A-Event} header)
+     * @throws Exception              on any network or I/O error
+     * @throws PushNotifierException  if the server returns a non-2xx status code
+     *                                (treated as a retriable failure by {@link #executeWithRetry})
+     */
+    private void sendHttpRequest(String payload, Map<String, Object> event) throws Exception {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(timeout)
+                .header("Content-Type", "application/json")
+                .header("X-A2A-Event", String.valueOf(event.get("skill")));
+
+        // Apply custom headers
+        headers.forEach(requestBuilder::header);
+
+        // Apply HMAC signature if secret configured
+        if (secret != null && !secret.isEmpty()) {
+            requestBuilder.header("X-A2A-Signature", "sha256=" + sign(payload));
+        }
+
+        HttpRequest request = requestBuilder
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        int status = response.statusCode();
+        if (status >= 200 && status < 300) {
+            logger.fine("Push notification sent: skill=" + event.get("skill") + " status=" + status);
+            return;
+        }
+
+        // Non-2xx responses are retriable — throw so executeWithRetry can retry
+        throw new PushNotifierException("Webhook responded with HTTP " + status);
+    }
+
+    /**
+     * Sleeps for an exponentially increasing delay before the next retry attempt.
+     *
+     * @param attempt       the zero-based current attempt index
+     * @param totalAttempts total number of attempts configured
+     * @param lastError     the error from the most recent attempt, for logging
+     */
+    private void waitBeforeRetry(int attempt, int totalAttempts, Exception lastError) {
+        long waitMs = (long) (1000 * Math.pow(2, attempt)); // 1s, 2s, 4s, ...
+        logger.warning("Push notification failed (attempt " + (attempt + 1) + "/"
+                + totalAttempts + "), retrying in " + waitMs + "ms: " + lastError);
+        try {
+            Thread.sleep(waitMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new PushNotifierException("Push notification interrupted during retry", ie);
+        }
     }
 
     private String sign(String payload) {

@@ -1,15 +1,17 @@
 """
 Tests for middleware functionality.
 """
+
 import pytest
+
 from a2a_lite.middleware import (
-    MiddlewareContext,
     MiddlewareChain,
+    MiddlewareContext,
+    RateLimitExceededError,
     logging_middleware,
-    timing_middleware,
-    retry_middleware,
     rate_limit_middleware,
-    RateLimitExceeded,
+    retry_middleware,
+    timing_middleware,
 )
 
 
@@ -50,6 +52,7 @@ def test_middleware_chain():
         return "result"
 
     import asyncio
+
     ctx = MiddlewareContext(skill="test")
     result = asyncio.run(chain.execute(ctx, final_handler))
 
@@ -120,7 +123,7 @@ async def test_rate_limit_middleware():
 
     # Third should fail
     ctx3 = MiddlewareContext(skill="test")
-    with pytest.raises(RateLimitExceeded):
+    with pytest.raises(RateLimitExceededError):
         await chain.execute(ctx3, handler)
 
 

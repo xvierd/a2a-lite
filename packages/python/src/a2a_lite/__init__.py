@@ -71,59 +71,59 @@ WITH MULTI-AGENT (opt-in):
 
 # Core
 from .agent import Agent
-from .decorators import SkillDefinition
-from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
-
-# Middleware
-from .middleware import (
-    MiddlewareContext,
-    MiddlewareChain,
-    logging_middleware,
-    timing_middleware,
-    retry_middleware,
-    rate_limit_middleware,
-)
-
-# Parts (multi-modal)
-from .parts import TextPart, FilePart, DataPart, Artifact
-
-# Tasks
-from .tasks import TaskContext, TaskState, TaskStatus, Task, TaskStore
 
 # Auth
 from .auth import (
+    APIKeyAuth,
     AuthProvider,
     AuthResult,
-    NoAuth,
-    APIKeyAuth,
     BearerAuth,
+    NoAuth,
     OAuth2Auth,
     require_auth,
 )
+from .decorators import SkillDefinition
 
 # Errors
 from .errors import (
     A2ALiteError,
-    SkillNotFoundError,
-    ParamValidationError,
     AuthRequiredError,
+    ParamValidationError,
+    SkillNotFoundError,
+)
+
+# MCP (requires optional dep)
+from .mcp import MCPClient
+
+# Middleware
+from .middleware import (
+    MiddlewareChain,
+    MiddlewareContext,
+    logging_middleware,
+    rate_limit_middleware,
+    retry_middleware,
+    timing_middleware,
 )
 
 # Orchestration
 from .orchestration import AgentNetwork
 
-# Router (multi-agent)
-from .router import Router
-
-# MCP (requires optional dep)
-from .mcp import MCPClient
+# Parts (multi-modal)
+from .parts import Artifact, DataPart, FilePart, TextPart
 
 # Push notifications
 from .push_notifications import (
+    LogPushNotifier,
     PushNotifier,
     WebhookPushNotifier,
-    LogPushNotifier,
 )
+
+# Router (multi-agent)
+from .router import Router
+
+# Tasks
+from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
+from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
 __version__ = "0.3.5"
 
@@ -176,4 +176,6 @@ __all__ = [
     "PushNotifier",
     "WebhookPushNotifier",
     "LogPushNotifier",
+    # Version
+    "__version__",
 ]

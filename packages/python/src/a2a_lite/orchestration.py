@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,8 @@ class AgentNetwork:
         result = await network.call("weather", "forecast", city="NYC")
     """
 
-    def __init__(self, agents: Optional[Dict[str, str]] = None) -> None:
-        self._agents: Dict[str, str] = dict(agents) if agents else {}
+    def __init__(self, agents: dict[str, str] | None = None) -> None:
+        self._agents: dict[str, str] = dict(agents) if agents else {}
 
     def add(self, name: str, url: str) -> None:
         """Register an agent by name.
@@ -57,7 +57,7 @@ class AgentNetwork:
         """
         self._agents[name] = url.rstrip("/")
 
-    def get(self, name: str) -> Optional[str]:
+    def get(self, name: str) -> str | None:
         """Get an agent URL by name.
 
         Args:
@@ -82,7 +82,7 @@ class AgentNetwork:
             return True
         return False
 
-    def list(self) -> Dict[str, str]:
+    def list(self) -> dict[str, str]:
         """List all registered agents.
 
         Returns:
@@ -113,10 +113,7 @@ class AgentNetwork:
         """
         url = self._agents.get(name)
         if url is None:
-            raise KeyError(
-                f"Agent '{name}' not found in network. "
-                f"Available: {list(self._agents.keys())}"
-            )
+            raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
         return await _call_remote_skill(url, skill, params, timeout)
 
     async def broadcast(
@@ -124,7 +121,7 @@ class AgentNetwork:
         skill: str,
         timeout: float = 30.0,
         **params: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Call the same skill on all agents in the network concurrently.
 
         Args:
@@ -135,12 +132,9 @@ class AgentNetwork:
         Returns:
             Dict mapping agent names to their results (or error dicts).
         """
-        tasks = {
-            name: _call_remote_skill(url, skill, params, timeout)
-            for name, url in self._agents.items()
-        }
+        tasks = {name: _call_remote_skill(url, skill, params, timeout) for name, url in self._agents.items()}
 
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
         gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
         for name, result in zip(tasks.keys(), gathered):
             if isinstance(result, Exception):
@@ -163,7 +157,7 @@ class AgentNetwork:
 async def _call_remote_skill(
     agent_url: str,
     skill: str,
-    params: Dict[str, Any],
+    params: dict[str, Any],
     timeout: float = 30.0,
 ) -> Any:
     """Call a remote A2A agent's skill and extract the result.
@@ -201,7 +195,7 @@ async def _call_remote_skill(
     return _extract_result(data)
 
 
-def _extract_result(response: Dict[str, Any]) -> Any:
+def _extract_result(response: dict[str, Any]) -> Any:
     """Extract the skill result from an A2A JSON-RPC response.
 
     Args:

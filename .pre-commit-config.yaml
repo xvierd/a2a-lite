@@ -1,0 +1,76 @@
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  # ── Python: ruff lint + format ──────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.2
+    hooks:
+      - id: ruff
+        name: "Python · lint (ruff)"
+        args: [--fix]
+        files: ^packages/python/
+      - id: ruff-format
+        name: "Python · format (ruff)"
+        files: ^packages/python/
+
+  # ── Python: tests with ≥90% coverage (pre-push) ─────────────────────────────
+  - repo: local
+    hooks:
+      - id: python-tests-coverage
+        name: "Python · tests + coverage ≥90%"
+        language: system
+        entry: bash -c "cd packages/python && pytest tests/ -q --cov=a2a_lite --cov-report=term-missing"
+        pass_filenames: false
+        files: ^packages/python/
+        stages: [pre-push]
+
+  # ── TypeScript: ESLint + Prettier ───────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: typescript-lint
+        name: "TypeScript · lint (eslint)"
+        language: system
+        entry: bash -c "cd packages/typescript && npm run lint"
+        pass_filenames: false
+        files: ^packages/typescript/src/
+        stages: [pre-commit]
+
+      - id: typescript-format-check
+        name: "TypeScript · format check (prettier)"
+        language: system
+        entry: bash -c "cd packages/typescript && npm run format:check"
+        pass_filenames: false
+        files: ^packages/typescript/(src|tests)/
+        stages: [pre-commit]
+
+      - id: typescript-typecheck
+        name: "TypeScript · type check (tsc)"
+        language: system
+        entry: bash -c "cd packages/typescript && npm run typecheck"
+        pass_filenames: false
+        files: ^packages/typescript/src/
+        stages: [pre-commit]
+
+  # ── TypeScript: tests with coverage (pre-push) ──────────────────────────────
+  - repo: local
+    hooks:
+      - id: typescript-tests-coverage
+        name: "TypeScript · tests + coverage"
+        language: system
+        entry: bash -c "cd packages/typescript && npm run test:coverage"
+        pass_filenames: false
+        files: ^packages/typescript/
+        stages: [pre-push]
+
+  # ── General: no secrets, no large files ─────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        exclude: ^packages/(python|typescript)/dist/
+      - id: trailing-whitespace
+        exclude: ^packages/(python|typescript)/dist/
+      - id: check-added-large-files
+        args: [--maxkb=500]

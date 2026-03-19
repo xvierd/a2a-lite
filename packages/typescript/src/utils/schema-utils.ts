@@ -5,7 +5,7 @@
  * Similar to Pydantic auto-detection in Python.
  */
 
-import type { ZodTypeAny, ZodObject, ZodOptional, ZodDefault, ZodArray, ZodEnum, ZodUnion, ZodNullable, ZodRecord } from 'zod';
+import type { ZodTypeAny, ZodOptional, ZodNullable } from 'zod';
 
 /**
  * Check if a value is a Zod schema.

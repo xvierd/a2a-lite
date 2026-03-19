@@ -2,8 +2,9 @@
 Decorator definitions and skill metadata.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -13,19 +14,19 @@ class SkillDefinition:
     name: str
     description: str
     handler: Callable
-    input_schema: Dict[str, Any]
-    output_schema: Dict[str, Any]
-    tags: List[str] = field(default_factory=list)
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    tags: list[str] = field(default_factory=list)
     is_async: bool = False
     is_streaming: bool = False
     needs_task_context: bool = False
     needs_auth: bool = False
     needs_mcp: bool = False
-    task_context_param: Optional[str] = None
-    auth_param: Optional[str] = None
-    mcp_param: Optional[str] = None
+    task_context_param: str | None = None
+    auth_param: str | None = None
+    mcp_param: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,

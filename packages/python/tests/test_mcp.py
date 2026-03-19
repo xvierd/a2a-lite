@@ -1,11 +1,13 @@
 """
 Tests for the MCP integration module.
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from a2a_lite.mcp import MCPClient, _extract_mcp_content
+import pytest
+
 from a2a_lite import Agent
+from a2a_lite.mcp import MCPClient, _extract_mcp_content
 
 
 class TestMCPClient:
@@ -66,9 +68,7 @@ class TestMCPClient:
 
         result = await client.call_tool("web_search", query="test")
         assert result == "search result"
-        mock_session.call_tool.assert_called_once_with(
-            "web_search", arguments={"query": "test"}
-        )
+        mock_session.call_tool.assert_called_once_with("web_search", arguments={"query": "test"})
 
     @pytest.mark.asyncio
     async def test_list_tools_with_mock_session(self):

@@ -15,9 +15,10 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
 import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -32,10 +33,10 @@ class MiddlewareContext:
         metadata: Arbitrary metadata dict for middleware to share data
     """
 
-    skill: Optional[str] = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    skill: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
     message: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MiddlewareChain:
@@ -47,7 +48,7 @@ class MiddlewareChain:
     """
 
     def __init__(self):
-        self._middlewares: List[Callable] = []
+        self._middlewares: list[Callable] = []
 
     def add(self, middleware: Callable) -> None:
         """Add a middleware function to the chain."""
@@ -193,9 +194,7 @@ def rate_limit_middleware(requests_per_minute: int = 60):
                 request_times.popleft()
 
             if len(request_times) >= requests_per_minute:
-                raise RateLimitExceeded(
-                    f"Rate limit exceeded: {requests_per_minute} requests per minute"
-                )
+                raise RateLimitExceededError(f"Rate limit exceeded: {requests_per_minute} requests per minute")
 
             request_times.append(now)
         return await next()
@@ -203,7 +202,10 @@ def rate_limit_middleware(requests_per_minute: int = 60):
     return middleware
 
 
-class RateLimitExceeded(Exception):
+class RateLimitExceededError(Exception):
     """Raised when rate limit is exceeded."""
 
     pass
+
+
+RateLimitExceeded = RateLimitExceededError  # backward-compat alias

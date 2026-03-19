@@ -1,37 +1,49 @@
 package com.a2alite;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
-public class TaskStatus {
-    private final TaskState state;
-    private final String message;
-    private final Double progress;
-    private final Instant timestamp;
+/**
+ * Immutable snapshot of a task's status at a point in time.
+ */
+public record TaskStatus(
+    TaskState state,
+    String message,
+    Double progress,
+    Instant timestamp
+) {
+    public TaskStatus(TaskState state) {
+        this(state, null, null, Instant.now());
+    }
+
+    public TaskStatus(TaskState state, String message) {
+        this(state, message, null, Instant.now());
+    }
 
     public TaskStatus(TaskState state, String message, Double progress) {
-        this.state = state;
-        this.message = message;
-        this.progress = progress;
-        this.timestamp = Instant.now();
+        this(state, message, progress, Instant.now());
     }
 
-    public TaskStatus(TaskState state) {
-        this(state, null, null);
+    /** Returns the status message, if present. */
+    public Optional<String> getMessage() {
+        return Optional.ofNullable(message);
     }
 
-    public TaskState getState() { return state; }
-    public String getMessage() { return message; }
-    public Double getProgress() { return progress; }
-    public Instant getTimestamp() { return timestamp; }
+    /** Returns the progress value (0.0–1.0), if present. */
+    public Optional<Double> getProgress() {
+        return Optional.ofNullable(progress);
+    }
 
-    public Map<String, Object> toDict() {
-        var map = new HashMap<String, Object>();
-        map.put("state", state.getValue());
-        map.put("message", message);
-        map.put("progress", progress);
-        map.put("timestamp", timestamp.toString());
-        return map;
+    /**
+     * Convert to a plain map representation.
+     */
+    public Map<String, Object> toMap() {
+        return Map.of(
+            "state", state.getValue(),
+            "message", message != null ? message : "",
+            "progress", progress != null ? progress : 0.0,
+            "timestamp", timestamp.toString()
+        );
     }
 }

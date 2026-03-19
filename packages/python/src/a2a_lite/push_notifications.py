@@ -13,6 +13,7 @@ Usage:
         ),
     )
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +21,7 @@ import hmac
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class PushNotifier(ABC):
     """
 
     @abstractmethod
-    async def notify(self, event: Dict[str, Any]) -> None:
+    async def notify(self, event: dict[str, Any]) -> None:
         """
         Send a notification for a skill completion event.
 
@@ -82,8 +83,8 @@ class WebhookPushNotifier(PushNotifier):
     def __init__(
         self,
         url: str,
-        secret: Optional[str] = None,
-        headers: Optional[Dict[str, str]] = None,
+        secret: str | None = None,
+        headers: dict[str, str] | None = None,
         max_retries: int = 3,
         timeout: float = 10.0,
     ) -> None:
@@ -110,15 +111,12 @@ class WebhookPushNotifier(PushNotifier):
             hashlib.sha256,
         ).hexdigest()
 
-    async def notify(self, event: Dict[str, Any]) -> None:
+    async def notify(self, event: dict[str, Any]) -> None:
         """Send the event to the configured webhook URL with retries."""
         try:
             import httpx
         except ImportError:
-            logger.error(
-                "httpx is required for WebhookPushNotifier. "
-                "Install it with: pip install httpx"
-            )
+            logger.error("httpx is required for WebhookPushNotifier. Install it with: pip install httpx")
             return
 
         payload = json.dumps(event, default=str)
@@ -131,7 +129,7 @@ class WebhookPushNotifier(PushNotifier):
         if self.secret:
             headers["X-A2A-Signature"] = f"sha256={self._sign_payload(payload)}"
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
                 async with httpx.AsyncClient() as client:
@@ -151,7 +149,7 @@ class WebhookPushNotifier(PushNotifier):
             except Exception as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
                         "Push notification failed (attempt %d/%d), retrying in %ds: %s",
                         attempt + 1,
@@ -160,6 +158,7 @@ class WebhookPushNotifier(PushNotifier):
                         e,
                     )
                     import asyncio
+
                     await asyncio.sleep(wait)
 
         logger.error(
@@ -184,7 +183,7 @@ class LogPushNotifier(PushNotifier):
     def __init__(self, level: str = "INFO") -> None:
         self.level = level.upper()
 
-    async def notify(self, event: Dict[str, Any]) -> None:
+    async def notify(self, event: dict[str, Any]) -> None:
         log_fn = getattr(logger, self.level.lower(), logger.info)
         log_fn(
             "[A2A Push] skill=%s status=%s timestamp=%s",

@@ -12,6 +12,34 @@
 
 import type { Agent } from './agent.js';
 import type { AgentCard } from '@a2a-js/sdk';
+import type { Request, Response, NextFunction } from 'express';
+import type { SkillDefinition } from './types.js';
+
+/**
+ * Internal interface used to access private Agent fields in tests
+ * without resorting to `as any`.
+ */
+interface AgentInternals {
+  skills: Map<string, SkillDefinition>;
+}
+
+/** Type guard: checks if a value is async iterable. */
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Symbol.asyncIterator in (value as object)
+  );
+}
+
+/** Type guard: checks if a value is (sync) iterable. */
+function isIterable(value: unknown): value is Iterable<unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Symbol.iterator in (value as object)
+  );
+}
 
 /**
  * Structured result from a test client call.
@@ -130,9 +158,10 @@ export class AgentTestClient {
       };
 
       // Handle the request through Express
-      app(mockReq as any, mockRes as any, (err?: any) => {
+      const next: NextFunction = (err?: unknown) => {
         if (err) reject(err instanceof Error ? err : new Error(String(err)));
-      });
+      };
+      app(mockReq as unknown as Request, mockRes as unknown as Response, next);
     });
   }
 
@@ -140,8 +169,8 @@ export class AgentTestClient {
    * Call a streaming skill and collect all results.
    */
   async stream(skill: string, params: Record<string, unknown> = {}): Promise<unknown[]> {
-    // Access skill directly for streaming tests
-    const skills = (this.agent as any).skills as Map<string, any>;
+    // Access skill directly for streaming tests via typed internal interface
+    const skills = (this.agent as unknown as AgentInternals).skills;
     const skillDef = skills.get(skill);
 
     if (!skillDef) {
@@ -151,11 +180,11 @@ export class AgentTestClient {
     const results: unknown[] = [];
     const gen = skillDef.handler(params);
 
-    if (gen[Symbol.asyncIterator]) {
+    if (isAsyncIterable(gen)) {
       for await (const value of gen) {
         results.push(value);
       }
-    } else if (gen[Symbol.iterator]) {
+    } else if (isIterable(gen)) {
       for (const value of gen) {
         results.push(value);
       }

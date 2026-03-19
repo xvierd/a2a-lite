@@ -1,9 +1,10 @@
 """
 Tests for Pydantic model support.
 """
+
 import pytest
 from pydantic import BaseModel
-from typing import List, Optional
+
 from a2a_lite import Agent, AgentTestClient
 
 
@@ -35,7 +36,7 @@ def pydantic_agent():
         return f"{user.name} is {user.age} years old"
 
     @agent.skill("list_users")
-    async def list_users(users: List[User]) -> int:
+    async def list_users(users: list[User]) -> int:
         return len(users)
 
     return agent
@@ -131,7 +132,7 @@ def test_nested_pydantic_model():
 
 class UserOptional(BaseModel):
     name: str
-    nickname: Optional[str] = None
+    nickname: str | None = None
     age: int = 0
 
 
@@ -166,6 +167,7 @@ def test_pydantic_model_already_instance():
 
 def test_multiple_pydantic_params():
     """Test skill with multiple Pydantic model parameters."""
+
     class Source(BaseModel):
         name: str
 

@@ -34,14 +34,15 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 def openai_skill(
     model: str = "gpt-4o-mini",
     system_prompt: str = "You are a helpful assistant.",
     temperature: float = 0.7,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     streaming: bool = False,
     **extra_kwargs: Any,
 ) -> Callable:
@@ -221,9 +222,7 @@ def anthropic_skill(
                     temperature=temperature,
                 )
                 # Extract text from content blocks
-                text_parts = [
-                    block.text for block in response.content if hasattr(block, "text")
-                ]
+                text_parts = [block.text for block in response.content if hasattr(block, "text")]
                 return "".join(text_parts)
 
             return wrapper
@@ -280,9 +279,7 @@ def ollama_skill(
                 }
 
                 async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST", url, json=payload, timeout=120.0
-                    ) as response:
+                    async with client.stream("POST", url, json=payload, timeout=120.0) as response:
                         import json as _json
 
                         async for line in response.aiter_lines():

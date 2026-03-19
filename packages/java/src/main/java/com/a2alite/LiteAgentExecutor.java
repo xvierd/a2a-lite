@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 /**
  * Lite executor that wraps skill handlers into the A2A SDK's AgentExecutor interface.
  *
- * This bridges a2a-lite's simple skill registration with the official A2A Java SDK.
+ * <p>This bridges a2a-lite's simple skill registration with the official A2A Java SDK.
  */
 public class LiteAgentExecutor implements AgentExecutor {
     private static final Logger LOGGER = Logger.getLogger(LiteAgentExecutor.class.getName());
@@ -49,13 +49,7 @@ public class LiteAgentExecutor implements AgentExecutor {
         TaskUpdater updater = new TaskUpdater(context, eventQueue);
 
         try {
-            // Start the task if new
-            if (context.getTask() == null) {
-                updater.submit();
-                updater.startWork();
-            } else {
-                updater.startWork();
-            }
+            initializeTaskState(context, updater);
 
             // Extract message text
             String text = extractTextFromMessage(context.getMessage());
@@ -122,21 +116,7 @@ public class LiteAgentExecutor implements AgentExecutor {
             updater.complete();
 
         } catch (Exception e) {
-            // Send error response
-            try {
-                Map<String, Object> errorResult;
-                if (e instanceof A2ALiteException a2aErr) {
-                    errorResult = a2aErr.toResponse();
-                } else {
-                    errorResult = Map.of("error", e.getMessage(), "type", e.getClass().getSimpleName());
-                }
-                String errorJson = mapper.writeValueAsString(errorResult);
-                TextPart errorPart = new TextPart(errorJson, null);
-                updater.addArtifact(List.of(errorPart), null, null, null);
-                updater.fail();
-            } catch (Exception ex) {
-                throw new RuntimeException("Failed to serialize error: " + ex.getMessage(), ex);
-            }
+            handleExecutionError(updater, e);
         }
     }
 
@@ -151,6 +131,45 @@ public class LiteAgentExecutor implements AgentExecutor {
 
         TaskUpdater updater = new TaskUpdater(context, eventQueue);
         updater.cancel();
+    }
+
+    /**
+     * Transitions the task to its initial working state. For new tasks (no prior
+     * state recorded in the context) the task is first submitted, then started.
+     * For resumed tasks it is started directly.
+     *
+     * @param context the request context
+     * @param updater the task updater used to emit state transitions
+     */
+    private void initializeTaskState(RequestContext context, TaskUpdater updater) {
+        if (context.getTask() == null) {
+            updater.submit();
+        }
+        updater.startWork();
+    }
+
+    /**
+     * Serializes and delivers an error result artifact, then marks the task as
+     * failed. Wraps serialization failures in a {@link RuntimeException}.
+     *
+     * @param updater the task updater
+     * @param e       the exception that caused the failure
+     */
+    private void handleExecutionError(TaskUpdater updater, Exception e) {
+        try {
+            Map<String, Object> errorResult;
+            if (e instanceof A2ALiteException a2aErr) {
+                errorResult = a2aErr.toResponse();
+            } else {
+                errorResult = Map.of("error", e.getMessage(), "type", e.getClass().getSimpleName());
+            }
+            String errorJson = mapper.writeValueAsString(errorResult);
+            TextPart errorPart = new TextPart(errorJson, null);
+            updater.addArtifact(List.of(errorPart), null, null, null);
+            updater.fail();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to serialize error: " + ex.getMessage(), ex);
+        }
     }
 
     private Object executeSkill(String skillName, Map<String, Object> params) throws Exception {

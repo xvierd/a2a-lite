@@ -5,6 +5,8 @@ import com.a2alite.auth.NoAuth;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
 import com.a2alite.push.PushNotifier;
+import com.a2alite.server.JavalinServerAdapter;
+import com.a2alite.server.ServerAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -22,7 +24,14 @@ import java.util.logging.Logger;
 /**
  * Core Agent class - the heart of A2A Lite.
  *
- * Wraps the official A2A Java SDK with a simple, intuitive API.
+ * <p>Wraps the official A2A Java SDK with a simple, intuitive API.
+ *
+ * <p>For standalone HTTP serving, a {@link com.a2alite.server.ServerAdapter} is
+ * used as a pluggable strategy. The default adapter is
+ * {@link com.a2alite.server.JavalinServerAdapter}, which requires
+ * {@code io.javalin:javalin} on the classpath. Users on Quarkus, Spring Boot,
+ * or another framework can supply a custom adapter via
+ * {@link Builder#serverAdapter(ServerAdapter)}.
  *
  * <pre>{@code
  * var agent = Agent.builder()
@@ -60,6 +69,7 @@ public class Agent {
     private final ObjectMapper mapper = new ObjectMapper();
     private boolean hasStreaming = false;
     private Thread shutdownHookThread;
+    private ServerAdapter serverAdapter;
 
     private Agent(Builder builder) {
         this.name = builder.name;
@@ -70,8 +80,8 @@ public class Agent {
         this.corsOrigins = builder.corsOrigins;
         this.production = builder.production;
         this.network = builder.network;
-        this.taskStore = builder.taskStore != null ? builder.taskStore :
-                         ("memory".equals(builder.taskStoreName) ? new InMemoryTaskStore() : null);
+        this.taskStore = resolveTaskStore(builder);
+        this.serverAdapter = builder.serverAdapter;
 
         // Auto-register push notifier as a completion hook
         if (builder.pushNotifier != null) {
@@ -91,6 +101,17 @@ public class Agent {
                 }
             });
         }
+    }
+
+    /**
+     * Resolves the task store from the builder. If no store is explicitly
+     * provided, an {@link InMemoryTaskStore} is used as the default.
+     */
+    private static TaskStore resolveTaskStore(Builder builder) {
+        if (builder.taskStore != null) {
+            return builder.taskStore;
+        }
+        return new InMemoryTaskStore();
     }
 
     public static Builder builder() {
@@ -135,7 +156,7 @@ public class Agent {
      * Register a skill with configuration that receives a TaskContext.
      */
     public Agent skill(String name, SkillConfig config, SkillHandlerWithContext handler) {
-        final TaskStore store = this.taskStore != null ? this.taskStore : new InMemoryTaskStore();
+        final TaskStore store = this.taskStore;
         SkillHandler wrappedHandler = params -> {
             var task = store.create(name, params);
             var context = new TaskContext(task);
@@ -386,25 +407,29 @@ public class Agent {
     }
 
     /**
-     * Run with Javalin (standalone mode - requires javalin dependency).
-     * For Quarkus integration, use the agent card and executor producers instead.
+     * Run with the configured server adapter (standalone mode) on the default port 8787.
      */
     public void run() {
         run(8787);
     }
 
     /**
-     * Run with Javalin on a specific port.
+     * Run with the configured server adapter on a specific port.
      */
     public void run(int port) {
         run("0.0.0.0", port);
     }
 
     /**
-     * Run with Javalin on specific host and port.
+     * Run with the configured server adapter on the given host and port.
+     *
+     * <p>If no {@link ServerAdapter} was provided via {@link Builder#serverAdapter},
+     * a {@link JavalinServerAdapter} is created automatically (requires
+     * {@code io.javalin:javalin} on the classpath). If Javalin is absent and no
+     * adapter was supplied, a {@link RuntimeException} with an actionable message
+     * is thrown.
      */
     public void run(String host, int port) {
-        // Production mode warning
         if (production) {
             String urlStr = url != null ? url : "http://" + host + ":" + port;
             if (!urlStr.startsWith("https://")) {
@@ -413,197 +438,41 @@ public class Agent {
             }
         }
 
-        // Run startup hooks
         for (var hook : startupHooks) {
             hook.run();
         }
 
-        try {
-            // Use reflection to avoid compile-time dependency on Javalin
-            var javalinClass = Class.forName("io.javalin.Javalin");
-            var createMethod = javalinClass.getMethod("create");
-            var app = createMethod.invoke(null);
+        ServerAdapter adapter = resolveServerAdapter();
+        adapter.start(this, host, port);
 
-            // Get handler types
-            var handlerClass = Class.forName("io.javalin.http.Handler");
-
-            // Agent card endpoint
-            var getMethod = javalinClass.getMethod("get", String.class, handlerClass);
-            var agentCardHandler = java.lang.reflect.Proxy.newProxyInstance(
-                handlerClass.getClassLoader(),
-                new Class[]{handlerClass},
-                (proxy, method, args) -> {
-                    if ("handle".equals(method.getName())) {
-                        var ctx = args[0];
-                        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-                        jsonMethod.invoke(ctx, buildAgentCardJson(host, port));
-                    }
-                    return null;
-                }
-            );
-            getMethod.invoke(app, "/.well-known/agent.json", agentCardHandler);
-
-            // Main A2A endpoint
-            var postMethod = javalinClass.getMethod("post", String.class, handlerClass);
-            var messageHandler = java.lang.reflect.Proxy.newProxyInstance(
-                handlerClass.getClassLoader(),
-                new Class[]{handlerClass},
-                (proxy, method, args) -> {
-                    if ("handle".equals(method.getName())) {
-                        var ctx = args[0];
-                        handleRequest(ctx);
-                    }
-                    return null;
-                }
-            );
-            postMethod.invoke(app, "/", messageHandler);
-
-            // OPTIONS preflight handler for CORS
-            if (corsOrigins != null && !corsOrigins.isEmpty()) {
-                var optionsMethod = javalinClass.getMethod("options", String.class, handlerClass);
-                var optionsHandler = java.lang.reflect.Proxy.newProxyInstance(
-                    handlerClass.getClassLoader(),
-                    new Class[]{handlerClass},
-                    (proxy, method, args) -> {
-                        if ("handle".equals(method.getName())) {
-                            var optCtx = args[0];
-                            var hdrMethod = optCtx.getClass().getMethod("header", String.class, String.class);
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Headers", "*");
-                            var statusMethod = optCtx.getClass().getMethod("status", int.class);
-                            statusMethod.invoke(optCtx, 204);
-                        }
-                        return null;
-                    }
-                );
-                optionsMethod.invoke(app, "/", optionsHandler);
-            }
-
-            // Start server
-            var displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
-
-            System.out.printf("""
-                ┌─────────────────────────────────────────────────┐
-                │  🚀 A2A Lite Agent Started                      │
-                ├─────────────────────────────────────────────────┤
-                │  %s v%s
-                │  %s
-                │
-                │  Skills:
-                %s
-                │
-                │  Endpoints:
-                │    • Agent Card: http://%s:%d/.well-known/agent.json
-                │    • API: http://%s:%d/
-                └─────────────────────────────────────────────────┘
-                %n""",
-                name, version,
-                description,
-                skills.values().stream()
-                    .map(s -> "│    • " + s.name() + ": " + s.description())
-                    .reduce((a, b) -> a + "\n" + b)
-                    .orElse("│    (no skills)"),
-                displayHost, port,
-                displayHost, port
-            );
-
-            var startMethod = javalinClass.getMethod("start", String.class, int.class);
-            startMethod.invoke(app, host, port);
-
-            // Register shutdown hook (remove old one first to prevent accumulation)
-            if (shutdownHookThread != null) {
-                Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
-            }
-            shutdownHookThread = new Thread(() -> {
-                for (var hook : shutdownHooks) {
-                    hook.run();
-                }
-            });
-            Runtime.getRuntime().addShutdownHook(shutdownHookThread);
-
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(
-                "Javalin not found. Add 'io.javalin:javalin' dependency or use Quarkus integration.",
-                e
-            );
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start Javalin server", e);
+        if (shutdownHookThread != null) {
+            Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
         }
+        shutdownHookThread = new Thread(() -> {
+            for (var hook : shutdownHooks) {
+                hook.run();
+            }
+        });
+        Runtime.getRuntime().addShutdownHook(shutdownHookThread);
     }
 
-    private void handleRequest(Object ctx) throws Exception {
-        // Add CORS headers if configured
-        if (corsOrigins != null && !corsOrigins.isEmpty()) {
-            var headerMethod = ctx.getClass().getMethod("header", String.class, String.class);
-            headerMethod.invoke(ctx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
-            headerMethod.invoke(ctx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            headerMethod.invoke(ctx, "Access-Control-Allow-Headers", "*");
+    /**
+     * Resolves the effective {@link ServerAdapter}, falling back to
+     * {@link JavalinServerAdapter} when none was explicitly configured.
+     *
+     * @throws RuntimeException if no adapter is set and Javalin is not on the classpath
+     */
+    private ServerAdapter resolveServerAdapter() {
+        if (serverAdapter != null) {
+            return serverAdapter;
         }
-
-        // Authenticate the request
-        if (!(auth instanceof NoAuth)) {
-            var headerMethod = ctx.getClass().getMethod("header", String.class);
-            Map<String, String> headers = new HashMap<>();
-            // Extract common auth headers via reflection on Javalin context
-            try {
-                var headerMapMethod = ctx.getClass().getMethod("headerMap");
-                @SuppressWarnings("unchecked")
-                Map<String, String> headerMap = (Map<String, String>) headerMapMethod.invoke(ctx);
-                headers.putAll(headerMap);
-            } catch (NoSuchMethodException e) {
-                // Fallback: try individual headers
-                String apiKey = (String) headerMethod.invoke(ctx, "X-API-Key");
-                if (apiKey != null) headers.put("X-API-Key", apiKey);
-                String authHeader = (String) headerMethod.invoke(ctx, "Authorization");
-                if (authHeader != null) headers.put("Authorization", authHeader);
-            }
-
-            var authRequest = new com.a2alite.auth.AuthRequest(headers);
-            var authResult = auth.authenticate(authRequest);
-            if (!authResult.authenticated()) {
-                var statusMethod = ctx.getClass().getMethod("status", int.class);
-                var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-                statusMethod.invoke(ctx, 401);
-                jsonMethod.invoke(ctx, Map.of(
-                    "jsonrpc", "2.0",
-                    "error", Map.of("code", -32600, "message", authResult.error() != null ? authResult.error() : "Authentication failed")
-                ));
-                return;
-            }
+        var javalin = JavalinServerAdapter.createIfAvailable(corsOrigins);
+        if (javalin == null) {
+            throw new RuntimeException(
+                "Javalin not found. Add 'io.javalin:javalin' dependency or provide a custom ServerAdapter."
+            );
         }
-
-        var bodyMethod = ctx.getClass().getMethod("bodyAsBytes");
-        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-
-        var body = mapper.readTree((byte[]) bodyMethod.invoke(ctx));
-        var method = body.path("method").asText();
-        var id = body.path("id").asText();
-
-        if ("message/send".equals(method)) {
-            var message = body.path("params").path("message");
-            var result = handleMessage(message);
-
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-
-            var resultNode = response.putObject("result");
-            var partsArray = resultNode.putArray("parts");
-            var textPart = partsArray.addObject();
-            textPart.put("kind", "text");
-            textPart.put("text", mapper.writeValueAsString(result));
-
-            jsonMethod.invoke(ctx, response);
-        } else {
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-            var error = response.putObject("error");
-            error.put("code", -32601);
-            error.put("message", "Method not found");
-            jsonMethod.invoke(ctx, response);
-        }
+        return javalin;
     }
 
     /**
@@ -680,8 +549,8 @@ public class Agent {
         private boolean production = false;
         private AgentNetwork network;
         private TaskStore taskStore;
-        private String taskStoreName;
         private PushNotifier pushNotifier;
+        private ServerAdapter serverAdapter;
 
         public Builder name(String name) {
             this.name = name;
@@ -728,13 +597,13 @@ public class Agent {
             return this;
         }
 
-        public Builder taskStore(String name) {
-            this.taskStoreName = name;
+        public Builder pushNotifier(PushNotifier pushNotifier) {
+            this.pushNotifier = pushNotifier;
             return this;
         }
 
-        public Builder pushNotifier(PushNotifier pushNotifier) {
-            this.pushNotifier = pushNotifier;
+        public Builder serverAdapter(ServerAdapter adapter) {
+            this.serverAdapter = adapter;
             return this;
         }
 

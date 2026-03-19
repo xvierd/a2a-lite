@@ -12,13 +12,13 @@ for structured JSON responses.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class A2ALiteError(Exception):
     """Base error for all A2A Lite errors."""
 
-    def to_response(self) -> Dict[str, Any]:
+    def to_response(self) -> dict[str, Any]:
         """Convert error to a structured response dict."""
         return {
             "error": str(self),
@@ -37,7 +37,7 @@ class SkillNotFoundError(A2ALiteError):
     def __init__(
         self,
         skill: str,
-        available_skills: Optional[Dict[str, str]] = None,
+        available_skills: dict[str, str] | None = None,
     ) -> None:
         self.skill = skill
         self.available_skills = available_skills or {}
@@ -51,12 +51,12 @@ class SkillNotFoundError(A2ALiteError):
                 lines.append(f"  - {name}: {desc}")
         return "\n".join(lines)
 
-    def to_response(self) -> Dict[str, Any]:
+    def to_response(self) -> dict[str, Any]:
         return {
             "error": f"Unknown skill '{self.skill}'",
             "type": "SkillNotFoundError",
             "available_skills": list(self.available_skills.keys()),
-            "details": {name: desc for name, desc in self.available_skills.items()},
+            "details": dict(self.available_skills.items()),
         }
 
 
@@ -71,7 +71,7 @@ class ParamValidationError(A2ALiteError):
     def __init__(
         self,
         skill: str,
-        errors: List[Dict[str, Any]],
+        errors: list[dict[str, Any]],
     ) -> None:
         self.skill = skill
         self.errors = errors
@@ -85,7 +85,7 @@ class ParamValidationError(A2ALiteError):
             lines.append(f"  - '{field}': {message}")
         return "\n".join(lines)
 
-    def to_response(self) -> Dict[str, Any]:
+    def to_response(self) -> dict[str, Any]:
         return {
             "error": f"Skill '{self.skill}' parameter validation failed",
             "type": "ParamValidationError",
@@ -105,12 +105,12 @@ class RemoteAgentError(A2ALiteError):
     def __init__(
         self,
         message: str,
-        response: Optional[Dict[str, Any]] = None,
+        response: dict[str, Any] | None = None,
     ) -> None:
         self.response = response or {}
         super().__init__(message)
 
-    def to_response(self) -> Dict[str, Any]:
+    def to_response(self) -> dict[str, Any]:
         return {
             "error": str(self),
             "type": "RemoteAgentError",
@@ -128,8 +128,8 @@ class AuthRequiredError(A2ALiteError):
 
     def __init__(
         self,
-        scheme_info: Optional[str] = None,
-        detail: Optional[str] = None,
+        scheme_info: str | None = None,
+        detail: str | None = None,
     ) -> None:
         self.scheme_info = scheme_info or "authentication"
         self.detail = detail
@@ -141,8 +141,8 @@ class AuthRequiredError(A2ALiteError):
             msg += f"\n{self.detail}"
         return msg
 
-    def to_response(self) -> Dict[str, Any]:
-        resp: Dict[str, Any] = {
+    def to_response(self) -> dict[str, Any]:
+        resp: dict[str, Any] = {
             "error": "Authentication required",
             "type": "AuthRequiredError",
             "scheme": self.scheme_info,

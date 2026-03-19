@@ -5,7 +5,6 @@ Command-line interface for A2A Lite.
 import asyncio
 import json
 from pathlib import Path
-from typing import Optional, List
 
 import typer
 from rich.console import Console
@@ -23,7 +22,7 @@ console = Console()
 @app.command()
 def init(
     name: str = typer.Argument(..., help="Project name"),
-    path: Optional[Path] = typer.Option(None, help="Directory to create project in"),
+    path: Path | None = typer.Option(None, help="Directory to create project in"),
 ):
     """
     Initialize a new A2A Lite agent project.
@@ -269,20 +268,17 @@ def inspect(
 def test(
     url: str = typer.Argument(..., help="Agent URL"),
     skill: str = typer.Argument(..., help="Skill name to invoke"),
-    params: Optional[List[str]] = typer.Option(
-        None, "--param", "-p", help="Parameters as key=value pairs"
-    ),
-    output_json: bool = typer.Option(
-        False, "--json", "-j", help="Output raw JSON instead of formatted"
-    ),
+    params: list[str] | None = typer.Option(None, "--param", "-p", help="Parameters as key=value pairs"),
+    output_json: bool = typer.Option(False, "--json", "-j", help="Output raw JSON instead of formatted"),
 ):
     """
     Test an agent skill.
 
     Example: a2a-lite test http://localhost:8787 hello -p name=World
     """
-    import httpx
     from uuid import uuid4
+
+    import httpx
 
     # Parse parameters
     param_dict = {}
@@ -346,7 +342,7 @@ def test(
 
 @app.command()
 def discover(
-    urls: List[str] = typer.Argument(..., help="Agent URLs to discover"),
+    urls: list[str] = typer.Argument(..., help="Agent URLs to discover"),
 ):
     """
     Discover and compare multiple A2A agents.

@@ -1,11 +1,13 @@
 """
 Tests for the streaming module.
 """
-import pytest
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from a2a_lite.streaming import is_generator_function, collect_generator, stream_generator
+import pytest
+
+from a2a_lite.streaming import collect_generator, is_generator_function, stream_generator
 
 
 class TestIsGeneratorFunction:

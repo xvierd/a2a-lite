@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
 from pathlib import Path
+from typing import Any, Union
 
 
 @dataclass
@@ -32,11 +32,11 @@ class TextPart:
 
     text: str
 
-    def to_a2a(self) -> Dict[str, Any]:
+    def to_a2a(self) -> dict[str, Any]:
         return {"type": "text", "text": self.text}
 
     @classmethod
-    def from_a2a(cls, data: Dict) -> "TextPart":
+    def from_a2a(cls, data: dict) -> TextPart:
         return cls(text=data.get("text", ""))
 
 
@@ -60,8 +60,8 @@ class FilePart:
 
     name: str
     mime_type: str = "application/octet-stream"
-    data: Optional[bytes] = None
-    uri: Optional[str] = None
+    data: bytes | None = None
+    uri: str | None = None
 
     @property
     def is_uri(self) -> bool:
@@ -89,7 +89,7 @@ class FilePart:
         data = await self.read_bytes()
         return data.decode(encoding)
 
-    def to_a2a(self) -> Dict[str, Any]:
+    def to_a2a(self) -> dict[str, Any]:
         if self.uri:
             return {
                 "type": "file",
@@ -110,7 +110,7 @@ class FilePart:
             }
 
     @classmethod
-    def from_a2a(cls, data: Dict) -> "FilePart":
+    def from_a2a(cls, data: dict) -> FilePart:
         file_data = data.get("file", {})
         bytes_data = file_data.get("bytes")
         return cls(
@@ -121,9 +121,7 @@ class FilePart:
         )
 
     @classmethod
-    def from_path(
-        cls, path: Union[str, Path], mime_type: Optional[str] = None
-    ) -> "FilePart":
+    def from_path(cls, path: Union[str, Path], mime_type: str | None = None) -> FilePart:
         """Create FilePart from a local file path."""
         path = Path(path)
         if mime_type is None:
@@ -149,17 +147,17 @@ class DataPart:
             return DataPart(data=result)
     """
 
-    data: Dict[str, Any]
+    data: dict[str, Any]
     mime_type: str = "application/json"
 
-    def to_a2a(self) -> Dict[str, Any]:
+    def to_a2a(self) -> dict[str, Any]:
         return {
             "type": "data",
             "data": self.data,
         }
 
     @classmethod
-    def from_a2a(cls, data: Dict) -> "DataPart":
+    def from_a2a(cls, data: dict) -> DataPart:
         return cls(data=data.get("data", {}))
 
 
@@ -182,27 +180,27 @@ class Artifact:
             )
     """
 
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
     parts: list = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def add_text(self, text: str) -> "Artifact":
+    def add_text(self, text: str) -> Artifact:
         """Add text to artifact."""
         self.parts.append(TextPart(text=text))
         return self
 
-    def add_file(self, file: FilePart) -> "Artifact":
+    def add_file(self, file: FilePart) -> Artifact:
         """Add file to artifact."""
         self.parts.append(file)
         return self
 
-    def add_data(self, data: Dict[str, Any]) -> "Artifact":
+    def add_data(self, data: dict[str, Any]) -> Artifact:
         """Add structured data to artifact."""
         self.parts.append(DataPart(data=data))
         return self
 
-    def to_a2a(self) -> Dict[str, Any]:
+    def to_a2a(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -212,7 +210,7 @@ class Artifact:
 
 
 # Helper to parse incoming parts
-def parse_part(data: Dict) -> Union[TextPart, FilePart, DataPart]:
+def parse_part(data: dict) -> Union[TextPart, FilePart, DataPart]:
     """Parse an A2A part dict into the appropriate Part type."""
     part_type = data.get("type") or data.get("kind")
 

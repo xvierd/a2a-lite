@@ -1,8 +1,10 @@
 """
 Tests for error detection - verifies errors are detected without fragile string matching.
 """
-import pytest
+
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestErrorDetection:
@@ -10,15 +12,11 @@ class TestErrorDetection:
 
     def test_orchestration_detects_json_rpc_error_key(self):
         """Test that orchestration._extract_result raises RemoteAgentError on JSON-RPC error."""
-        from a2a_lite.orchestration import _extract_result
         from a2a_lite.errors import RemoteAgentError
+        from a2a_lite.orchestration import _extract_result
 
         # Error response
-        error_response = {
-            "jsonrpc": "2.0",
-            "id": "123",
-            "error": {"code": -32600, "message": "Invalid Request"}
-        }
+        error_response = {"jsonrpc": "2.0", "id": "123", "error": {"code": -32600, "message": "Invalid Request"}}
 
         with pytest.raises(RemoteAgentError):
             _extract_result(error_response)
@@ -28,11 +26,7 @@ class TestErrorDetection:
         from a2a_lite.orchestration import _extract_result
 
         # Success response
-        success_response = {
-            "jsonrpc": "2.0",
-            "id": "123",
-            "result": {"parts": [{"type": "text", "text": "Hello"}]}
-        }
+        success_response = {"jsonrpc": "2.0", "id": "123", "result": {"parts": [{"type": "text", "text": "Hello"}]}}
 
         result = _extract_result(success_response)
         assert result == "Hello"
@@ -46,11 +40,7 @@ class TestErrorDetection:
         client._extract_result = AgentTestClient._extract_result.__get__(client, MagicMock)
 
         # Error response should raise TestClientError
-        error_response = {
-            "jsonrpc": "2.0",
-            "id": "123",
-            "error": {"code": -32600, "message": "Invalid Request"}
-        }
+        error_response = {"jsonrpc": "2.0", "id": "123", "error": {"code": -32600, "message": "Invalid Request"}}
 
         with pytest.raises(TestClientError) as exc_info:
             client._extract_result(error_response)
@@ -102,11 +92,7 @@ class TestErrorDetection:
         json_rpc_error = {
             "jsonrpc": "2.0",
             "id": "test-id",
-            "error": {
-                "code": -32602,
-                "message": "Invalid params",
-                "data": {"details": "Missing required field"}
-            }
+            "error": {"code": -32602, "message": "Invalid params", "data": {"details": "Missing required field"}},
         }
 
         # Should be detected as error and raise TestClientError

@@ -2,9 +2,14 @@ package com.a2alite;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Represents a running or completed A2A task.
+ */
 public class Task {
     private final String id;
     private final String skill;
@@ -17,15 +22,33 @@ public class Task {
     private final Instant createdAt;
     private Instant updatedAt;
 
+    /**
+     * Primary constructor.
+     */
+    public Task(String id, String skill, Map<String, Object> params) {
+        this.id = id;
+        this.skill = skill;
+        this.params = new HashMap<>(params);
+        this.status = new TaskStatus(TaskState.SUBMITTED);
+        this.createdAt = Instant.now();
+        this.updatedAt = createdAt;
+    }
+
+    /**
+     * Constructor with explicit initial status.
+     */
     public Task(String id, String skill, Map<String, Object> params, TaskStatus status) {
         this.id = id;
         this.skill = skill;
-        this.params = params;
+        this.params = new HashMap<>(params);
         this.status = status;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
     }
 
+    /**
+     * Transitions the task to a new state, recording the old status in history.
+     */
     public void updateStatus(TaskState state, String message, Double progress) {
         history.add(status);
         status = new TaskStatus(state, message, progress);
@@ -34,13 +57,13 @@ public class Task {
 
     public String getId() { return id; }
     public String getSkill() { return skill; }
-    public Map<String, Object> getParams() { return params; }
+    public Map<String, Object> getParams() { return Collections.unmodifiableMap(params); }
     public TaskStatus getStatus() { return status; }
     public Object getResult() { return result; }
     public void setResult(Object result) { this.result = result; }
     public String getError() { return error; }
     public void setError(String error) { this.error = error; }
-    public List<TaskStatus> getHistory() { return history; }
+    public List<TaskStatus> getHistory() { return Collections.unmodifiableList(history); }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

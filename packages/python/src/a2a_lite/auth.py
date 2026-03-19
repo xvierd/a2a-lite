@@ -30,22 +30,23 @@ Example (with OAuth2 - opt-in):
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
 import hashlib
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 
 class AuthProvider(ABC):
     """Base class for authentication providers."""
 
     @abstractmethod
-    async def authenticate(self, request: "AuthRequest") -> "AuthResult":
+    async def authenticate(self, request: AuthRequest) -> AuthResult:
         """Authenticate a request."""
         pass
 
     @abstractmethod
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         """Get A2A security scheme for agent card."""
         pass
 
@@ -54,13 +55,13 @@ class AuthProvider(ABC):
 class AuthRequest:
     """Incoming authentication request."""
 
-    headers: Dict[str, str]
-    query_params: Dict[str, str] = field(default_factory=dict)
-    body: Optional[bytes] = None
+    headers: dict[str, str]
+    query_params: dict[str, str] = field(default_factory=dict)
+    body: bytes | None = None
     method: str = "POST"
     path: str = "/"
 
-    def get_header(self, name: str) -> Optional[str]:
+    def get_header(self, name: str) -> str | None:
         """Get a header value (case-insensitive)."""
         # Try exact match first, then case-insensitive
         if name in self.headers:
@@ -77,18 +78,18 @@ class AuthResult:
     """Authentication result."""
 
     authenticated: bool
-    user_id: Optional[str] = None
-    scopes: Set[str] = field(default_factory=set)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
+    user_id: str | None = None
+    scopes: set[str] = field(default_factory=set)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
 
     @classmethod
     def success(
         cls,
         user_id: str,
-        scopes: Optional[Set[str]] = None,
+        scopes: set[str] | None = None,
         **metadata,
-    ) -> "AuthResult":
+    ) -> AuthResult:
         return cls(
             authenticated=True,
             user_id=user_id,
@@ -97,7 +98,7 @@ class AuthResult:
         )
 
     @classmethod
-    def failure(cls, error: str) -> "AuthResult":
+    def failure(cls, error: str) -> AuthResult:
         return cls(authenticated=False, error=error)
 
 
@@ -107,7 +108,7 @@ class NoAuth(AuthProvider):
     async def authenticate(self, request: AuthRequest) -> AuthResult:
         return AuthResult.success(user_id="anonymous")
 
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         return {}
 
 
@@ -124,9 +125,9 @@ class APIKeyAuth(AuthProvider):
 
     def __init__(
         self,
-        keys: List[str],
+        keys: list[str],
         header: str = "X-API-Key",
-        query_param: Optional[str] = None,
+        query_param: str | None = None,
     ):
         # Store only hashes of keys for security
         self._key_hashes = {hashlib.sha256(k.encode()).hexdigest() for k in keys}
@@ -156,7 +157,7 @@ class APIKeyAuth(AuthProvider):
         user_id = key_hash[:16]
         return AuthResult.success(user_id=user_id)
 
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         return {
             "type": "apiKey",
             "in": "header" if not self.query_param else "query",
@@ -182,7 +183,7 @@ class BearerAuth(AuthProvider):
 
     def __init__(
         self,
-        validator: Callable[[str], Optional[str]],
+        validator: Callable[[str], str | None],
         header: str = "Authorization",
     ):
         self.validator = validator
@@ -202,7 +203,7 @@ class BearerAuth(AuthProvider):
 
         return AuthResult.success(user_id=user_id)
 
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         return {
             "type": "http",
             "scheme": "bearer",
@@ -228,8 +229,8 @@ class OAuth2Auth(AuthProvider):
         self,
         issuer: str,
         audience: str,
-        jwks_uri: Optional[str] = None,
-        algorithms: List[str] = None,
+        jwks_uri: str | None = None,
+        algorithms: list[str] = None,
     ):
         self.issuer = issuer
         self.audience = audience
@@ -275,13 +276,11 @@ class OAuth2Auth(AuthProvider):
             )
 
         except ImportError:
-            return AuthResult.failure(
-                "OAuth2 requires pyjwt: pip install a2a-lite[oauth]"
-            )
+            return AuthResult.failure("OAuth2 requires pyjwt: pip install a2a-lite[oauth]")
         except Exception as e:
             return AuthResult.failure(f"Token validation failed: {str(e)}")
 
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         return {
             "type": "oauth2",
             "flows": {
@@ -305,7 +304,7 @@ class CompositeAuth(AuthProvider):
         ])
     """
 
-    def __init__(self, providers: List[AuthProvider]):
+    def __init__(self, providers: list[AuthProvider]):
         self.providers = providers
 
     async def authenticate(self, request: AuthRequest) -> AuthResult:
@@ -320,7 +319,7 @@ class CompositeAuth(AuthProvider):
 
         return AuthResult.failure("; ".join(errors) or "Authentication failed")
 
-    def get_scheme(self) -> Dict[str, Any]:
+    def get_scheme(self) -> dict[str, Any]:
         # Return first provider's scheme
         if self.providers:
             return self.providers[0].get_scheme()
@@ -328,7 +327,7 @@ class CompositeAuth(AuthProvider):
 
 
 # Auth middleware helper
-def require_auth(scopes: Optional[List[str]] = None):
+def require_auth(scopes: list[str] | None = None):
     """
     Decorator to require authentication for a skill.
 

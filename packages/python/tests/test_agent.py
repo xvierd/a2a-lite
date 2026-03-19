@@ -1,7 +1,9 @@
 """
 Tests for the Agent class.
 """
+
 import pytest
+
 from a2a_lite import Agent
 
 

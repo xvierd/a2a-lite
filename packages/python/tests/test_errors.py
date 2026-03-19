@@ -1,13 +1,14 @@
 """
 Tests for the structured error types.
 """
+
 import pytest
 
 from a2a_lite.errors import (
     A2ALiteError,
-    SkillNotFoundError,
-    ParamValidationError,
     AuthRequiredError,
+    ParamValidationError,
+    SkillNotFoundError,
 )
 
 
@@ -68,10 +69,13 @@ class TestSkillNotFoundError:
 
 class TestParamValidationError:
     def test_basic_message(self):
-        err = ParamValidationError("create_user", [
-            {"field": "email", "message": "expected str, got int"},
-            {"field": "age", "message": "field required"},
-        ])
+        err = ParamValidationError(
+            "create_user",
+            [
+                {"field": "email", "message": "expected str, got int"},
+                {"field": "age", "message": "field required"},
+            ],
+        )
         msg = str(err)
         assert "create_user" in msg
         assert "email" in msg

@@ -4,14 +4,25 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * Thread-safe, in-memory implementation of {@link TaskStore}.
+ *
+ * <p>Suitable for development and testing. For production, implement
+ * {@link TaskStore} with a persistent backend (e.g., Redis, database).
+ *
+ * <p>When {@code maxSize} is reached, the oldest task is evicted before
+ * a new one is created.
+ */
 public class InMemoryTaskStore implements TaskStore {
     private final Map<String, Task> tasks = new ConcurrentHashMap<>();
     private final int maxSize;
 
+    /** Creates a store with a default capacity of 10 000 tasks. */
     public InMemoryTaskStore() {
-        this(10000);
+        this(10_000);
     }
 
+    /** Creates a store with the given maximum capacity. */
     public InMemoryTaskStore(int maxSize) {
         this.maxSize = maxSize;
     }
@@ -27,8 +38,7 @@ public class InMemoryTaskStore implements TaskStore {
         var task = new Task(
             UUID.randomUUID().toString().replace("-", ""),
             skill,
-            params,
-            new TaskStatus(TaskState.SUBMITTED)
+            params
         );
         tasks.put(task.getId(), task);
         return task;
@@ -50,12 +60,22 @@ public class InMemoryTaskStore implements TaskStore {
     }
 
     @Override
-    public List<Task> list(TaskState state, String skill, int limit) {
+    public List<Task> list(String skill, TaskState state, int limit) {
         return tasks.values().stream()
-            .filter(t -> state == null || t.getStatus().getState() == state)
             .filter(t -> skill == null || t.getSkill().equals(skill))
+            .filter(t -> state == null || t.getStatus().state() == state)
             .sorted(Comparator.comparing(Task::getCreatedAt).reversed())
             .limit(limit > 0 ? limit : 100)
             .collect(Collectors.toList());
+    }
+
+    /** Returns the current number of tasks in the store. */
+    public int size() {
+        return tasks.size();
+    }
+
+    /** Removes all tasks from the store. */
+    public void clear() {
+        tasks.clear();
     }
 }

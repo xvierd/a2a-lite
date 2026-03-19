@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { OAuth2Auth } from '../src/auth.js';
 
 describe('OAuth2Auth', () => {

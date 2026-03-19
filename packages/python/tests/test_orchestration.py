@@ -1,12 +1,14 @@
 """
 Tests for the orchestration module (AgentNetwork, delegate).
 """
-import json
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
-from a2a_lite.orchestration import AgentNetwork, _call_remote_skill, _extract_result
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from a2a_lite import Agent
+from a2a_lite.orchestration import AgentNetwork, _call_remote_skill, _extract_result
 
 
 class TestAgentNetwork:
@@ -77,9 +79,7 @@ class TestAgentNetwork:
             mock.return_value = "hello"
             result = await net.call("test", "greet", city="NYC")
             assert result == "hello"
-            mock.assert_called_once_with(
-                "http://test:8787", "greet", {"city": "NYC"}, 30.0
-            )
+            mock.assert_called_once_with("http://test:8787", "greet", {"city": "NYC"}, 30.0)
 
     @pytest.mark.asyncio
     async def test_broadcast(self):
@@ -108,27 +108,15 @@ class TestAgentNetwork:
 
 class TestExtractResult:
     def test_extract_text_part(self):
-        response = {
-            "result": {
-                "parts": [{"kind": "text", "text": '"hello"'}]
-            }
-        }
+        response = {"result": {"parts": [{"kind": "text", "text": '"hello"'}]}}
         assert _extract_result(response) == "hello"
 
     def test_extract_json_part(self):
-        response = {
-            "result": {
-                "parts": [{"kind": "text", "text": '{"key": "value"}'}]
-            }
-        }
+        response = {"result": {"parts": [{"kind": "text", "text": '{"key": "value"}'}]}}
         assert _extract_result(response) == {"key": "value"}
 
     def test_extract_plain_text(self):
-        response = {
-            "result": {
-                "parts": [{"kind": "text", "text": "just text"}]
-            }
-        }
+        response = {"result": {"parts": [{"kind": "text", "text": "just text"}]}}
         assert _extract_result(response) == "just text"
 
     def test_extract_error(self):
@@ -144,11 +132,7 @@ class TestExtractResult:
         assert _extract_result(response) == {}
 
     def test_extract_type_text(self):
-        response = {
-            "result": {
-                "parts": [{"type": "text", "text": "hello"}]
-            }
-        }
+        response = {"result": {"parts": [{"type": "text", "text": "hello"}]}}
         assert _extract_result(response) == "hello"
 
 
