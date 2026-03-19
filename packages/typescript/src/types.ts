@@ -22,6 +22,18 @@ export interface AgentConfig {
   url?: string;
   auth?: AuthProvider;
   taskStore?: TaskStore | 'memory';
+  /**
+   * Explicit task store passed directly to the A2A protocol layer.
+   * When provided, this store is used by the SDK's DefaultRequestHandler
+   * instead of its internal InMemoryTaskStore.  Useful for persistence
+   * across restarts (e.g. a Redis-backed store).
+   */
+  protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
+  /**
+   * Push notifier called after every skill completion.
+   * Use `LogPushNotifier` in development or `WebhookPushNotifier` for production.
+   */
+  pushNotifier?: import('./push-notifications.js').PushNotifier;
   network?: import('./orchestration.js').AgentNetwork;
   corsOrigins?: string[];
   production?: boolean;
