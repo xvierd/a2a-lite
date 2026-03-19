@@ -5,6 +5,8 @@ import com.a2alite.auth.NoAuth;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
 import com.a2alite.push.PushNotifier;
+import com.a2alite.server.JavalinServerAdapter;
+import com.a2alite.server.ServerAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,12 +26,12 @@ import java.util.logging.Logger;
  *
  * <p>Wraps the official A2A Java SDK with a simple, intuitive API.
  *
- * <p>For standalone HTTP serving, Javalin is used as an optional dependency
- * loaded via reflection. This avoids forcing Javalin as a hard compile-time
- * dependency — users who deploy on Quarkus or another container need not
- * include it. If Javalin is not on the classpath, calling {@link #run()} will
- * throw a {@link RuntimeException} with an actionable message. See
- * {@link #run(String, int)} for details.
+ * <p>For standalone HTTP serving, a {@link com.a2alite.server.ServerAdapter} is
+ * used as a pluggable strategy. The default adapter is
+ * {@link com.a2alite.server.JavalinServerAdapter}, which requires
+ * {@code io.javalin:javalin} on the classpath. Users on Quarkus, Spring Boot,
+ * or another framework can supply a custom adapter via
+ * {@link Builder#serverAdapter(ServerAdapter)}.
  *
  * <pre>{@code
  * var agent = Agent.builder()
@@ -67,6 +69,7 @@ public class Agent {
     private final ObjectMapper mapper = new ObjectMapper();
     private boolean hasStreaming = false;
     private Thread shutdownHookThread;
+    private ServerAdapter serverAdapter;
 
     private Agent(Builder builder) {
         this.name = builder.name;
@@ -78,6 +81,7 @@ public class Agent {
         this.production = builder.production;
         this.network = builder.network;
         this.taskStore = resolveTaskStore(builder);
+        this.serverAdapter = builder.serverAdapter;
 
         // Auto-register push notifier as a completion hook
         if (builder.pushNotifier != null) {
@@ -403,38 +407,29 @@ public class Agent {
     }
 
     /**
-     * Run with Javalin (standalone mode).
-     *
-     * <p>Javalin is loaded via reflection so that it remains an optional
-     * dependency. Users deploying on Quarkus or another container can omit
-     * {@code io.javalin:javalin} from their classpath entirely and rely on the
-     * framework's own HTTP layer instead. If Javalin is not present at runtime,
-     * this method throws a {@link RuntimeException} with an actionable message.
-     *
-     * <p>For Quarkus integration, use the agent card and executor producers
-     * instead of calling {@code run()}.
+     * Run with the configured server adapter (standalone mode) on the default port 8787.
      */
     public void run() {
         run(8787);
     }
 
     /**
-     * Run with Javalin on a specific port.
+     * Run with the configured server adapter on a specific port.
      */
     public void run(int port) {
         run("0.0.0.0", port);
     }
 
     /**
-     * Run with Javalin on specific host and port.
+     * Run with the configured server adapter on the given host and port.
      *
-     * <p>Javalin is an optional dependency loaded via reflection to avoid
-     * forcing it as a hard dependency. If Javalin is not on the classpath,
-     * the HTTP server features are unavailable and a {@link RuntimeException}
-     * with a descriptive message is thrown.
+     * <p>If no {@link ServerAdapter} was provided via {@link Builder#serverAdapter},
+     * a {@link JavalinServerAdapter} is created automatically (requires
+     * {@code io.javalin:javalin} on the classpath). If Javalin is absent and no
+     * adapter was supplied, a {@link RuntimeException} with an actionable message
+     * is thrown.
      */
     public void run(String host, int port) {
-        // Production mode warning
         if (production) {
             String urlStr = url != null ? url : "http://" + host + ":" + port;
             if (!urlStr.startsWith("https://")) {
@@ -443,263 +438,41 @@ public class Agent {
             }
         }
 
-        // Run startup hooks
         for (var hook : startupHooks) {
             hook.run();
         }
 
-        try {
-            // Use reflection to avoid compile-time dependency on Javalin.
-            // Javalin is declared compileOnly so that Quarkus users are not forced
-            // to bundle it. At runtime it is available only when the user has added
-            // the dependency explicitly.
-            var javalinClass = Class.forName("io.javalin.Javalin");
-            var createMethod = javalinClass.getMethod("create");
-            var app = createMethod.invoke(null);
+        ServerAdapter adapter = resolveServerAdapter();
+        adapter.start(this, host, port);
 
-            // Get handler types
-            var handlerClass = Class.forName("io.javalin.http.Handler");
-
-            // Agent card endpoint
-            var getMethod = javalinClass.getMethod("get", String.class, handlerClass);
-            var agentCardHandler = java.lang.reflect.Proxy.newProxyInstance(
-                handlerClass.getClassLoader(),
-                new Class[]{handlerClass},
-                (proxy, method, args) -> {
-                    if ("handle".equals(method.getName())) {
-                        var ctx = args[0];
-                        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-                        jsonMethod.invoke(ctx, buildAgentCardJson(host, port));
-                    }
-                    return null;
-                }
-            );
-            getMethod.invoke(app, "/.well-known/agent.json", agentCardHandler);
-
-            // Main A2A endpoint
-            var postMethod = javalinClass.getMethod("post", String.class, handlerClass);
-            var messageHandler = java.lang.reflect.Proxy.newProxyInstance(
-                handlerClass.getClassLoader(),
-                new Class[]{handlerClass},
-                (proxy, method, args) -> {
-                    if ("handle".equals(method.getName())) {
-                        var ctx = args[0];
-                        handleRequest(ctx);
-                    }
-                    return null;
-                }
-            );
-            postMethod.invoke(app, "/", messageHandler);
-
-            // OPTIONS preflight handler for CORS
-            if (corsOrigins != null && !corsOrigins.isEmpty()) {
-                var optionsMethod = javalinClass.getMethod("options", String.class, handlerClass);
-                var optionsHandler = java.lang.reflect.Proxy.newProxyInstance(
-                    handlerClass.getClassLoader(),
-                    new Class[]{handlerClass},
-                    (proxy, method, args) -> {
-                        if ("handle".equals(method.getName())) {
-                            var optCtx = args[0];
-                            var hdrMethod = optCtx.getClass().getMethod("header", String.class, String.class);
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                            hdrMethod.invoke(optCtx, "Access-Control-Allow-Headers", "*");
-                            var statusMethod = optCtx.getClass().getMethod("status", int.class);
-                            statusMethod.invoke(optCtx, 204);
-                        }
-                        return null;
-                    }
-                );
-                optionsMethod.invoke(app, "/", optionsHandler);
+        if (shutdownHookThread != null) {
+            Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
+        }
+        shutdownHookThread = new Thread(() -> {
+            for (var hook : shutdownHooks) {
+                hook.run();
             }
+        });
+        Runtime.getRuntime().addShutdownHook(shutdownHookThread);
+    }
 
-            // Start server
-            var displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
-
-            System.out.printf("""
-                ┌─────────────────────────────────────────────────┐
-                │  🚀 A2A Lite Agent Started                      │
-                ├─────────────────────────────────────────────────┤
-                │  %s v%s
-                │  %s
-                │
-                │  Skills:
-                %s
-                │
-                │  Endpoints:
-                │    • Agent Card: http://%s:%d/.well-known/agent.json
-                │    • API: http://%s:%d/
-                └─────────────────────────────────────────────────┘
-                %n""",
-                name, version,
-                description,
-                skills.values().stream()
-                    .map(s -> "│    • " + s.name() + ": " + s.description())
-                    .reduce((a, b) -> a + "\n" + b)
-                    .orElse("│    (no skills)"),
-                displayHost, port,
-                displayHost, port
-            );
-
-            var startMethod = javalinClass.getMethod("start", String.class, int.class);
-            startMethod.invoke(app, host, port);
-
-            // Register shutdown hook (remove old one first to prevent accumulation)
-            if (shutdownHookThread != null) {
-                Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
-            }
-            shutdownHookThread = new Thread(() -> {
-                for (var hook : shutdownHooks) {
-                    hook.run();
-                }
-            });
-            Runtime.getRuntime().addShutdownHook(shutdownHookThread);
-
-        } catch (ClassNotFoundException e) {
+    /**
+     * Resolves the effective {@link ServerAdapter}, falling back to
+     * {@link JavalinServerAdapter} when none was explicitly configured.
+     *
+     * @throws RuntimeException if no adapter is set and Javalin is not on the classpath
+     */
+    private ServerAdapter resolveServerAdapter() {
+        if (serverAdapter != null) {
+            return serverAdapter;
+        }
+        var javalin = JavalinServerAdapter.createIfAvailable(corsOrigins);
+        if (javalin == null) {
             throw new RuntimeException(
-                "Javalin not found. Add 'io.javalin:javalin' dependency or use Quarkus integration.",
-                e
+                "Javalin not found. Add 'io.javalin:javalin' dependency or provide a custom ServerAdapter."
             );
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start Javalin server", e);
         }
-    }
-
-    /**
-     * Handles a single HTTP request received from the Javalin context (passed
-     * as {@code Object} to avoid a compile-time dependency on Javalin).
-     *
-     * <p>The method is decomposed into focused private helpers:
-     * <ol>
-     *   <li>{@link #addCorsHeaders(Object)} — writes CORS response headers</li>
-     *   <li>{@link #extractHeaders(Object)} — reads request headers via reflection</li>
-     *   <li>{@link #authenticateRequest(Object, Map)} — validates auth and writes a 401 on failure</li>
-     *   <li>{@link #parseJsonRpcBody(Object)} — deserializes the JSON-RPC request body</li>
-     * </ol>
-     */
-    private void handleRequest(Object ctx) throws Exception {
-        addCorsHeaders(ctx);
-
-        Map<String, String> headers = extractHeaders(ctx);
-        if (!authenticateRequest(ctx, headers)) {
-            return; // response already written
-        }
-
-        JsonNode body = parseJsonRpcBody(ctx);
-        var method = body.path("method").asText();
-        var id = body.path("id").asText();
-        var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-
-        if ("message/send".equals(method)) {
-            var message = body.path("params").path("message");
-            var result = handleMessage(message);
-
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-
-            var resultNode = response.putObject("result");
-            var partsArray = resultNode.putArray("parts");
-            var textPart = partsArray.addObject();
-            textPart.put("kind", "text");
-            textPart.put("text", mapper.writeValueAsString(result));
-
-            jsonMethod.invoke(ctx, response);
-        } else {
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-            var error = response.putObject("error");
-            error.put("code", -32601);
-            error.put("message", "Method not found");
-            jsonMethod.invoke(ctx, response);
-        }
-    }
-
-    /**
-     * Writes CORS headers to the response if CORS origins are configured.
-     *
-     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
-     */
-    private void addCorsHeaders(Object ctx) throws Exception {
-        if (corsOrigins != null && !corsOrigins.isEmpty()) {
-            var headerMethod = ctx.getClass().getMethod("header", String.class, String.class);
-            headerMethod.invoke(ctx, "Access-Control-Allow-Origin", String.join(",", corsOrigins));
-            headerMethod.invoke(ctx, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            headerMethod.invoke(ctx, "Access-Control-Allow-Headers", "*");
-        }
-    }
-
-    /**
-     * Extracts all HTTP request headers from the Javalin context via reflection.
-     *
-     * <p>Falls back to extracting only common auth headers when the full header
-     * map is unavailable on the context type.
-     *
-     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
-     * @return a mutable map of header name to header value
-     */
-    private Map<String, String> extractHeaders(Object ctx) throws Exception {
-        Map<String, String> headers = new HashMap<>();
-        try {
-            var headerMapMethod = ctx.getClass().getMethod("headerMap");
-            @SuppressWarnings("unchecked")
-            Map<String, String> headerMap = (Map<String, String>) headerMapMethod.invoke(ctx);
-            headers.putAll(headerMap);
-        } catch (NoSuchMethodException e) {
-            // Fallback: extract only the headers relevant to authentication
-            var headerMethod = ctx.getClass().getMethod("header", String.class);
-            String apiKey = (String) headerMethod.invoke(ctx, "X-API-Key");
-            if (apiKey != null) headers.put("X-API-Key", apiKey);
-            String authHeader = (String) headerMethod.invoke(ctx, "Authorization");
-            if (authHeader != null) headers.put("Authorization", authHeader);
-        }
-        return headers;
-    }
-
-    /**
-     * Authenticates the request using the configured {@link AuthProvider}.
-     *
-     * <p>If authentication fails, writes a {@code 401} JSON-RPC error response
-     * and returns {@code false} so the caller can short-circuit.
-     *
-     * @param ctx     the Javalin context (as {@code Object} due to optional dependency)
-     * @param headers the headers extracted by {@link #extractHeaders(Object)}
-     * @return {@code true} if the request is authenticated (or auth is disabled),
-     *         {@code false} if a 401 was sent
-     */
-    private boolean authenticateRequest(Object ctx, Map<String, String> headers) throws Exception {
-        if (auth instanceof NoAuth) {
-            return true;
-        }
-
-        var authRequest = new com.a2alite.auth.AuthRequest(headers);
-        var authResult = auth.authenticate(authRequest);
-        if (!authResult.authenticated()) {
-            var statusMethod = ctx.getClass().getMethod("status", int.class);
-            var jsonMethod = ctx.getClass().getMethod("json", Object.class);
-            statusMethod.invoke(ctx, 401);
-            jsonMethod.invoke(ctx, Map.of(
-                "jsonrpc", "2.0",
-                "error", Map.of(
-                    "code", -32600,
-                    "message", authResult.error() != null ? authResult.error() : "Authentication failed"
-                )
-            ));
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Reads and deserializes the JSON-RPC request body.
-     *
-     * @param ctx the Javalin context (as {@code Object} due to optional dependency)
-     * @return the parsed {@link JsonNode} body
-     */
-    private JsonNode parseJsonRpcBody(Object ctx) throws Exception {
-        var bodyMethod = ctx.getClass().getMethod("bodyAsBytes");
-        return mapper.readTree((byte[]) bodyMethod.invoke(ctx));
+        return javalin;
     }
 
     /**
@@ -777,6 +550,7 @@ public class Agent {
         private AgentNetwork network;
         private TaskStore taskStore;
         private PushNotifier pushNotifier;
+        private ServerAdapter serverAdapter;
 
         public Builder name(String name) {
             this.name = name;
@@ -825,6 +599,11 @@ public class Agent {
 
         public Builder pushNotifier(PushNotifier pushNotifier) {
             this.pushNotifier = pushNotifier;
+            return this;
+        }
+
+        public Builder serverAdapter(ServerAdapter adapter) {
+            this.serverAdapter = adapter;
             return this;
         }
 
