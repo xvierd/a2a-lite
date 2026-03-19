@@ -82,19 +82,45 @@ public class WebhookPushNotifier implements PushNotifier {
         this(builder().url(url).secret(secret));
     }
 
+    /** Returns the webhook URL. */
+    public String getUrl() {
+        return url;
+    }
+
+    /** Returns the HMAC signing secret, or {@code null} if not configured. */
+    public String getSecret() {
+        return secret;
+    }
+
+    /** Returns the maximum number of delivery attempts. */
+    public int getMaxRetries() {
+        return maxRetries;
+    }
+
+    /** Returns the per-request timeout. */
+    public Duration getTimeout() {
+        return timeout;
+    }
+
+    /**
+     * Sends the event to the webhook. Retries up to {@code maxRetries} times on
+     * transient failures. {@code maxRetries=0} means one attempt, no retries.
+     *
+     * @throws PushNotifierException if all attempts fail
+     */
     @Override
     public void notify(Map<String, Object> event) {
         String payload;
         try {
             payload = objectMapper.writeValueAsString(event);
         } catch (Exception e) {
-            logger.warning("Failed to serialize push notification event: " + e.getMessage());
-            return;
+            throw new PushNotifierException("Failed to serialize push notification event", e);
         }
 
         Exception lastError = null;
+        int totalAttempts = maxRetries + 1; // maxRetries=0 → 1 attempt, maxRetries=3 → 4 attempts
 
-        for (int attempt = 0; attempt < maxRetries; attempt++) {
+        for (int attempt = 0; attempt < totalAttempts; attempt++) {
             try {
                 HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(url))
@@ -119,36 +145,39 @@ public class WebhookPushNotifier implements PushNotifier {
                         HttpResponse.BodyHandlers.ofString()
                 );
 
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                int status = response.statusCode();
+                if (status >= 200 && status < 300) {
                     logger.fine("Push notification sent: skill=" + event.get("skill")
-                            + " status=" + response.statusCode());
+                            + " status=" + status);
                     return; // success
                 }
 
-                lastError = new RuntimeException("Webhook responded with HTTP " + response.statusCode());
+                lastError = new PushNotifierException("Webhook responded with HTTP " + status);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.warning("Push notification interrupted: " + e.getMessage());
-                return;
+                throw new PushNotifierException("Push notification interrupted", e);
+            } catch (PushNotifierException e) {
+                throw e; // don't wrap
             } catch (Exception e) {
                 lastError = e;
             }
 
-            if (attempt < maxRetries - 1) {
+            if (attempt < totalAttempts - 1) {
                 long waitMs = (long) (1000 * Math.pow(2, attempt)); // 1s, 2s, 4s
                 logger.warning("Push notification failed (attempt " + (attempt + 1) + "/"
-                        + maxRetries + "), retrying in " + waitMs + "ms: " + lastError);
+                        + totalAttempts + "), retrying in " + waitMs + "ms: " + lastError);
                 try {
                     Thread.sleep(waitMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    return;
+                    throw new PushNotifierException("Push notification interrupted during retry", ie);
                 }
             }
         }
 
-        logger.log(Level.SEVERE, "Push notification failed after " + maxRetries + " attempts", lastError);
+        String reason = lastError != null ? lastError.getMessage() : "unknown error";
+        throw new PushNotifierException("Push notification failed after " + totalAttempts + " attempt(s): " + reason, lastError);
     }
 
     private String sign(String payload) {
