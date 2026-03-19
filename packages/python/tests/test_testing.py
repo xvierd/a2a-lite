@@ -153,8 +153,7 @@ class TestAgentTestClientStream:
 
 
 class TestAsyncAgentTestClient:
-    """AsyncAgentTestClient uses httpx.AsyncClient(app=...) which was removed in httpx >= 0.28.
-    These tests verify the client can be instantiated but skip call tests on incompatible httpx versions."""
+    """Tests for AsyncAgentTestClient using httpx.ASGITransport (compatible with httpx >= 0.28)."""
 
     def test_creation(self):
         from a2a_lite import AsyncAgentTestClient
@@ -170,16 +169,6 @@ class TestAsyncAgentTestClient:
 
     @pytest.mark.asyncio
     async def test_async_call(self):
-        """Test async call - may fail on httpx >= 0.28 due to removed app= parameter."""
-        import httpx
-
-        if not hasattr(httpx.AsyncClient.__init__, "__wrapped__"):
-            # Check if 'app' parameter is supported
-            import inspect
-            sig = inspect.signature(httpx.AsyncClient.__init__)
-            if "app" not in sig.parameters and "transport" not in sig.parameters:
-                pytest.skip("httpx.AsyncClient no longer supports app= parameter")
-
         from a2a_lite import AsyncAgentTestClient
 
         agent = Agent(name="Test", description="Test")
@@ -188,12 +177,7 @@ class TestAsyncAgentTestClient:
         async def add(a: int, b: int) -> int:
             return a + b
 
-        try:
-            client = AsyncAgentTestClient(agent)
-            result = await client.call("add", a=2, b=3)
-            assert result == 5
-            await client.close()
-        except TypeError as e:
-            if "app" in str(e):
-                pytest.skip(f"httpx version incompatibility: {e}")
-            raise
+        client = AsyncAgentTestClient(agent)
+        result = await client.call("add", a=2, b=3)
+        assert result == 5
+        await client.close()

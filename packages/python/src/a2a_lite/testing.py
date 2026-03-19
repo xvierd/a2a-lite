@@ -267,7 +267,8 @@ class AsyncAgentTestClient:
 
             self._app = self.agent.get_app()
             self._client = httpx.AsyncClient(
-                app=self._app, base_url="http://testserver"
+                transport=httpx.ASGITransport(app=self._app),
+                base_url="http://testserver",
             )
         return self._client
 
