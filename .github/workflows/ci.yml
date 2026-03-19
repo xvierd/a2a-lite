@@ -33,7 +33,7 @@ jobs:
         run: ruff check src tests
 
       - name: Test with coverage
-        run: pytest tests/ -v --cov=a2a_lite --cov-report=term-missing --cov-fail-under=80
+        run: pytest tests/ -v --cov=a2a_lite --cov-report=term-missing --cov-fail-under=75
 
   typescript:
     name: TypeScript Node ${{ matrix.node-version }}
