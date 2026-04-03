@@ -14,11 +14,7 @@ from a2a_lite.orchestration import (
     get_task_push_notification,
     set_task_push_notification,
 )
-from a2a_lite.push_notifications import (
-    PushNotificationMiddleware,
-    TaskPushRegistry,
-)
-
+from a2a_lite.push_notifications import PushNotificationMiddleware, TaskPushRegistry
 
 # ---------------------------------------------------------------------------
 # TaskPushRegistry

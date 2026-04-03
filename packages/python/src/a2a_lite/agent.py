@@ -383,7 +383,7 @@ class Agent:
             # Validate the skill exists on the remote agent
             skill_names = [s.get("id") or s.get("name", "") for s in card.skills]
             if skill and skill not in skill_names:
-                raise SkillNotFoundError(skill, {s: "" for s in skill_names})
+                raise SkillNotFoundError(skill, dict.fromkeys(skill_names, ""))
             # Use the card's url as the POST target (handles non-root paths)
             url = card.url
 
