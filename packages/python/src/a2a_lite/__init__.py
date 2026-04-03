@@ -137,7 +137,7 @@ from .router import Router
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "0.3.8"
+__version__ = "0.3.9"
 
 __all__ = [
     # Core

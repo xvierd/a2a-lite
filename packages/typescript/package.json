@@ -1,6 +1,6 @@
 {
   "name": "a2a-lite",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Build A2A agents in 8 lines. Add enterprise features when you need them.",
   "type": "module",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm,cjs --dts",
+    "build": "tsup",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
