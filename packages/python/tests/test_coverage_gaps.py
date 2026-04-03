@@ -231,7 +231,7 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test", network=network)
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = {"temp": 72}
+            mock_call.return_value = ({"temp": 72}, "task-123")
             result = await agent.delegate("weather", "forecast", city="NYC")
 
             mock_call.assert_called_once_with("http://weather:8787", "forecast", {"city": "NYC"}, 30.0)

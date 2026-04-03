@@ -154,6 +154,139 @@ export class WebhookPushNotifier extends PushNotifier {
  *   pushNotifier: new LogPushNotifier(),
  * });
  */
+// ---------------------------------------------------------------------------
+// TaskPushRegistry — per-task push notification config store
+// ---------------------------------------------------------------------------
+
+/**
+ * In-memory registry for per-task push notification configurations.
+ *
+ * A caller registers a webhook URL (and optional bearer token) for a specific
+ * task ID via the `tasks/pushNotification/set` JSON-RPC method.  When the task
+ * completes, the server fires the webhook.
+ */
+export class TaskPushRegistry {
+  private readonly configs = new Map<string, { url: string; token?: string }>();
+
+  set(taskId: string, url: string, token?: string): void {
+    this.configs.set(taskId, { url, token });
+  }
+
+  get(taskId: string): { url: string; token?: string } | undefined {
+    return this.configs.get(taskId);
+  }
+
+  delete(taskId: string): boolean {
+    return this.configs.delete(taskId);
+  }
+
+  has(taskId: string): boolean {
+    return this.configs.has(taskId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// createPushNotificationMiddleware — Express middleware for JSON-RPC methods
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns Express middleware that intercepts `tasks/pushNotification/*`
+ * JSON-RPC methods and manages the per-task push notification registry.
+ *
+ * Mount this **before** the SDK's `jsonRpcHandler` so that the custom
+ * methods are handled without reaching the protocol layer.
+ */
+export function createPushNotificationMiddleware(registry: TaskPushRegistry) {
+  return async (req: any, res: any, next: () => void): Promise<void> => {
+    if (req.method !== 'POST' || !req.body) {
+      return next();
+    }
+
+    const { method, id, params } = req.body;
+
+    if (method === 'tasks/pushNotification/set') {
+      const taskId = params?.id ?? params?.taskId;
+      const url = params?.pushNotificationConfig?.url;
+
+      if (!taskId || !url) {
+        res.json({
+          jsonrpc: '2.0',
+          id: id ?? null,
+          error: { code: -32602, message: 'Missing taskId or pushNotificationConfig.url' },
+        });
+        return;
+      }
+
+      const token = params.pushNotificationConfig.token;
+      registry.set(taskId, url, token);
+
+      res.json({
+        jsonrpc: '2.0',
+        id: id ?? null,
+        result: { taskId, pushNotificationConfig: { url, ...(token ? { token } : {}) } },
+      });
+      return;
+    }
+
+    if (method === 'tasks/pushNotification/get') {
+      const taskId = params?.id ?? params?.taskId;
+
+      if (!taskId) {
+        res.json({
+          jsonrpc: '2.0',
+          id: id ?? null,
+          error: { code: -32602, message: 'Missing taskId' },
+        });
+        return;
+      }
+
+      const config = registry.get(taskId);
+      if (!config) {
+        res.json({
+          jsonrpc: '2.0',
+          id: id ?? null,
+          error: { code: -32001, message: `No push notification config for task ${taskId}` },
+        });
+        return;
+      }
+
+      res.json({
+        jsonrpc: '2.0',
+        id: id ?? null,
+        result: { taskId, pushNotificationConfig: config },
+      });
+      return;
+    }
+
+    if (method === 'tasks/pushNotification/delete') {
+      const taskId = params?.id ?? params?.taskId;
+
+      if (!taskId) {
+        res.json({
+          jsonrpc: '2.0',
+          id: id ?? null,
+          error: { code: -32602, message: 'Missing taskId' },
+        });
+        return;
+      }
+
+      registry.delete(taskId);
+      res.json({
+        jsonrpc: '2.0',
+        id: id ?? null,
+        result: { taskId, deleted: true },
+      });
+      return;
+    }
+
+    return next();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LogPushNotifier
+// ---------------------------------------------------------------------------
+
 export class LogPushNotifier extends PushNotifier {
   async notify(event: PushEvent): Promise<void> {
     console.log('[A2A Push]', {

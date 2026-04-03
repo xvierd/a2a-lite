@@ -2,6 +2,8 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
+> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [google/a2a-java](https://github.com/a2aproject/a2a-java) SDK. Perfect for courses, POCs, and demos.
+
 **Build A2A agents in 8 lines. Add features when you need them.**
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API. 100% protocol-compatible.
@@ -25,7 +27,7 @@ agent.run();
 
 ```groovy
 dependencies {
-    implementation 'com.a2alite:a2a-lite:0.2.5'
+    implementation 'com.a2alite:a2a-lite:0.3.8'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -36,7 +38,7 @@ dependencies {
 <dependency>
     <groupId>com.a2alite</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>0.2.5</version>
+    <version>0.3.8</version>
 </dependency>
 
 <dependency>
@@ -180,6 +182,130 @@ ObjectNode card = client.getAgentCard();
 ```
 
 `AgentTestClient` returns a `TestResult` with `.getData()`, `.getText()`, and `.as(Class<T>)`.
+
+---
+
+## Multi-Agent Communication
+
+### TaskHandle — track remote tasks
+
+`delegateWithHandle` returns a `TaskHandle` carrying the remote task ID so you can poll or cancel later:
+
+```java
+AgentNetwork network = new AgentNetwork();
+network.add("data", "http://localhost:8787");
+
+Agent agent = Agent.builder()
+    .name("Orchestrator")
+    .description("Orchestrates work across agents")
+    .network(network)
+    .build();
+
+agent.skill("process", params -> {
+    String query = (String) params.get("query");
+
+    // Get a TaskHandle instead of just the result
+    TaskHandle handle = agent.delegateWithHandle("data", "fetch",
+        Map.of("query", query));
+
+    System.out.println("Task ID: " + handle.getTaskId());
+    System.out.println("Result: " + handle.getResult());
+    return handle.getResult();
+});
+```
+
+#### Task Lifecycle — poll and cancel remote tasks
+
+Use convenience methods directly on the handle, or via the network by name:
+
+```java
+// Poll status directly on the handle
+Object status = handle.getStatus();
+Object status2 = handle.getStatus(15);  // custom timeout in seconds
+
+// Or poll via network name
+Object status3 = network.getTask("data", handle.getTaskId());
+Object status4 = network.getTask("data", handle.getTaskId(), 15);
+
+// Cancel directly on the handle
+handle.cancel();
+handle.cancel(15);
+
+// Or cancel via network name
+network.cancelTask("data", handle.getTaskId());
+network.cancelTask("data", handle.getTaskId(), 15);
+```
+
+Low-level functions are also available:
+
+```java
+Object status = network.getRemoteTask("http://localhost:8787", taskId, 10);
+Object result = network.cancelRemoteTask("http://localhost:8787", taskId, 10);
+```
+
+### Client-Side SSE Streaming
+
+When calling a remote streaming agent, consume its chunks as they arrive:
+
+```java
+// Via agent.streamDelegate
+StreamingHandler.StreamResult stream = agent.streamDelegate(
+    "story", "tell_story", Map.of("topic", "dragons"));
+
+for (Object chunk : stream) {
+    System.out.print(chunk);
+    System.out.flush();
+}
+
+// Or directly via AgentNetwork
+StreamingHandler.StreamResult stream = network.streamRemoteSkill(
+    "http://localhost:8787", "tell_story", Map.of("topic", "dragons"));
+
+for (Object chunk : stream) {
+    System.out.print(chunk);
+}
+```
+
+The remote agent must support streaming (declared via `SkillConfig.withStreaming()`). The stream automatically stops when the remote agent finishes or on terminal states.
+
+### Agent Card Discovery
+
+Fetch a remote agent's capabilities from its `/.well-known/agent.json` endpoint:
+
+```java
+// Fetch an agent's capabilities
+AgentCardInfo card = network.discoverAgent("http://localhost:8787");
+System.out.println("Agent: " + card.getName() + " v" + card.getVersion());
+System.out.println("Skills: " + card.getSkills().size());
+System.out.println("Streaming: " + card.isSupportsStreaming());
+
+// Auto-discover when registering
+network.add("data", "http://localhost:8787", true);
+
+// Get cached card
+Optional<AgentCardInfo> cached = network.getCard("data");
+
+// Discover a named agent
+AgentCardInfo namedCard = network.discoverNamed("data");
+```
+
+### Per-Task Push Notifications
+
+```java
+TaskHandle handle = agent.delegateWithHandle("worker", "process", Map.of("data", "..."));
+
+// Register webhook for this specific task
+handle.subscribe("https://my-app.com/webhook");
+
+// Or via network
+network.setTaskPushNotification("http://localhost:8787", handle.getTaskId(), "https://my-app.com/webhook");
+
+// Retrieve / remove
+Object config = handle.getPushConfig();
+handle.unsubscribe();
+```
+
+The `TaskPushRegistry` is automatically created on every Agent and handles `tasks/pushNotification/set|get|delete` JSON-RPC methods.
 
 ---
 

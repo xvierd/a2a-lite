@@ -104,13 +104,26 @@ export {
 } from './errors.js';
 
 // Orchestration
-export { AgentNetwork, callRemoteSkill } from './orchestration.js';
+export {
+  AgentNetwork,
+  callRemoteSkill,
+  streamRemoteSkill,
+  TaskHandle,
+  getRemoteTask,
+  cancelRemoteTask,
+  discoverAgent,
+  setTaskPushNotification,
+  getTaskPushNotification,
+  deleteTaskPushNotification,
+} from './orchestration.js';
+export type { AgentCardInfo } from './orchestration.js';
 
 // Push notifications (optional)
 export {
   PushNotifier,
   LogPushNotifier,
   WebhookPushNotifier,
+  TaskPushRegistry,
 } from './push-notifications.js';
 export type { PushEvent, WebhookPushNotifierOptions } from './push-notifications.js';
 

@@ -21,10 +21,26 @@ from .errors import (
     SkillNotFoundError,
 )
 from .middleware import MiddlewareChain, MiddlewareContext
+from .push_notifications import TaskPushRegistry
 from .streaming import is_generator_function, stream_generator
 from .utils import _is_or_subclass
 
 logger = logging.getLogger(__name__)
+
+
+async def _fire_task_webhook(url: str, token: str | None, event: dict) -> None:
+    """Fire a per-task push notification webhook."""
+    import httpx
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    payload = json.dumps(event, default=str)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, content=payload, headers=headers)
+    except Exception as e:
+        logger.warning("Per-task push notification failed for task %s: %s", event.get("task_id"), e)
 
 
 class LiteAgentExecutor(AgentExecutor):
@@ -50,6 +66,7 @@ class LiteAgentExecutor(AgentExecutor):
         auth_provider: Any | None = None,
         task_store: Any | None = None,
         mcp_servers: list[str] | None = None,
+        push_registry: TaskPushRegistry | None = None,
     ):
         self.skills = skills
         self.error_handler = error_handler
@@ -58,6 +75,7 @@ class LiteAgentExecutor(AgentExecutor):
         self.auth_provider = auth_provider
         self.task_store = task_store
         self.mcp_servers = mcp_servers or []
+        self.push_registry = push_registry
 
     async def execute(
         self,
@@ -150,6 +168,25 @@ class LiteAgentExecutor(AgentExecutor):
                         "Completion hook error for skill '%s'",
                         skill_name,
                         exc_info=True,
+                    )
+
+            # Fire per-task push notification if registered
+            task_id = getattr(context, "task_id", None) or getattr(context, "_task_id", None)
+            if self.push_registry and task_id and task_id in self.push_registry:
+                config = self.push_registry.get(task_id)
+                if config:
+                    import time as _time
+
+                    await _fire_task_webhook(
+                        config["url"],
+                        config["token"],
+                        {
+                            "task_id": task_id,
+                            "skill": skill_name,
+                            "result": result,
+                            "status": "completed",
+                            "timestamp": _time.time(),
+                        },
                     )
 
         except Exception as e:

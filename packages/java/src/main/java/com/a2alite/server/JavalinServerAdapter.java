@@ -186,6 +186,12 @@ public class JavalinServerAdapter implements ServerAdapter {
             textPart.put("text", mapper.writeValueAsString(result));
 
             ctx.json(response);
+        } else if ("tasks/pushNotification/set".equals(method)) {
+            handlePushNotificationSet(ctx, body, id, agent);
+        } else if ("tasks/pushNotification/get".equals(method)) {
+            handlePushNotificationGet(ctx, body, id, agent);
+        } else if ("tasks/pushNotification/delete".equals(method)) {
+            handlePushNotificationDelete(ctx, body, id, agent);
         } else {
             var response = mapper.createObjectNode();
             response.put("jsonrpc", "2.0");
@@ -195,6 +201,72 @@ public class JavalinServerAdapter implements ServerAdapter {
             error.put("message", "Method not found");
             ctx.json(response);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void handlePushNotificationSet(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
+        var params = body.path("params");
+        var taskId = params.has("id") ? params.path("id").asText() : params.path("taskId").asText();
+        var configNode = params.path("pushNotificationConfig");
+        var url = configNode.path("url").asText();
+        var token = configNode.has("token") && !configNode.path("token").isNull()
+                ? configNode.path("token").asText() : null;
+
+        agent.getPushRegistry().set(taskId, url, token);
+
+        var response = mapper.createObjectNode();
+        response.put("jsonrpc", "2.0");
+        response.put("id", id);
+        var result = response.putObject("result");
+        result.put("id", taskId);
+        var pushConfig = result.putObject("pushNotificationConfig");
+        pushConfig.put("url", url);
+        if (token != null) {
+            pushConfig.put("token", token);
+        }
+        ctx.json(response);
+    }
+
+    private void handlePushNotificationGet(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
+        var params = body.path("params");
+        var taskId = params.has("id") ? params.path("id").asText() : params.path("taskId").asText();
+
+        var config = agent.getPushRegistry().get(taskId);
+
+        var response = mapper.createObjectNode();
+        response.put("jsonrpc", "2.0");
+        response.put("id", id);
+
+        if (config.isPresent()) {
+            var result = response.putObject("result");
+            result.put("id", taskId);
+            var pushConfig = result.putObject("pushNotificationConfig");
+            pushConfig.put("url", config.get().url());
+            if (config.get().token() != null) {
+                pushConfig.put("token", config.get().token());
+            }
+        } else {
+            var error = response.putObject("error");
+            error.put("code", -32602);
+            error.put("message", "No push notification config found for task: " + taskId);
+        }
+
+        ctx.json(response);
+    }
+
+    private void handlePushNotificationDelete(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
+        var params = body.path("params");
+        var taskId = params.has("id") ? params.path("id").asText() : params.path("taskId").asText();
+
+        boolean removed = agent.getPushRegistry().delete(taskId);
+
+        var response = mapper.createObjectNode();
+        response.put("jsonrpc", "2.0");
+        response.put("id", id);
+        var result = response.putObject("result");
+        result.put("id", taskId);
+        result.put("deleted", removed);
+        ctx.json(response);
     }
 
     private void addCorsHeaders(io.javalin.http.Context ctx) {

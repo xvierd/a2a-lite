@@ -25,6 +25,7 @@ from a2a.types import (
 from .decorators import SkillDefinition
 from .executor import LiteAgentExecutor
 from .middleware import MiddlewareChain
+from .push_notifications import PushNotificationMiddleware, TaskPushRegistry
 from .streaming import is_generator_function
 from .utils import _is_or_subclass, extract_function_schemas
 
@@ -149,6 +150,9 @@ class Agent:
 
         # Store push notifier
         self._push_notifier = self.push_notifier
+
+        # Per-task push notification registry (always created)
+        self.push_registry = TaskPushRegistry()
 
     def skill(
         self,
@@ -317,6 +321,9 @@ class Agent:
         target: str,
         skill: str,
         timeout: float = 30.0,
+        return_handle: bool = False,
+        discover: bool = False,
+        stream: bool = False,
         **params: Any,
     ) -> Any:
         """Delegate a skill call to a remote agent and return the parsed result.
@@ -327,18 +334,37 @@ class Agent:
             target: Agent URL or network name.
             skill: The skill to invoke.
             timeout: Request timeout in seconds.
+            return_handle: If True, return a TaskHandle instead of just the result.
+            discover: If True, fetch the agent card first, validate the skill exists,
+                      and use the card's url as the POST target.
+            stream: If True, use SSE streaming and return an AsyncGenerator[str, None]
+                    that yields text chunks as they arrive.
             **params: Parameters for the skill.
 
         Returns:
-            The parsed result from the remote agent (not the raw A2A envelope).
+            The parsed result from the remote agent (not the raw A2A envelope),
+            or a TaskHandle if return_handle=True,
+            or an AsyncGenerator[str, None] if stream=True.
 
         Example:
             weather = await agent.delegate("http://weather:8787", "forecast", city="NYC")
 
             # Or with a network:
             weather = await agent.delegate("weather", "forecast", city="NYC")
+
+            # With discovery:
+            weather = await agent.delegate("weather", "forecast", discover=True, city="NYC")
+
+            # With task handle:
+            handle = await agent.delegate("weather", "forecast", return_handle=True, city="NYC")
+            print(handle.task_id)
+
+            # With streaming:
+            async for chunk in agent.delegate("story", "tell", stream=True, topic="cats"):
+                print(chunk, end="", flush=True)
         """
-        from .orchestration import _call_remote_skill
+        from .orchestration import TaskHandle, _call_remote_skill, stream_remote_skill
+        from .orchestration import discover as discover_agent
 
         # Resolve name to URL via network if available
         url = target
@@ -349,7 +375,25 @@ class Agent:
             else:
                 raise KeyError(f"Agent '{target}' not found in network. Available: {list(self._network.list().keys())}")
 
-        return await _call_remote_skill(url, skill, params, timeout)
+        # Optionally discover the agent card and validate the skill
+        if discover:
+            from .errors import SkillNotFoundError
+
+            card = await discover_agent(url, timeout)
+            # Validate the skill exists on the remote agent
+            skill_names = [s.get("id") or s.get("name", "") for s in card.skills]
+            if skill and skill not in skill_names:
+                raise SkillNotFoundError(skill, {s: "" for s in skill_names})
+            # Use the card's url as the POST target (handles non-root paths)
+            url = card.url
+
+        if stream:
+            return stream_remote_skill(url, skill, params, timeout)
+
+        result, task_id = await _call_remote_skill(url, skill, params, timeout)
+        if return_handle:
+            return TaskHandle(task_id=task_id, result=result, _agent_url=url)
+        return result
 
     def build_agent_card(self, host: str = "localhost", port: int = 8787) -> AgentCard:
         """Generate A2A-compliant Agent Card from registered skills."""
@@ -375,7 +419,7 @@ class Agent:
             url=url,
             capabilities=AgentCapabilities(
                 streaming=self._has_streaming,
-                pushNotifications=bool(self._on_complete),
+                pushNotifications=bool(self._on_complete) or bool(self.push_registry),
             ),
             defaultInputModes=["application/json"],
             defaultOutputModes=["application/json"],
@@ -564,6 +608,7 @@ class Agent:
             auth_provider=self._auth,
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
+            push_registry=self.push_registry,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
@@ -590,6 +635,10 @@ class Agent:
                 allow_methods=["*"],
                 allow_headers=["*"],
             )
+
+        # Wrap with per-task push notification middleware (outermost layer
+        # so it intercepts push-notification JSON-RPC methods before anything else)
+        app = PushNotificationMiddleware(app, self.push_registry)
 
         return app
 

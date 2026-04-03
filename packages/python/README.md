@@ -3,6 +3,8 @@
 [![PyPI](https://img.shields.io/pypi/v/a2a-lite?label=PyPI&logo=pypi&logoColor=white)](https://pypi.org/project/a2a-lite/)
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
+> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [google/a2a-python](https://github.com/a2aproject/a2a-python) SDK. Perfect for courses, POCs, and demos.
+
 **Build A2A agents in 8 lines. Add features when you need them.**
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
@@ -250,6 +252,133 @@ agent = Agent(
 )
 ```
 
+### Level 10 — Multi-Agent Communication
+
+#### TaskHandle — track remote tasks
+
+```python
+from a2a_lite import Agent, AgentNetwork, TaskHandle
+
+network = AgentNetwork()
+network.add("data", "http://localhost:8787")
+
+agent = Agent(name="Orchestrator", network=network)
+
+@agent.skill("process")
+async def process(query: str) -> str:
+    # Get a TaskHandle instead of just the result
+    handle = await agent.delegate("data", "fetch", query=query, return_handle=True)
+    print(f"Task ID: {handle.task_id}")
+    print(f"Agent: {handle.agent_url}")
+    print(f"Result: {handle.result}")
+    return str(handle.result)
+```
+
+#### Task Lifecycle — poll and cancel remote tasks
+
+Use convenience methods directly on the handle, or via the network by name:
+
+```python
+# Poll status directly on the handle
+status = await handle.get_status()
+status = await handle.get_status(timeout=15.0)
+
+# Or poll via network name
+status = await network.get_task("data", handle.task_id)
+status = await network.get_task("data", handle.task_id, timeout=15.0)
+
+# Cancel directly on the handle
+await handle.cancel()
+await handle.cancel(timeout=15.0)
+
+# Or cancel via network name
+await network.cancel_task("data", handle.task_id)
+await network.cancel_task("data", handle.task_id, timeout=15.0)
+```
+
+Low-level functions are also available:
+
+```python
+from a2a_lite import get_remote_task, cancel_remote_task
+
+status = await get_remote_task("http://localhost:8787", task_id)
+await cancel_remote_task("http://localhost:8787", task_id)
+```
+
+#### Agent Card Discovery — inspect before calling
+
+```python
+from a2a_lite import discover, AgentCardInfo
+
+# Fetch an agent's capabilities before calling
+card = await discover("http://localhost:8787")
+print(f"Agent: {card.name} v{card.version}")
+print(f"Skills: {[s['name'] for s in card.skills]}")
+print(f"Streaming: {card.supports_streaming}")
+
+# Auto-discover when registering
+network.add("data", "http://localhost:8787", auto_discover=True)
+
+# Validate skill exists before delegating
+result = await agent.delegate("data", "fetch", query="hello", discover=True)
+```
+
+#### Client-Side SSE Streaming
+
+When calling a remote streaming agent, consume its chunks as they arrive instead of waiting for the full response:
+
+```python
+from a2a_lite import Agent, AgentNetwork, stream_remote_skill
+
+# Agent consuming a remote streaming skill
+@agent.skill("display")
+async def display(topic: str) -> str:
+    chunks = []
+    async for chunk in agent.delegate("story", "tell_story", topic=topic, stream=True):
+        print(chunk, end="", flush=True)
+        chunks.append(chunk)
+    return "".join(chunks)
+```
+
+Or call directly:
+```python
+from a2a_lite import stream_remote_skill
+
+async for chunk in stream_remote_skill("http://localhost:8787", "tell_story", {"topic": "dragons"}):
+    print(chunk, end="", flush=True)
+```
+
+### Per-Task Push Notifications
+
+Register a webhook for a specific task — the server calls it when that task completes:
+
+```python
+from a2a_lite import set_task_push_notification, delete_task_push_notification
+
+# Get a handle when delegating
+handle = await agent.delegate("data", "fetch", query="hello", return_handle=True)
+
+# Register a webhook for this specific task
+await handle.subscribe("https://my-app.com/webhook", token="secret")
+
+# Or use the standalone function
+await set_task_push_notification(
+    "http://localhost:8787", handle.task_id,
+    "https://my-app.com/webhook", token="secret"
+)
+
+# Retrieve registration
+config = await handle.get_push_config()
+
+# Remove registration
+await handle.unsubscribe()
+```
+
+The server-side `TaskPushRegistry` is automatically created on every Agent. When a task completes, the registered webhook receives:
+```json
+{"task_id": "...", "skill": "process", "result": ..., "status": "completed", "timestamp": 1234567890}
+```
+
 ### Level 9 — Lifecycle Hooks
 
 ```python
@@ -360,6 +489,7 @@ a2a-lite serve agent.py         # Run an agent from file
 a2a-lite inspect http://...     # View agent card & skills
 a2a-lite test http://... skill  # Smoke-test a skill
 a2a-lite discover               # Find agents on the local network (mDNS)
+a2a-lite info <url>             # Show agent info in compact plain-text format
 a2a-lite version                # Show version
 ```
 
@@ -426,6 +556,18 @@ Auto-injected when detected in skill function signatures:
 | `AuthResult` | Authentication result injection |
 | `FilePart` | File upload handling |
 | `DataPart` | Structured data handling |
+
+### Orchestration
+
+| Export | Description |
+|--------|-------------|
+| `AgentNetwork` | Registry of named remote agents |
+| `TaskHandle` | Handle to a remote task with `task_id` and `result` |
+| `AgentCardInfo` | Parsed agent card with `name`, `version`, `skills`, `supports_streaming` |
+| `discover(url)` | Fetch a remote agent's card from `/.well-known/agent.json` |
+| `get_remote_task(url, task_id)` | Poll the status of a remote task |
+| `cancel_remote_task(url, task_id)` | Request cancellation of a remote task |
+| `stream_remote_skill(url, skill, params)` | Stream SSE chunks from a remote agent skill |
 
 ---
 

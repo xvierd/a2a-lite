@@ -19,6 +19,8 @@
   </p>
 </p>
 
+> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before going deeper with the official SDKs. Perfect for courses, POCs, and demos. When you're ready for production, the skills you learn here transfer directly.
+
 ---
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API that stays **100% protocol-compatible** with zero boilerplate.
@@ -54,7 +56,7 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'com.a2alite:a2a-lite:0.2.5'
+    implementation 'com.a2alite:a2a-lite:0.3.8'
     implementation 'io.javalin:javalin:5.6.3'   // HTTP server
 }
 ```
@@ -271,6 +273,81 @@ from a2a_lite import callRemoteSkill  # Python: AgentNetwork.call()
 result = await network.call("weather", "forecast", {"city": "Paris"})
 ```
 
+#### TaskHandle and Agent Card Discovery
+
+Track remote tasks and discover agent capabilities before calling them:
+
+**Python:**
+```python
+handle = await agent.delegate("data", "fetch", query="hello", return_handle=True)
+print(handle.task_id)  # track the remote task
+print(handle.agent_url)  # remote agent URL
+
+status = await handle.get_status()  # poll task lifecycle
+await handle.cancel()               # cancel if needed
+
+card = await discover("http://localhost:8787")
+print(card.skills)  # inspect before calling
+```
+
+**TypeScript:**
+```typescript
+const handle = await agent.delegate('data', 'fetch', { query: 'hello' }, { returnHandle: true }) as TaskHandle;
+console.log(handle.taskId);
+console.log(handle.agentUrl);
+
+const status = await handle.getStatus();  // poll task lifecycle
+await handle.cancel();                    // cancel if needed
+
+const card = await discoverAgent('http://localhost:8787');
+console.log(card.skills);
+```
+
+**Java:**
+```java
+TaskHandle handle = agent.delegateWithHandle("data", "fetch", Map.of("query", "hello"));
+System.out.println(handle.getTaskId());
+
+Object status = handle.getStatus();  // poll task lifecycle
+handle.cancel();                     // cancel if needed
+
+AgentCardInfo card = network.discoverAgent("http://localhost:8787");
+System.out.println(card.getSkills());
+```
+
+#### Client-Side SSE Streaming
+
+Consume a remote streaming agent's response chunk by chunk:
+
+**Python:**
+```python
+# Consume a remote streaming agent's response chunk by chunk
+async for chunk in agent.delegate("story", "tell_story", topic="dragons", stream=True):
+    print(chunk, end="", flush=True)
+```
+
+**TypeScript:**
+```typescript
+for await (const chunk of await agent.delegate('story', 'tellStory', { topic: 'dragons' }, { stream: true }) as AsyncGenerator<string>) {
+  process.stdout.write(chunk);
+}
+```
+
+**Java:**
+```java
+for (Object chunk : agent.streamDelegate("story", "tell_story", Map.of("topic", "dragons"))) {
+    System.out.print(chunk);
+}
+```
+
+#### Per-Task Push Notifications
+
+Register a webhook for a specific task — fired when that task completes:
+
+**Python:** `await handle.subscribe("https://my-app.com/webhook")`
+**TypeScript:** `await handle.subscribe('https://my-app.com/webhook')`
+**Java:** `handle.subscribe("https://my-app.com/webhook")`
+
 ### LLM Integration — OpenAI, Anthropic, Ollama, Bedrock
 
 Drop in LLM-powered skills without wiring SDKs manually:
@@ -476,6 +553,9 @@ a2a-lite test http://localhost:8787 greet '{"name": "World"}'
 
 # Discover A2A agents on the local network (mDNS)
 a2a-lite discover
+
+# Show agent info in compact plain-text format
+a2a-lite info <url>
 ```
 
 ---
@@ -509,6 +589,11 @@ a2a-lite discover
 | CLI tools | ✅ | ✅ | — |
 | mDNS discovery | ✅ | — | — |
 | CORS control | ✅ | ✅ | — |
+| TaskHandle (remote task tracking) | ✅ | ✅ | ✅ |
+| Agent card discovery | ✅ | ✅ | ✅ |
+| `get/cancel` remote tasks | ✅ | ✅ | ✅ |
+| Client-side SSE streaming | ✅ | ✅ | ✅ |
+| Per-task push notifications | ✅ | ✅ | ✅ |
 
 ---
 

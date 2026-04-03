@@ -265,6 +265,65 @@ def inspect(
 
 
 @app.command()
+def info(
+    url: str = typer.Argument(..., help="Agent URL (e.g., http://localhost:8787)"),
+):
+    """
+    Show agent info in a compact, readable format.
+
+    Fetches the agent card and displays it as plain text.
+    """
+    import httpx
+
+    async def _info():
+        async with httpx.AsyncClient() as client:
+            card_url = f"{url.rstrip('/')}/.well-known/agent.json"
+            response = await client.get(card_url, timeout=10.0)
+            response.raise_for_status()
+            card = response.json()
+
+            agent_name = card.get("name", "Unknown")
+            agent_version = card.get("version", "?")
+            agent_desc = card.get("description", "-")
+            agent_url = card.get("url", url)
+
+            typer.echo(f"Agent: {agent_name} (v{agent_version})")
+            typer.echo(f"Description: {agent_desc}")
+            typer.echo(f"URL: {agent_url}")
+
+            skills = card.get("skills", [])
+            if skills:
+                typer.echo("")
+                typer.echo("Skills:")
+                for skill in skills:
+                    skill_name = skill.get("name", skill.get("id", "?"))
+                    skill_desc = skill.get("description", "-")
+                    typer.echo(f"  {skill_name}")
+                    typer.echo(f"    Description: {skill_desc}")
+
+                    input_schema = skill.get("inputSchema", {})
+                    properties = input_schema.get("properties", {})
+                    required_params = input_schema.get("required", [])
+
+                    if properties:
+                        typer.echo("    Parameters:")
+                        for param_name, param_info in properties.items():
+                            param_type = param_info.get("type", "any")
+                            req_label = "required" if param_name in required_params else "optional"
+                            typer.echo(f"      {param_name} ({param_type}, {req_label})")
+
+    try:
+        asyncio.run(_info())
+    except httpx.HTTPError as e:
+        console.print(f"[red]Error: Could not connect to {url}[/]")
+        console.print(f"[dim]{e}[/]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def test(
     url: str = typer.Argument(..., help="Agent URL"),
     skill: str = typer.Argument(..., help="Skill name to invoke"),

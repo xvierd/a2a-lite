@@ -106,7 +106,18 @@ from .middleware import (
 )
 
 # Orchestration
-from .orchestration import AgentNetwork
+from .orchestration import (
+    AgentCardInfo,
+    AgentNetwork,
+    TaskHandle,
+    cancel_remote_task,
+    delete_task_push_notification,
+    discover,
+    get_remote_task,
+    get_task_push_notification,
+    set_task_push_notification,
+    stream_remote_skill,
+)
 
 # Parts (multi-modal)
 from .parts import Artifact, DataPart, FilePart, TextPart
@@ -115,6 +126,7 @@ from .parts import Artifact, DataPart, FilePart, TextPart
 from .push_notifications import (
     LogPushNotifier,
     PushNotifier,
+    TaskPushRegistry,
     WebhookPushNotifier,
 )
 
@@ -125,7 +137,7 @@ from .router import Router
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "0.3.5"
+__version__ = "0.3.8"
 
 __all__ = [
     # Core
@@ -168,6 +180,15 @@ __all__ = [
     "AuthRequiredError",
     # Orchestration
     "AgentNetwork",
+    "TaskHandle",
+    "AgentCardInfo",
+    "get_remote_task",
+    "cancel_remote_task",
+    "discover",
+    "stream_remote_skill",
+    "set_task_push_notification",
+    "get_task_push_notification",
+    "delete_task_push_notification",
     # Router
     "Router",
     # MCP
@@ -176,6 +197,7 @@ __all__ = [
     "PushNotifier",
     "WebhookPushNotifier",
     "LogPushNotifier",
+    "TaskPushRegistry",
     # Version
     "__version__",
 ]

@@ -35,11 +35,11 @@ import type {
   TaskStore,
   AuthProvider,
 } from './types.js';
-import { type PushNotifier } from './push-notifications.js';
+import { type PushNotifier, TaskPushRegistry, createPushNotificationMiddleware } from './push-notifications.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import type { AgentNetwork } from './orchestration.js';
-import { callRemoteSkill } from './orchestration.js';
+import { callRemoteSkill, streamRemoteSkill, TaskHandle, discoverAgent } from './orchestration.js';
 
 export class Agent {
   readonly name: string;
@@ -56,6 +56,7 @@ export class Agent {
   private taskStore?: TaskStore;
   private protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
   private pushNotifier?: PushNotifier;
+  readonly pushRegistry: TaskPushRegistry;
   private auth: AuthProvider;
   private network?: AgentNetwork;
   private hasStreaming = false;
@@ -85,6 +86,9 @@ export class Agent {
 
     // Setup push notifier
     this.pushNotifier = config.pushNotifier;
+
+    // Always create a per-task push notification registry
+    this.pushRegistry = new TaskPushRegistry();
 
     // Setup network
     this.network = config.network;
@@ -238,13 +242,57 @@ export class Agent {
    *
    *   // Or with a network:
    *   const result = await agent.delegate("weather", "forecast", { city: "NYC" });
+   *
+   *   // With discovery and task handle:
+   *   const handle = await agent.delegate("weather", "forecast", { city: "NYC" }, {
+   *     discover: true,
+   *     returnHandle: true,
+   *   });
+   *
+   *   // With streaming:
+   *   for await (const chunk of await agent.delegate("story", "tellStory", { topic }, { stream: true })) {
+   *     process.stdout.write(chunk);
+   *   }
    */
   async delegate(
     target: string,
     skill: string,
+    params?: Record<string, unknown>,
+    options?: { timeout?: number; returnHandle?: boolean; discover?: boolean; stream: true },
+  ): Promise<AsyncGenerator<string>>;
+  async delegate(
+    target: string,
+    skill: string,
+    params?: Record<string, unknown>,
+    options?: { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: false },
+  ): Promise<unknown>;
+  /** @deprecated Use the options-object overload instead. */
+  async delegate(
+    target: string,
+    skill: string,
+    params?: Record<string, unknown>,
+    timeout?: number,
+  ): Promise<unknown>;
+  async delegate(
+    target: string,
+    skill: string,
     params: Record<string, unknown> = {},
-    timeout = 30000
-  ): Promise<unknown> {
+    timeoutOrOptions?: number | { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: boolean },
+  ): Promise<unknown | AsyncGenerator<string>> {
+    let timeout = 30000;
+    let returnHandle = false;
+    let discover = false;
+    let stream = false;
+
+    if (typeof timeoutOrOptions === 'number') {
+      timeout = timeoutOrOptions;
+    } else if (timeoutOrOptions) {
+      timeout = timeoutOrOptions.timeout ?? 30000;
+      returnHandle = timeoutOrOptions.returnHandle ?? false;
+      discover = timeoutOrOptions.discover ?? false;
+      stream = timeoutOrOptions.stream ?? false;
+    }
+
     let url = target;
     if (this.network && !target.startsWith('http://') && !target.startsWith('https://')) {
       const resolved = this.network.get(target);
@@ -255,6 +303,38 @@ export class Agent {
       }
       url = resolved;
     }
+
+    // Optionally discover the agent card and validate the skill exists
+    if (discover) {
+      const card = await discoverAgent(url, timeout);
+      const skillExists = card.skills.some((s) => s.id === skill || s.name === skill);
+      if (!skillExists) {
+        const available = card.skills.map((s) => s.id).join(', ');
+        throw new Error(
+          `Skill '${skill}' not found on agent '${card.name}' at ${url}. Available: ${available}`,
+        );
+      }
+      // Use the card's advertised URL if present
+      if (card.url) {
+        url = card.url;
+      }
+    }
+
+    // Streaming mode — return an async generator
+    if (stream) {
+      return streamRemoteSkill(url, skill, params, timeout);
+    }
+
+    if (returnHandle) {
+      // Use the network's call with returnHandle if available, otherwise do it inline
+      if (this.network && !target.startsWith('http://') && !target.startsWith('https://')) {
+        return this.network.call(target, skill, params, timeout, { returnHandle: true });
+      }
+      // For direct URLs, import the internal helper indirectly via callRemoteSkill pattern
+      const { callRemoteSkillWithHandle } = await import('./orchestration.js');
+      return callRemoteSkillWithHandle(url, skill, params, timeout);
+    }
+
     return callRemoteSkill(url, skill, params, timeout);
   }
 
@@ -273,7 +353,7 @@ export class Agent {
 
     const capabilities: AgentCapabilities = {
       streaming: this.hasStreaming,
-      pushNotifications: this.onCompleteHooks.length > 0,
+      pushNotifications: true,
     };
 
     return {
@@ -323,6 +403,7 @@ export class Agent {
       authProvider: this.auth,
       taskStore: this.taskStore,
       mcpServers: this.mcpServers,
+      pushRegistry: this.pushRegistry,
     });
 
     // Create the SDK's request handler
@@ -369,6 +450,10 @@ export class Agent {
       app.use('/a2a/jsonrpc', authMiddleware);
       app.use('/', authMiddleware);
     }
+
+    // Per-task push notification middleware (must come before SDK JSON-RPC handler)
+    app.use('/a2a/jsonrpc', express.json(), createPushNotificationMiddleware(this.pushRegistry));
+    app.use('/', express.json(), createPushNotificationMiddleware(this.pushRegistry));
 
     app.use(
       '/a2a/jsonrpc',

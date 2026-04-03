@@ -3,6 +3,7 @@ package com.a2alite;
 import com.a2alite.auth.AuthProvider;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
+import com.a2alite.push.TaskPushRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.a2a.server.agentexecution.AgentExecutor;
 import io.a2a.server.agentexecution.RequestContext;
@@ -10,8 +11,14 @@ import io.a2a.server.events.EventQueue;
 import io.a2a.server.tasks.TaskUpdater;
 import io.a2a.spec.*;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -30,7 +37,11 @@ public class LiteAgentExecutor implements AgentExecutor {
     private final List<Middleware> middlewares;
     private final List<BiConsumer<String, Object>> completeHooks;
     private final AuthProvider authProvider;
+    private final TaskPushRegistry pushRegistry;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     public LiteAgentExecutor(
             Map<String, SkillDefinition> skills,
@@ -38,10 +49,21 @@ public class LiteAgentExecutor implements AgentExecutor {
             List<BiConsumer<String, Object>> completeHooks,
             AuthProvider authProvider
     ) {
+        this(skills, middlewares, completeHooks, authProvider, null);
+    }
+
+    public LiteAgentExecutor(
+            Map<String, SkillDefinition> skills,
+            List<Middleware> middlewares,
+            List<BiConsumer<String, Object>> completeHooks,
+            AuthProvider authProvider,
+            TaskPushRegistry pushRegistry
+    ) {
         this.skills = skills;
         this.middlewares = middlewares;
         this.completeHooks = completeHooks;
         this.authProvider = authProvider;
+        this.pushRegistry = pushRegistry;
     }
 
     @Override
@@ -113,6 +135,16 @@ public class LiteAgentExecutor implements AgentExecutor {
                 }
             }
 
+            // Fire per-task push notification if registered
+            if (pushRegistry != null && context.getTask() != null) {
+                String taskId = context.getTask().getId();
+                if (taskId != null) {
+                    pushRegistry.get(taskId).ifPresent(config ->
+                        fireTaskWebhook(config, taskId, finalSkillName, result)
+                    );
+                }
+            }
+
             updater.complete();
 
         } catch (Exception e) {
@@ -169,6 +201,33 @@ public class LiteAgentExecutor implements AgentExecutor {
             updater.fail();
         } catch (Exception ex) {
             throw new RuntimeException("Failed to serialize error: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Fires an HTTP POST to the per-task webhook registered for the given task.
+     */
+    private void fireTaskWebhook(TaskPushRegistry.PushConfig config, String taskId, String skillName, Object result) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("task_id", taskId);
+        event.put("skill", skillName);
+        event.put("result", result);
+        event.put("status", "completed");
+        event.put("timestamp", System.currentTimeMillis() / 1000.0);
+
+        try {
+            String body = mapper.writeValueAsString(event);
+            var requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(config.url()))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .timeout(Duration.ofSeconds(10));
+            if (config.token() != null) {
+                requestBuilder.header("Authorization", "Bearer " + config.token());
+            }
+            httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Per-task push notification failed for task " + taskId + ": " + e.getMessage());
         }
     }
 

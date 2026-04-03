@@ -22,6 +22,7 @@ A2A Lite CLI v${getVersion()}
 Commands:
   init <name>                 Create a new A2A Lite agent project
   inspect <url>               Inspect an agent's capabilities
+  info <url>                  Show agent info in a compact format
   test <url> <skill> [opts]   Call a skill and show the result
   discover <url...>           Discover and compare multiple agents
 
@@ -121,6 +122,48 @@ async function cmdInspect(url: string): Promise<void> {
   console.log(`+--`);
 }
 
+async function cmdInfo(url: string): Promise<void> {
+  const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent.json';
+  const res = await fetch(cardUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${cardUrl}`);
+  const card = (await res.json()) as Record<string, unknown>;
+
+  const agentName = (card.name as string) ?? 'Unknown';
+  const agentVersion = (card.version as string) ?? '?';
+  const agentDesc = (card.description as string) ?? '-';
+  const agentUrl = (card.url as string) ?? url;
+
+  console.log(`Agent: ${agentName} (v${agentVersion})`);
+  console.log(`Description: ${agentDesc}`);
+  console.log(`URL: ${agentUrl}`);
+
+  const skills = (card.skills as any[]) ?? [];
+  if (skills.length) {
+    console.log('');
+    console.log('Skills:');
+    for (const skill of skills) {
+      const skillName = skill.name ?? skill.id ?? '?';
+      const skillDesc = skill.description ?? '-';
+      console.log(`  ${skillName}`);
+      console.log(`    Description: ${skillDesc}`);
+
+      const inputSchema = skill.inputSchema ?? {};
+      const properties = inputSchema.properties ?? {};
+      const requiredParams: string[] = inputSchema.required ?? [];
+
+      const paramNames = Object.keys(properties);
+      if (paramNames.length) {
+        console.log('    Parameters:');
+        for (const paramName of paramNames) {
+          const paramType = properties[paramName].type ?? 'any';
+          const reqLabel = requiredParams.includes(paramName) ? 'required' : 'optional';
+          console.log(`      ${paramName} (${paramType}, ${reqLabel})`);
+        }
+      }
+    }
+  }
+}
+
 async function cmdTest(url: string, skill: string, rawParams: string[]): Promise<void> {
   const params: Record<string, unknown> = {};
   for (const p of rawParams) {
@@ -207,6 +250,15 @@ async function cmdDiscover(urls: string[]): Promise<void> {
           process.exit(1);
         }
         await cmdInspect(url);
+        break;
+      }
+      case 'info': {
+        const url = args[1];
+        if (!url) {
+          console.error('Usage: a2a-lite info <url>');
+          process.exit(1);
+        }
+        await cmdInfo(url);
         break;
       }
       case 'test': {

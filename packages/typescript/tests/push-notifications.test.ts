@@ -292,14 +292,15 @@ describe('Agent pushNotifier auto-wiring', () => {
     expect(notifyCalls[0].result).toBe(42);
   });
 
-  it('does not register a completion hook when pushNotifier is absent', () => {
+  it('advertises pushNotifications capability even when agent-level pushNotifier is absent', () => {
     const agent = new Agent({
       name: 'Bot',
       description: 'Test',
     });
 
     const card = agent.buildAgentCard();
-    expect(card.capabilities?.pushNotifications).toBe(false);
+    // Per-task push notifications are always available via TaskPushRegistry
+    expect(card.capabilities?.pushNotifications).toBe(true);
   });
 
   it('notifier is called for each skill invocation', async () => {

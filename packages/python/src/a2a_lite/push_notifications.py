@@ -1,7 +1,7 @@
 """
 Push notification support for A2A Lite agents.
 
-Usage:
+Usage (agent-level):
     from a2a_lite.push_notifications import WebhookPushNotifier
 
     agent = Agent(
@@ -12,6 +12,12 @@ Usage:
             secret="my-signing-secret",  # optional HMAC-SHA256 signing
         ),
     )
+
+Usage (per-task):
+    from a2a_lite.push_notifications import TaskPushRegistry
+
+    # Server-side: registry is auto-created on every Agent.
+    # Client-side: use set_task_push_notification() or handle.subscribe().
 """
 
 from __future__ import annotations
@@ -24,6 +30,164 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Per-task push notification registry & middleware
+# ---------------------------------------------------------------------------
+
+
+class TaskPushRegistry:
+    """
+    Server-side registry mapping task IDs to webhook configurations.
+    Used to deliver per-task push notifications when tasks complete.
+    """
+
+    def __init__(self) -> None:
+        self._configs: dict[str, dict] = {}  # task_id -> {url, token}
+
+    def set(self, task_id: str, url: str, token: str | None = None) -> None:
+        self._configs[task_id] = {"url": url, "token": token}
+
+    def get(self, task_id: str) -> dict | None:
+        return self._configs.get(task_id)
+
+    def delete(self, task_id: str) -> bool:
+        return self._configs.pop(task_id, None) is not None
+
+    def __contains__(self, task_id: str) -> bool:
+        return task_id in self._configs
+
+
+class PushNotificationMiddleware:
+    """
+    Starlette ASGI middleware that handles tasks/pushNotification/* JSON-RPC methods.
+    Wraps the underlying A2A SDK app and intercepts these specific methods.
+    """
+
+    def __init__(self, app: Any, registry: TaskPushRegistry) -> None:
+        self.app = app
+        self.registry = registry
+
+    def __getattr__(self, name: str) -> Any:
+        # Proxy attribute access to the wrapped app so callers can still
+        # inspect Starlette-specific attributes (e.g. ``routes``).
+        return getattr(self.app, name)
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or scope.get("method") != "POST":
+            await self.app(scope, receive, send)
+            return
+
+        # Buffer the request body so we can read it and also replay it
+        body_parts: list[bytes] = []
+        more_body = True
+        while more_body:
+            message = await receive()
+            body_parts.append(message.get("body", b""))
+            more_body = message.get("more_body", False)
+        body = b"".join(body_parts)
+
+        try:
+            data = json.loads(body)
+            method = data.get("method", "")
+        except (json.JSONDecodeError, AttributeError):
+            method = ""
+
+        if method == "tasks/pushNotification/set":
+            await self._handle_set(data, send)
+        elif method == "tasks/pushNotification/get":
+            await self._handle_get(data, send)
+        elif method == "tasks/pushNotification/delete":
+            await self._handle_delete(data, send)
+        else:
+            # Not a push notification method -- replay body to original app
+            replayed = False
+
+            async def replay_receive() -> dict:
+                nonlocal replayed
+                if not replayed:
+                    replayed = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+                return {"type": "http.disconnect"}
+
+            await self.app(scope, replay_receive, send)
+
+    async def _send_json(self, send: Any, data: dict, status: int = 200) -> None:
+        body = json.dumps(data).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    async def _handle_set(self, data: dict, send: Any) -> None:
+        params = data.get("params", {})
+        task_id = params.get("id") or params.get("taskId", "")
+        config = params.get("pushNotificationConfig") or params.get("config") or {}
+        url = config.get("url", "")
+        token = config.get("token")
+        if not task_id or not url:
+            await self._send_json(
+                send,
+                {
+                    "jsonrpc": "2.0",
+                    "id": data.get("id"),
+                    "error": {"code": -32602, "message": "Missing required fields: id and config.url"},
+                },
+            )
+            return
+        self.registry.set(task_id, url, token)
+        await self._send_json(
+            send,
+            {
+                "jsonrpc": "2.0",
+                "id": data.get("id"),
+                "result": {"id": task_id, "pushNotificationConfig": {"url": url, "token": token}},
+            },
+        )
+
+    async def _handle_get(self, data: dict, send: Any) -> None:
+        params = data.get("params", {})
+        task_id = params.get("id") or params.get("taskId", "")
+        config = self.registry.get(task_id)
+        if config is None:
+            await self._send_json(
+                send,
+                {
+                    "jsonrpc": "2.0",
+                    "id": data.get("id"),
+                    "error": {"code": -32001, "message": f"No push notification config for task {task_id}"},
+                },
+            )
+            return
+        await self._send_json(
+            send,
+            {
+                "jsonrpc": "2.0",
+                "id": data.get("id"),
+                "result": {"id": task_id, "pushNotificationConfig": config},
+            },
+        )
+
+    async def _handle_delete(self, data: dict, send: Any) -> None:
+        params = data.get("params", {})
+        task_id = params.get("id") or params.get("taskId", "")
+        self.registry.delete(task_id)
+        await self._send_json(
+            send,
+            {
+                "jsonrpc": "2.0",
+                "id": data.get("id"),
+                "result": {"id": task_id},
+            },
+        )
 
 
 class PushNotifier(ABC):

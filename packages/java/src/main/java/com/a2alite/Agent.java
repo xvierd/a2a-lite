@@ -5,8 +5,10 @@ import com.a2alite.auth.NoAuth;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
 import com.a2alite.push.PushNotifier;
+import com.a2alite.push.TaskPushRegistry;
 import com.a2alite.server.JavalinServerAdapter;
 import com.a2alite.server.ServerAdapter;
+import com.a2alite.streaming.StreamingHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -58,6 +60,7 @@ public class Agent {
 
     private final AgentNetwork network;
     private final TaskStore taskStore;
+    private final TaskPushRegistry pushRegistry = new TaskPushRegistry();
 
     private final Map<String, SkillDefinition> skills = new LinkedHashMap<>();
     private final List<Middleware> middlewares = new ArrayList<>();
@@ -256,7 +259,7 @@ public class Agent {
      * Get the agent executor for use with the SDK.
      */
     public AgentExecutor getExecutor() {
-        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth);
+        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry);
     }
 
     /**
@@ -485,20 +488,73 @@ public class Agent {
     }
 
     public Object delegate(String target, String skill, Map<String, Object> params, int timeoutSeconds) throws Exception {
-        String url = target;
-        if (network != null && !target.startsWith("http://") && !target.startsWith("https://")) {
+        String url = resolveTargetUrl(target);
+        return resolveNetwork().callRemoteSkill(url, skill, params, timeoutSeconds);
+    }
+
+    /**
+     * Delegate a skill call to a remote agent, returning a {@link TaskHandle}
+     * that carries the remote task ID for follow-up operations.
+     */
+    public TaskHandle delegateWithHandle(String target, String skill, Map<String, Object> params) throws Exception {
+        return delegateWithHandle(target, skill, params, 30);
+    }
+
+    public TaskHandle delegateWithHandle(String target, String skill, Map<String, Object> params, int timeoutSeconds) throws Exception {
+        String url = resolveTargetUrl(target);
+        return resolveNetwork().callRemoteSkillWithHandle(url, skill, params, timeoutSeconds);
+    }
+
+    /**
+     * Stream text chunks from a remote agent skill via SSE.
+     *
+     * <p>The target can be a full URL or a name registered in this agent's network.
+     * The remote agent must support streaming.
+     *
+     * @param target         agent URL or registered name
+     * @param skill          the skill to invoke
+     * @param params         skill parameters
+     * @param timeoutSeconds HTTP timeout
+     * @return a StreamResult that yields String chunks as they arrive
+     */
+    public StreamingHandler.StreamResult streamDelegate(
+            String target, String skill, Map<String, Object> params, int timeoutSeconds) {
+        String url = resolveTargetUrl(target);
+        return resolveNetwork().streamRemoteSkill(url, skill, params, timeoutSeconds);
+    }
+
+    /**
+     * Stream text chunks from a remote agent skill via SSE with default timeout.
+     */
+    public StreamingHandler.StreamResult streamDelegate(
+            String target, String skill, Map<String, Object> params) {
+        return streamDelegate(target, skill, params, 30);
+    }
+
+    /**
+     * Resolve a target string (name or URL) to a URL.
+     */
+    private String resolveTargetUrl(String target) {
+        if (target.startsWith("http://") || target.startsWith("https://")) {
+            return target;
+        }
+        if (network != null) {
             var resolved = network.get(target);
             if (resolved.isEmpty()) {
                 throw new IllegalArgumentException(
                     "Agent '" + target + "' not found in network. Available: " + network.list().keySet()
                 );
             }
-            url = resolved.get();
+            return resolved.get();
         }
-        if (network == null && !target.startsWith("http://") && !target.startsWith("https://")) {
-            throw new IllegalArgumentException("No network configured and target is not a URL: " + target);
-        }
-        return new AgentNetwork().callRemoteSkill(url, skill, params, timeoutSeconds);
+        throw new IllegalArgumentException("No network configured and target is not a URL: " + target);
+    }
+
+    /**
+     * Return the existing network or a fresh one for ad-hoc URL-based calls.
+     */
+    private AgentNetwork resolveNetwork() {
+        return network != null ? network : new AgentNetwork();
     }
 
     /**
@@ -535,6 +591,7 @@ public class Agent {
     public Map<String, SkillDefinition> getSkills() { return Collections.unmodifiableMap(skills); }
     public AgentNetwork getNetwork() { return network; }
     public TaskStore getTaskStore() { return taskStore; }
+    public TaskPushRegistry getPushRegistry() { return pushRegistry; }
 
     /**
      * Builder for Agent.
