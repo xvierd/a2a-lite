@@ -52,6 +52,8 @@ flow.db
 # Accidental home-under-repo dumps
 ~/
 
-# Lock files (optional)
-package-lock.json
+# Lock files — keep TypeScript package-lock for reproducible CI (prettier/eslint)
+# Root-level and other package-lock.json files stay ignored.
+/package-lock.json
 uv.lock
+!packages/typescript/package-lock.json

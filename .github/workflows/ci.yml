@@ -65,7 +65,9 @@ jobs:
           cache-dependency-path: packages/typescript/package.json
 
       - name: Install dependencies
-        run: npm install
+        # Use ci when lockfile is present for reproducible prettier/eslint
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
       - name: Type check
         run: npm run typecheck
