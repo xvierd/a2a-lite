@@ -383,6 +383,26 @@ Full multi-language API: [AGENT.md](../../AGENT.md). CLI deep dive (Python has `
 
 ---
 
+## Examples
+
+TypeScript samples live in [`examples/`](examples/) and the repo-root [side-by-side suite](../../examples/typescript/).
+
+### Showcase: Battleship (Python demo — same protocol)
+
+Playable multi-agent **A2A v1.0** showcase (implemented in Python with a2a-lite; useful to see real `SendMessage` traffic and a web UI):
+
+```bash
+# from repo root
+cd examples/python/11_battleship_lite
+pip install -e ../../../packages/python
+python agent.py    # human vs bot → http://localhost:8790/
+# python arena.py  # bot vs bot  → http://localhost:8793/?mode=arena
+```
+
+Details: [examples/python/11_battleship_lite/README.md](../../examples/python/11_battleship_lite/README.md)
+
+---
+
 ## Full API Reference
 
 See [AGENT.md](../../AGENT.md) for the complete multi-language API reference.

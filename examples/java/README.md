@@ -9,7 +9,21 @@ This directory contains side-by-side examples comparing a **hand-rolled A2A v1.0
 | Approach | Build Tool | Library | Description |
 |----------|-----------|---------|-------------|
 | `*_google` | Maven | none (Javalin + Jackson) | A2A v1.0 protocol implemented from scratch |
-| `*_lite` | Gradle | `io.github.xvierd:a2a-lite:1.0.0` | Simplified A2A Lite library (real library from packages/java/) |
+| `*_lite` | Gradle | `io.github.xvierd:a2a-lite:1.0.1` | Simplified A2A Lite library (real library from packages/java/) |
+
+## Showcase: Battleship (Python demo — same A2A v1.0 wire)
+
+Playable multi-agent demo with web UI (implemented in Python with a2a-lite):
+
+```bash
+# from repo root
+cd examples/python/11_battleship_lite
+pip install -e ../../../packages/python
+python agent.py    # http://localhost:8790/
+# python arena.py  # http://localhost:8793/?mode=arena
+```
+
+→ [../python/11_battleship_lite/README.md](../python/11_battleship_lite/README.md)
 
 ## Available Examples
 

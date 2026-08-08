@@ -385,9 +385,27 @@ Todo en A2A Lite se mapea directamente al protocolo subyacente — sin magia, si
 
 ## Ejemplos
 
+### Showcase: Batalla naval (demo A2A jugable)
+
+Demo multi-agente de punta a punta: llamadas reales **A2A v1.0** `SendMessage`, UI web, sin API key.
+
+| Modo | Comando | URL |
+|------|---------|-----|
+| Humano vs bot | `python agent.py` | http://localhost:8790/ |
+| Bot vs bot (arena) | `python arena.py` | http://localhost:8793/?mode=arena |
+
+```bash
+cd examples/python/11_battleship_lite
+pip install -e ../../../packages/python   # desde un checkout
+python agent.py
+# o: python arena.py
+```
+
+Docs: [`examples/python/11_battleship_lite/README.md`](examples/python/11_battleship_lite/README.md)
+
 ### Google SDK vs A2A Lite — comparacion lado a lado
 
-El directorio [`examples/`](examples/) contiene pares completos y ejecutables del mismo agente escrito con el SDK oficial y con A2A Lite (todos migrados a A2A v1.0 / SDK 1.x): hello world, calculadora, manejo de archivos, auth, streaming, integracion LLM, human-in-the-loop, persistencia. Consulta [examples/README.md](examples/README.md).
+El directorio [`examples/`](examples/) contiene pares completos y ejecutables del mismo agente escrito con el SDK oficial y con A2A Lite (todos migrados a A2A v1.0 / SDK 1.x): hello world, calculadora, manejo de archivos, auth, streaming, integracion LLM, human-in-the-loop, persistencia, mas el [showcase de batalla naval](examples/python/11_battleship_lite/). Consulta [examples/README.md](examples/README.md).
 
 ### Python
 
@@ -415,8 +433,9 @@ El directorio [`examples/`](examples/) contiene pares completos y ejecutables de
 | [18_per_task_push.py](packages/python/examples/18_per_task_push.py) | Push notifications por tarea |
 | [19_capability_negotiation.py](packages/python/examples/19_capability_negotiation.py) | Negociacion de capacidades |
 | [20_streaming_negotiation.py](packages/python/examples/20_streaming_negotiation.py) | Negociacion de streaming |
+| [**11_battleship_lite/**](examples/python/11_battleship_lite/) | **Showcase:** UI de batalla naval + arena multi-agente (A2A) |
 
-TypeScript y Java tienen sus propios ejemplos: [`packages/typescript/examples/`](packages/typescript/examples/) y [`packages/java/examples/`](packages/java/examples/).
+TypeScript y Java tienen sus propios ejemplos: [`packages/typescript/examples/`](packages/typescript/examples/) y [`packages/java/examples/`](packages/java/examples/). El showcase de batalla naval es solo Python (a2a-lite sobre A2A real).
 
 ---
 

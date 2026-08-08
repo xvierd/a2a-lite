@@ -1,8 +1,20 @@
 # Examples
 
-A2A Lite includes 16 progressive examples. Each is a standalone script.
+A2A Lite includes progressive package examples plus a playable multi-agent showcase.
 
-## Running Examples
+## Showcase: Battleship
+
+```bash
+# from repo root
+cd examples/python/11_battleship_lite
+pip install -e ../../../packages/python
+python agent.py    # human vs bot → http://localhost:8790/
+# python arena.py  # bot vs bot  → http://localhost:8793/?mode=arena
+```
+
+See [examples/python/11_battleship_lite/README.md](../../../examples/python/11_battleship_lite/README.md).
+
+## Running package examples
 
 ```bash
 cd packages/python

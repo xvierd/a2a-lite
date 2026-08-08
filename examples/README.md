@@ -92,6 +92,17 @@ examples/
 
 ## 🚀 Ejecución
 
+### Showcase: Batalla naval (recomendado para “ver” A2A)
+
+```bash
+cd python/11_battleship_lite
+pip install -e ../../packages/python   # checkout local
+python agent.py    # humano vs bot → http://localhost:8790/
+# python arena.py  # bot vs bot    → http://localhost:8793/?mode=arena
+```
+
+Docs: [python/11_battleship_lite/README.md](python/11_battleship_lite/README.md)
+
 ### Google SDK
 
 ```bash

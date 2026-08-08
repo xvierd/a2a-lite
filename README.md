@@ -649,9 +649,27 @@ Everything in A2A Lite maps directly to the underlying protocol — no magic, no
 
 ## Examples
 
+### Showcase: Battleship (playable A2A demo)
+
+End-to-end multi-agent demo: real **A2A v1.0** `SendMessage` calls, web UI, no API key.
+
+| Mode | Command | URL |
+|------|---------|-----|
+| Human vs bot | `python agent.py` | http://localhost:8790/ |
+| Bot vs bot (arena) | `python arena.py` | http://localhost:8793/?mode=arena |
+
+```bash
+cd examples/python/11_battleship_lite
+pip install -e ../../../packages/python   # from a checkout
+python agent.py
+# or: python arena.py
+```
+
+Docs: [`examples/python/11_battleship_lite/README.md`](examples/python/11_battleship_lite/README.md)
+
 ### Google SDK vs A2A Lite — side-by-side comparison
 
-The [`examples/`](examples/) directory contains complete, runnable pairs of the same agent written with the official SDK and with A2A Lite (all migrated to A2A v1.0 / SDK 1.x): hello world, calculator, file handling, auth, streaming, LLM integration, human-in-the-loop, persistence, plus a playable **[battleship multi-agent demo](examples/python/11_battleship_lite/)** with web UI. See [examples/README.md](examples/README.md).
+The [`examples/`](examples/) directory contains complete, runnable pairs of the same agent written with the official SDK and with A2A Lite (all migrated to A2A v1.0 / SDK 1.x): hello world, calculator, file handling, auth, streaming, LLM integration, human-in-the-loop, persistence, plus the [battleship showcase](examples/python/11_battleship_lite/) above. See [examples/README.md](examples/README.md).
 
 ### Python
 
@@ -679,8 +697,9 @@ The [`examples/`](examples/) directory contains complete, runnable pairs of the 
 | [18_per_task_push.py](packages/python/examples/18_per_task_push.py) | Per-task push notifications |
 | [19_capability_negotiation.py](packages/python/examples/19_capability_negotiation.py) | Capability negotiation |
 | [20_streaming_negotiation.py](packages/python/examples/20_streaming_negotiation.py) | Streaming negotiation |
+| [**11_battleship_lite/**](examples/python/11_battleship_lite/) | **Showcase:** playable battleship UI + multi-agent arena (A2A) |
 
-TypeScript and Java have their own example sets: [`packages/typescript/examples/`](packages/typescript/examples/) and [`packages/java/examples/`](packages/java/examples/).
+TypeScript and Java have their own example sets: [`packages/typescript/examples/`](packages/typescript/examples/) and [`packages/java/examples/`](packages/java/examples/). The battleship showcase is Python-only (uses a2a-lite over real A2A).
 
 ---
 

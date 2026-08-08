@@ -51,8 +51,20 @@ a2a-lite test http://localhost:8787 hello -p name=World
 a2a-lite doctor http://localhost:8787
 ```
 
-> Side-by-side Google SDK vs Lite demos (including the playable battleship UI)
-> live under [`examples/`](../../../examples/) at the repo root, not in this folder.
+### Showcase: Battleship (repo root)
+
+Playable multi-agent A2A demo with web UI (not in this folder):
+
+```bash
+cd ../../../examples/python/11_battleship_lite
+pip install -e ../../../packages/python
+python agent.py               # http://localhost:8790/
+# python arena.py             # http://localhost:8793/?mode=arena
+```
+
+→ [examples/python/11_battleship_lite/README.md](../../../examples/python/11_battleship_lite/README.md)
+
+Side-by-side Google SDK vs Lite demos also live under [`examples/`](../../../examples/) at the repo root.
 
 ## Prerequisites
 

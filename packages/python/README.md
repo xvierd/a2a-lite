@@ -598,6 +598,22 @@ Auto-injected when detected in skill function signatures:
 
 ## Examples
 
+### Showcase: Battleship (playable A2A demo)
+
+Repo-root demo (not under `packages/python/examples/`): human vs bot + agent-vs-agent arena, real A2A v1.0 `SendMessage`, web UI, no API key.
+
+```bash
+cd ../../examples/python/11_battleship_lite   # from packages/python
+# or from repo root: examples/python/11_battleship_lite
+pip install -e .   # editable a2a-lite from packages/python
+python agent.py    # http://localhost:8790/
+# python arena.py  # http://localhost:8793/?mode=arena
+```
+
+Full docs: [examples/python/11_battleship_lite/README.md](../../examples/python/11_battleship_lite/README.md)
+
+### Progressive package examples
+
 | Example | What it shows |
 |---------|---------------|
 | [01_hello_world.py](examples/01_hello_world.py) | Simplest agent (8 lines) |
@@ -622,6 +638,9 @@ Auto-injected when detected in skill function signatures:
 | [18_per_task_push.py](examples/18_per_task_push.py) | Per-task push notifications |
 | [19_capability_negotiation.py](examples/19_capability_negotiation.py) | Capability negotiation |
 | [20_streaming_negotiation.py](examples/20_streaming_negotiation.py) | Streaming negotiation |
+| [**Battleship showcase**](../../examples/python/11_battleship_lite/) | Playable multi-agent A2A demo + UI |
+
+Also see the side-by-side Google SDK suite under [examples/](../../examples/).
 
 ---
 
