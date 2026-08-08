@@ -609,7 +609,7 @@ Migrating from a2a-lite 0.3.x? The lite API is unchanged — most agents only ne
 | `get_tool_schemas()` | ✅ | ✅ | ✅ |
 | Structured errors | ✅ | ✅ | ✅ |
 | In-process TestClient | ✅ | ✅ | ✅ |
-| CLI tools | ✅ | ✅ basic | — |
+| CLI tools | ✅ full | ✅ (no create/serve) | — |
 | mDNS discovery | ✅ | — | — |
 | CORS control | ✅ | ✅ | — |
 | TaskHandle (remote task tracking) | ✅ | ✅ | ✅ |

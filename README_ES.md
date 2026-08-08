@@ -349,7 +349,7 @@ Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes 
 | `get_tool_schemas()` | ✅ | ✅ | ✅ |
 | Errores estructurados | ✅ | ✅ | ✅ |
 | Testing | `AgentTestClient` | `AgentTestClient` | `AgentTestClient` |
-| CLI | `a2a-lite` | basico | — |
+| CLI | `a2a-lite` | completo | sin create/serve | — |
 | Descubrimiento mDNS | `a2a-lite discover` | — | — |
 | Control de CORS | ✅ | ✅ | — |
 | TaskHandle (seguimiento de tareas remotas) | ✅ | ✅ | ✅ |
