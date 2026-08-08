@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  TaskPushRegistry,
-  createPushNotificationMiddleware,
-} from '../src/push-notifications.js';
+import { TaskPushRegistry, createPushNotificationMiddleware } from '../src/push-notifications.js';
 import {
   setTaskPushNotification,
   getTaskPushNotification,

@@ -51,15 +51,15 @@ export function openaiSkill(config: OpenAISkillConfig = {}): SkillHandler {
 
   if (streaming) {
     return async function* (params: Record<string, unknown>) {
-      let OpenAI: new () => { chat: { completions: { create(p: Record<string, unknown>): Promise<AsyncIterable<Record<string, unknown>>> } } };
+      let OpenAI: new () => {
+        chat: { completions: { create(p: Record<string, unknown>): Promise<AsyncIterable<Record<string, unknown>>> } };
+      };
       try {
         // @ts-ignore — openai is an optional peer dependency
         const mod = await import('openai');
         OpenAI = mod.default;
       } catch {
-        throw new Error(
-          "OpenAI integration requires the 'openai' package. Install it with: npm install openai"
-        );
+        throw new Error("OpenAI integration requires the 'openai' package. Install it with: npm install openai");
       }
 
       const client = new OpenAI();
@@ -83,15 +83,15 @@ export function openaiSkill(config: OpenAISkillConfig = {}): SkillHandler {
   }
 
   return async (params: Record<string, unknown>): Promise<string> => {
-    let OpenAI: new () => { chat: { completions: { create(p: Record<string, unknown>): Promise<Record<string, unknown>> } } };
+    let OpenAI: new () => {
+      chat: { completions: { create(p: Record<string, unknown>): Promise<Record<string, unknown>> } };
+    };
     try {
       // @ts-ignore — openai is an optional peer dependency
       const mod = await import('openai');
       OpenAI = mod.default;
     } catch {
-      throw new Error(
-        "OpenAI integration requires the 'openai' package. Install it with: npm install openai"
-      );
+      throw new Error("OpenAI integration requires the 'openai' package. Install it with: npm install openai");
     }
 
     const client = new OpenAI();
@@ -130,14 +130,16 @@ export function anthropicSkill(config: AnthropicSkillConfig = {}): SkillHandler 
 
   if (streaming) {
     return async function* (params: Record<string, unknown>) {
-      let Anthropic: new () => { messages: { stream(p: Record<string, unknown>): AsyncIterable<Record<string, unknown>> } };
+      let Anthropic: new () => {
+        messages: { stream(p: Record<string, unknown>): AsyncIterable<Record<string, unknown>> };
+      };
       try {
         // @ts-ignore — @anthropic-ai/sdk is an optional peer dependency
         const mod = await import('@anthropic-ai/sdk');
         Anthropic = mod.default;
       } catch {
         throw new Error(
-          "Anthropic integration requires the '@anthropic-ai/sdk' package. Install it with: npm install @anthropic-ai/sdk"
+          "Anthropic integration requires the '@anthropic-ai/sdk' package. Install it with: npm install @anthropic-ai/sdk",
         );
       }
 
@@ -168,7 +170,7 @@ export function anthropicSkill(config: AnthropicSkillConfig = {}): SkillHandler 
       Anthropic = mod.default;
     } catch {
       throw new Error(
-        "Anthropic integration requires the '@anthropic-ai/sdk' package. Install it with: npm install @anthropic-ai/sdk"
+        "Anthropic integration requires the '@anthropic-ai/sdk' package. Install it with: npm install @anthropic-ai/sdk",
       );
     }
 
@@ -253,7 +255,9 @@ export function ollamaSkill(config: OllamaSkillConfig = {}): SkillHandler {
             const data = JSON.parse(line) as Record<string, unknown>;
             const content = (data.message as Record<string, unknown>)?.content as string;
             if (content) yield content;
-          } catch { /* skip malformed lines */ }
+          } catch {
+            /* skip malformed lines */
+          }
         }
       }
     };
@@ -267,7 +271,7 @@ export function ollamaSkill(config: OllamaSkillConfig = {}): SkillHandler {
       body: JSON.stringify(buildPayload(userMessage, false)),
     });
     if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}`);
-    const data = await response.json() as Record<string, unknown>;
+    const data = (await response.json()) as Record<string, unknown>;
     return ((data.message as Record<string, unknown>)?.content as string) ?? '';
   };
 }
@@ -315,7 +319,7 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
     } catch {
       throw new Error(
         "Bedrock integration requires '@aws-sdk/client-bedrock-runtime'. " +
-        'Install it with: npm install @aws-sdk/client-bedrock-runtime'
+          'Install it with: npm install @aws-sdk/client-bedrock-runtime',
       );
     }
   }
@@ -326,7 +330,7 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
       const { ConverseStreamCommand } = await import('@aws-sdk/client-bedrock-runtime').catch(() => {
         throw new Error(
           "Bedrock integration requires '@aws-sdk/client-bedrock-runtime'. " +
-          'Install it with: npm install @aws-sdk/client-bedrock-runtime'
+            'Install it with: npm install @aws-sdk/client-bedrock-runtime',
         );
       });
       const client = await getClient();
@@ -340,7 +344,9 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
       const response = await client.send(command);
       const stream = response['stream'] as AsyncIterable<Record<string, unknown>> | undefined;
       for await (const event of stream ?? []) {
-        const delta = (event['contentBlockDelta'] as Record<string, unknown> | undefined)?.['delta'] as Record<string, unknown> | undefined;
+        const delta = (event['contentBlockDelta'] as Record<string, unknown> | undefined)?.['delta'] as
+          | Record<string, unknown>
+          | undefined;
         const text = delta?.['text'] as string | undefined;
         if (text) yield text;
       }
@@ -352,7 +358,7 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
     const { ConverseCommand } = await import('@aws-sdk/client-bedrock-runtime').catch(() => {
       throw new Error(
         "Bedrock integration requires '@aws-sdk/client-bedrock-runtime'. " +
-        'Install it with: npm install @aws-sdk/client-bedrock-runtime'
+          'Install it with: npm install @aws-sdk/client-bedrock-runtime',
       );
     });
     const client = await getClient();
@@ -366,7 +372,7 @@ export function bedrockSkill(config: BedrockSkillConfig = {}): SkillHandler {
     const response = await client.send(command);
     const output = response['output'] as Record<string, unknown> | undefined;
     const message = output?.['message'] as Record<string, unknown> | undefined;
-    const content = message?.['content'] as Array<Record<string, unknown>> | undefined ?? [];
+    const content = (message?.['content'] as Array<Record<string, unknown>> | undefined) ?? [];
     return content
       .filter((b: Record<string, unknown>) => b['text'] != null)
       .map((b: Record<string, unknown>) => b['text'] as string)

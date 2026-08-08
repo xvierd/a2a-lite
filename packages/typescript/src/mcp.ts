@@ -40,15 +40,12 @@ export class MCPClient {
     } catch {
       throw new Error(
         "MCP integration requires '@modelcontextprotocol/sdk'. " +
-          'Install it with: npm install @modelcontextprotocol/sdk'
+          'Install it with: npm install @modelcontextprotocol/sdk',
       );
     }
 
     const transport = new SSEClientTransport(new URL(url));
-    const client = new Client(
-      { name: 'a2a-lite-mcp-client', version: '1.0.0' },
-      { capabilities: {} }
-    );
+    const client = new Client({ name: 'a2a-lite-mcp-client', version: '1.0.0' }, { capabilities: {} });
     await client.connect(transport);
     this.sessions.set(url, client);
     return client;
@@ -60,11 +57,7 @@ export class MCPClient {
    * If serverUrl is provided, calls that server directly.
    * Otherwise searches all registered servers.
    */
-  async callTool(
-    toolName: string,
-    params: Record<string, unknown> = {},
-    serverUrl?: string
-  ): Promise<unknown> {
+  async callTool(toolName: string, params: Record<string, unknown> = {}, serverUrl?: string): Promise<unknown> {
     const urls = serverUrl ? [serverUrl] : this.serverUrls;
 
     for (const url of urls) {
@@ -79,19 +72,15 @@ export class MCPClient {
       }
     }
 
-    throw new Error(
-      `Tool '${toolName}' not found on any MCP server. Servers: ${urls.join(', ')}`
-    );
+    throw new Error(`Tool '${toolName}' not found on any MCP server. Servers: ${urls.join(', ')}`);
   }
 
   /**
    * List available tools from MCP servers.
    */
   async listTools(
-    serverUrl?: string
-  ): Promise<
-    Array<{ name: string; description: string; inputSchema: unknown; serverUrl: string }>
-  > {
+    serverUrl?: string,
+  ): Promise<Array<{ name: string; description: string; inputSchema: unknown; serverUrl: string }>> {
     const urls = serverUrl ? [serverUrl] : this.serverUrls;
     const allTools: Array<{
       name: string;

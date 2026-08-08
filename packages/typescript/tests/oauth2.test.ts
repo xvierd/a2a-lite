@@ -103,7 +103,10 @@ describe('OAuth2Auth', () => {
 
       // This will fail validation but tests the flow
       const result = await auth.authenticate({
-        headers: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c' },
+        headers: {
+          Authorization:
+            'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+        },
       });
 
       // Should fail validation but we verify it processes the token
@@ -148,12 +151,8 @@ describe('OAuth2Auth', () => {
         };
       };
 
-      expect(scheme.flows.authorizationCode.authorizationUrl).toBe(
-        'https://auth.company.com/authorize'
-      );
-      expect(scheme.flows.authorizationCode.tokenUrl).toBe(
-        'https://auth.company.com/oauth/token'
-      );
+      expect(scheme.flows.authorizationCode.authorizationUrl).toBe('https://auth.company.com/authorize');
+      expect(scheme.flows.authorizationCode.tokenUrl).toBe('https://auth.company.com/oauth/token');
     });
   });
 

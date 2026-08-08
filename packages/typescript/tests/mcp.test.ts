@@ -37,7 +37,7 @@ describe('MCPClient', () => {
 
     it('should handle tool not found error', async () => {
       client.addServer('http://example.com');
-      
+
       // Mock the internal _isToolNotFoundError method
       await expect(client.callTool('unknown_tool')).rejects.toThrow();
     });
@@ -48,7 +48,7 @@ describe('MCPClient', () => {
       const testCases = [
         { error: new Error('Tool not found'), expected: true },
         { error: new Error('Unknown tool: my_tool'), expected: true },
-        { error: new Error('tool \'x\' does not exist'), expected: true },
+        { error: new Error("tool 'x' does not exist"), expected: true },
         { error: new Error('tool "x" not found'), expected: true },
         { error: new Error('no tool named foo'), expected: true },
         { error: new Error('Connection timeout'), expected: false },
@@ -74,7 +74,7 @@ describe('MCPClient', () => {
   describe('Context Manager Pattern', () => {
     it('should support async context manager', async () => {
       const client = new MCPClient(['http://server.com']);
-      
+
       // Test that async with pattern would work
       // (In TypeScript this is simulate via try/finally)
       try {
@@ -86,9 +86,9 @@ describe('MCPClient', () => {
 
     it('should clean up on close', async () => {
       const client = new MCPClient(['http://server1.com', 'http://server2.com']);
-      
+
       await client.close();
-      
+
       // After close, the sessions should be cleared
       expect(client['sessions'].size).toBe(0);
     });
@@ -96,24 +96,16 @@ describe('MCPClient', () => {
 
   describe('Multiple Servers', () => {
     it('should handle multiple server URLs', () => {
-      const urls = [
-        'http://server1.com',
-        'http://server2.com',
-        'http://server3.com'
-      ];
+      const urls = ['http://server1.com', 'http://server2.com', 'http://server3.com'];
       const client = new MCPClient(urls);
-      
+
       expect(client.serverUrls).toEqual(urls);
       expect(client.serverUrls.length).toBe(3);
     });
 
     it('should deduplicate server URLs', () => {
-      const client = new MCPClient([
-        'http://server.com',
-        'http://server.com',
-        'http://other.com'
-      ]);
-      
+      const client = new MCPClient(['http://server.com', 'http://server.com', 'http://other.com']);
+
       expect(client.serverUrls).toEqual(['http://server.com', 'http://other.com']);
     });
   });
@@ -125,7 +117,7 @@ describe('MCPClient', () => {
 
     it('should accept server URL for readResource', async () => {
       client.addServer('http://server.com');
-      
+
       // Will fail because we can't actually connect, but tests the parameter passing
       await expect(client.readResource('file://test.txt')).rejects.toThrow();
     });
@@ -139,7 +131,7 @@ describe('MCPClient', () => {
 
     it('should return empty array for specific server that fails', async () => {
       client.addServer('http://invalid-server-that-will-fail.com');
-      
+
       const tools = await client.listTools('http://invalid-server-that-will-fail.com');
       expect(tools).toEqual([]);
     });

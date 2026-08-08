@@ -14,16 +14,8 @@
  */
 
 import express, { Express } from 'express';
-import {
-  DefaultRequestHandler,
-  InMemoryTaskStore,
-} from '@a2a-js/sdk/server';
-import {
-  agentCardHandler,
-  jsonRpcHandler,
-  restHandler,
-  UserBuilder,
-} from '@a2a-js/sdk/server/express';
+import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
+import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import type {
   AgentCard,
   AgentSkill,
@@ -120,11 +112,7 @@ export class Agent {
    */
   skill(name: string, handler: SkillHandler): this;
   skill(name: string, config: SkillConfig, handler: SkillHandler): this;
-  skill(
-    name: string,
-    configOrHandler: SkillConfig | SkillHandler,
-    maybeHandler?: SkillHandler
-  ): this {
+  skill(name: string, configOrHandler: SkillConfig | SkillHandler, maybeHandler?: SkillHandler): this {
     let config: SkillConfig;
     let handler: SkillHandler;
 
@@ -145,21 +133,13 @@ export class Agent {
 
     // Auto-detect TaskContext parameter by analyzing the handler
     const taskContextInfo = this.detectTaskContextParameter(handler);
-    const needsTaskContext = config.taskContext !== undefined
-      ? !!config.taskContext
-      : taskContextInfo.needsTaskContext;
-    const taskContextParam = typeof config.taskContext === 'string'
-      ? config.taskContext
-      : taskContextInfo.paramName;
+    const needsTaskContext = config.taskContext !== undefined ? !!config.taskContext : taskContextInfo.needsTaskContext;
+    const taskContextParam = typeof config.taskContext === 'string' ? config.taskContext : taskContextInfo.paramName;
 
     // Auto-detect MCPClient parameter by analyzing the handler
     const mcpInfo = this.detectMCPClientParameter(handler);
-    const needsMcp = config.mcp !== undefined
-      ? !!config.mcp
-      : mcpInfo.needsMcp;
-    const mcpParam = typeof config.mcp === 'string'
-      ? config.mcp
-      : mcpInfo.paramName;
+    const needsMcp = config.mcp !== undefined ? !!config.mcp : mcpInfo.needsMcp;
+    const mcpParam = typeof config.mcp === 'string' ? config.mcp : mcpInfo.paramName;
 
     const needsInteraction = config.interaction ?? false;
 
@@ -275,12 +255,7 @@ export class Agent {
     options?: { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: false },
   ): Promise<unknown>;
   /** @deprecated Use the options-object overload instead. */
-  async delegate(
-    target: string,
-    skill: string,
-    params?: Record<string, unknown>,
-    timeout?: number,
-  ): Promise<unknown>;
+  async delegate(target: string, skill: string, params?: Record<string, unknown>, timeout?: number): Promise<unknown>;
   async delegate(
     target: string,
     skill: string,
@@ -306,7 +281,7 @@ export class Agent {
       const resolved = this.network.get(target);
       if (resolved === undefined) {
         throw new Error(
-          `Agent '${target}' not found in network. Available: ${Object.keys(this.network.list()).join(', ')}`
+          `Agent '${target}' not found in network. Available: ${Object.keys(this.network.list()).join(', ')}`,
         );
       }
       url = resolved;
@@ -318,9 +293,7 @@ export class Agent {
       const skillExists = card.skills.some((s) => s.id === skill || s.name === skill);
       if (!skillExists) {
         const available = card.skills.map((s) => s.id).join(', ');
-        throw new Error(
-          `Skill '${skill}' not found on agent '${card.name}' at ${url}. Available: ${available}`,
-        );
+        throw new Error(`Skill '${skill}' not found on agent '${card.name}' at ${url}. Available: ${available}`);
       }
       // Use the card's advertised URL if present
       if (card.url) {
@@ -519,14 +492,11 @@ export class Agent {
     const requestHandler = new DefaultRequestHandler(
       agentCard,
       this.protocolTaskStore ?? new InMemoryTaskStore(),
-      executor
+      executor,
     );
 
     // Mount SDK handlers — agent card at the A2A v1.0 well-known path
-    app.use(
-      '/.well-known/agent-card.json',
-      agentCardHandler({ agentCardProvider: requestHandler })
-    );
+    app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
 
     // Add auth middleware for API endpoints (skip for agent card)
     const authProvider = this.auth;
@@ -567,7 +537,7 @@ export class Agent {
       jsonRpcHandler({
         requestHandler,
         userBuilder: UserBuilder.noAuthentication,
-      })
+      }),
     );
 
     // HTTP+JSON (REST) transport — out of the box in SDK 1.x
@@ -576,7 +546,7 @@ export class Agent {
       restHandler({
         requestHandler,
         userBuilder: UserBuilder.noAuthentication,
-      })
+      }),
     );
 
     // Add CORS headers if configured
@@ -616,8 +586,7 @@ export class Agent {
       const urlStr = this.url ?? `http://${host}:${port}`;
       if (!urlStr.startsWith('https://')) {
         console.warn(
-          'WARNING: Running in production mode over HTTP. ' +
-          'Consider using HTTPS for secure communication.'
+          'WARNING: Running in production mode over HTTP. ' + 'Consider using HTTPS for secure communication.',
         );
       }
     }
@@ -681,9 +650,7 @@ ${Array.from(this.skills.values())
       function: {
         name: skill.name,
         description: skill.description,
-        parameters: Object.keys(skill.inputSchema).length > 0
-          ? skill.inputSchema
-          : { type: 'object', properties: {} },
+        parameters: Object.keys(skill.inputSchema).length > 0 ? skill.inputSchema : { type: 'object', properties: {} },
       },
     }));
   }
@@ -692,10 +659,7 @@ ${Array.from(this.skills.values())
    * Check if a function is a generator.
    */
   private isGeneratorFunction(fn: SkillHandler): boolean {
-    return (
-      fn.constructor.name === 'AsyncGeneratorFunction' ||
-      fn.constructor.name === 'GeneratorFunction'
-    );
+    return fn.constructor.name === 'AsyncGeneratorFunction' || fn.constructor.name === 'GeneratorFunction';
   }
 
   /**
@@ -704,7 +668,7 @@ ${Array.from(this.skills.values())
    */
   private detectTaskContextParameter(handler: SkillHandler): {
     needsTaskContext: boolean;
-    paramName?: string
+    paramName?: string;
   } {
     // Get the function's source code to analyze parameter names
     const fnString = handler.toString();
@@ -736,7 +700,7 @@ ${Array.from(this.skills.values())
    */
   private detectMCPClientParameter(handler: SkillHandler): {
     needsMcp: boolean;
-    paramName?: string
+    paramName?: string;
   } {
     // Get the function's source code to analyze parameter names
     const fnString = handler.toString();

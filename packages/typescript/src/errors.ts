@@ -19,9 +19,7 @@ export class SkillNotFoundError extends A2ALiteError {
   readonly availableSkills: string[];
 
   constructor(skill: string, availableSkills: string[] = []) {
-    const available = availableSkills.length > 0
-      ? `\nAvailable skills: ${availableSkills.join(', ')}`
-      : '';
+    const available = availableSkills.length > 0 ? `\nAvailable skills: ${availableSkills.join(', ')}` : '';
     super(`Unknown skill '${skill}'.${available}`);
     this.skill = skill;
     this.availableSkills = availableSkills;
@@ -41,7 +39,7 @@ export class ParamValidationError extends A2ALiteError {
   readonly errors: Array<Record<string, unknown>>;
 
   constructor(skill: string, errors: Array<Record<string, unknown>>) {
-    const msgs = errors.map(e => `  - '${e.field ?? 'unknown'}': ${e.message ?? 'validation failed'}`);
+    const msgs = errors.map((e) => `  - '${e.field ?? 'unknown'}': ${e.message ?? 'validation failed'}`);
     super(`Skill '${skill}' parameter error:\n${msgs.join('\n')}`);
     this.skill = skill;
     this.errors = errors;

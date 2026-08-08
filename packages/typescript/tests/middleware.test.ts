@@ -94,9 +94,11 @@ describe('Built-in Middlewares', () => {
 
       // Third request should fail with rate limit error
       const r3 = await client.call('test', {});
-      expect(r3.data).toEqual(expect.objectContaining({
-        error: expect.stringContaining('Rate limit exceeded'),
-      }));
+      expect(r3.data).toEqual(
+        expect.objectContaining({
+          error: expect.stringContaining('Rate limit exceeded'),
+        }),
+      );
     });
 
     it('should reset after window', async () => {
@@ -113,9 +115,11 @@ describe('Built-in Middlewares', () => {
 
       // Second request fails
       const r2 = await client.call('test', {});
-      expect(r2.data).toEqual(expect.objectContaining({
-        error: expect.stringContaining('Rate limit exceeded'),
-      }));
+      expect(r2.data).toEqual(
+        expect.objectContaining({
+          error: expect.stringContaining('Rate limit exceeded'),
+        }),
+      );
 
       // Wait for window to reset
       await new Promise((resolve) => setTimeout(resolve, 60));
@@ -128,19 +132,23 @@ describe('Built-in Middlewares', () => {
     it('should use custom error message', async () => {
       const agent = new Agent({ name: 'Bot', description: 'Test' });
 
-      agent.use(rateLimitMiddleware({
-        requestsPerMinute: 1,
-        errorMessage: 'Custom rate limit message',
-      }));
+      agent.use(
+        rateLimitMiddleware({
+          requestsPerMinute: 1,
+          errorMessage: 'Custom rate limit message',
+        }),
+      );
       agent.skill('test', async () => 'ok');
 
       const client = new AgentTestClient(agent);
       await client.call('test', {});
 
       const result = await client.call('test', {});
-      expect(result.data).toEqual(expect.objectContaining({
-        error: 'Custom rate limit message',
-      }));
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          error: 'Custom rate limit message',
+        }),
+      );
     });
   });
 
@@ -156,9 +164,11 @@ describe('Built-in Middlewares', () => {
       const client = new AgentTestClient(agent);
       const result = await client.call('fail', {});
 
-      expect(result.data).toEqual(expect.objectContaining({
-        error: expect.stringContaining('Something went wrong'),
-      }));
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          error: expect.stringContaining('Something went wrong'),
+        }),
+      );
     });
 
     it('should include error type', async () => {
@@ -172,9 +182,11 @@ describe('Built-in Middlewares', () => {
       const client = new AgentTestClient(agent);
       const result = await client.call('fail', {});
 
-      expect(result.data).toEqual(expect.objectContaining({
-        type: 'TypeError',
-      }));
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          type: 'TypeError',
+        }),
+      );
     });
 
     it('should use custom error handler', async () => {
@@ -232,13 +244,7 @@ describe('Built-in Middlewares', () => {
       const client = new AgentTestClient(agent);
       await client.call('test', {});
 
-      expect(order).toEqual([
-        'first-before',
-        'second-before',
-        'handler',
-        'second-after',
-        'first-after',
-      ]);
+      expect(order).toEqual(['first-before', 'second-before', 'handler', 'second-after', 'first-after']);
     });
   });
 });

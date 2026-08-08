@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  TaskHandle,
-  AgentNetwork,
-  getRemoteTask,
-  cancelRemoteTask,
-  discoverAgent,
-} from '../src/orchestration.js';
+import { TaskHandle, AgentNetwork, getRemoteTask, cancelRemoteTask, discoverAgent } from '../src/orchestration.js';
 import type { AgentCardInfo } from '../src/orchestration.js';
 import { RemoteAgentError } from '../src/errors.js';
 
@@ -333,9 +327,7 @@ describe('discoverAgent()', () => {
     };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(legacyCard));
 
-    await expect(discoverAgent('http://legacy:8787')).rejects.toThrow(
-      'speaks A2A 0.3, not supported by a2a-lite 1.0'
-    );
+    await expect(discoverAgent('http://legacy:8787')).rejects.toThrow('speaks A2A 0.3, not supported by a2a-lite 1.0');
   });
 
   it('returns correct shape (AgentCardInfo)', async () => {
@@ -469,9 +461,9 @@ describe('Agent.delegate() with options', () => {
     const cardBody = agentCardResponse(); // has 'greet' and 'calc' skills
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(cardBody));
 
-    await expect(
-      agent.delegate('data', 'nonexistent', {}, { discover: true })
-    ).rejects.toThrow("Skill 'nonexistent' not found on agent");
+    await expect(agent.delegate('data', 'nonexistent', {}, { discover: true })).rejects.toThrow(
+      "Skill 'nonexistent' not found on agent",
+    );
   });
 
   it('delegate with discover succeeds for valid skill', async () => {

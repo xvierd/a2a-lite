@@ -139,11 +139,7 @@ export class TaskContext {
   /**
    * Update task status.
    */
-  async update(
-    state: TaskState = 'working',
-    message?: string,
-    progress?: number
-  ): Promise<void> {
+  async update(state: TaskState = 'working', message?: string, progress?: number): Promise<void> {
     // Save current status to history
     this.task.history.push({ ...this.task.status });
 

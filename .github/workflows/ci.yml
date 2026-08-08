@@ -39,7 +39,8 @@ jobs:
       - name: Format check (ruff format)
         run: ruff format --check src tests
 
-      - name: Test with coverage (≥90%)
+      - name: Test with coverage
+        # Threshold is [tool.coverage.report] fail_under in pyproject.toml
         run: pytest tests/ -v --cov=a2a_lite --cov-report=term-missing
 
   typescript:

@@ -94,26 +94,20 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
     });
 
     if (!response.ok) {
-      throw new RemoteAgentError(
-        `Failed to discover agent at ${url}: HTTP ${response.status}`,
-        { status: response.status },
-      );
+      throw new RemoteAgentError(`Failed to discover agent at ${url}: HTTP ${response.status}`, {
+        status: response.status,
+      });
     }
 
-    const raw = await response.json() as Record<string, unknown>;
+    const raw = (await response.json()) as Record<string, unknown>;
 
     // Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
     if (!('supportedInterfaces' in raw) && ('url' in raw || 'protocolVersion' in raw)) {
-      throw new RemoteAgentError(
-        `Agent at ${agentUrl} speaks A2A 0.3, not supported by a2a-lite 1.0`,
-        raw,
-      );
+      throw new RemoteAgentError(`Agent at ${agentUrl} speaks A2A 0.3, not supported by a2a-lite 1.0`, raw);
     }
 
     const interfaces = (raw.supportedInterfaces ?? []) as Array<Record<string, unknown>>;
-    const interfaceUrl = interfaces.length > 0
-      ? (interfaces[0].url as string) ?? agentUrl
-      : agentUrl;
+    const interfaceUrl = interfaces.length > 0 ? ((interfaces[0].url as string) ?? agentUrl) : agentUrl;
 
     const capabilities = (raw.capabilities ?? {}) as Record<string, unknown>;
     const skills = (raw.skills ?? []) as Array<Record<string, unknown>>;
@@ -128,8 +122,8 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
         name: (s.name as string) ?? (s.id as string) ?? '',
         description: (s.description as string) ?? '',
       })),
-      supportsStreaming: !!(capabilities.streaming),
-      supportsPush: !!(capabilities.pushNotifications),
+      supportsStreaming: !!capabilities.streaming,
+      supportsPush: !!capabilities.pushNotifications,
       raw,
     };
   } finally {
@@ -168,19 +162,11 @@ export async function setTaskPushNotification(
   );
 }
 
-export async function getTaskPushNotification(
-  agentUrl: string,
-  taskId: string,
-  timeout = 10000,
-): Promise<unknown> {
+export async function getTaskPushNotification(agentUrl: string, taskId: string, timeout = 10000): Promise<unknown> {
   return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId }, timeout);
 }
 
-export async function deleteTaskPushNotification(
-  agentUrl: string,
-  taskId: string,
-  timeout = 10000,
-): Promise<unknown> {
+export async function deleteTaskPushNotification(agentUrl: string, taskId: string, timeout = 10000): Promise<unknown> {
   return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId }, timeout);
 }
 
@@ -212,7 +198,7 @@ async function sendJsonRpc(
       throw new RemoteAgentError(`Remote agent returned HTTP ${response.status}`, { status: response.status });
     }
 
-    const data = await response.json() as Record<string, unknown>;
+    const data = (await response.json()) as Record<string, unknown>;
 
     if ('error' in data) {
       const error = data.error;
@@ -310,7 +296,11 @@ export class AgentNetwork {
     yield* streamRemoteSkill(url, skill, params, timeout);
   }
 
-  async broadcast(skill: string, params: Record<string, unknown> = {}, timeout = 30000): Promise<Record<string, unknown>> {
+  async broadcast(
+    skill: string,
+    params: Record<string, unknown> = {},
+    timeout = 30000,
+  ): Promise<Record<string, unknown>> {
     const results: Record<string, unknown> = {};
     await Promise.all(
       [...this.agents.entries()].map(async ([name, url]) => {
@@ -320,7 +310,7 @@ export class AgentNetwork {
         } catch (err) {
           results[name] = { error: (err as Error).message, type: (err as Error).constructor.name };
         }
-      })
+      }),
     );
     return results;
   }
@@ -405,7 +395,7 @@ async function callRemoteSkillInternal(
       throw new RemoteAgentError(`Remote agent returned HTTP ${response.status}`, { status: response.status });
     }
 
-    const data = await response.json() as Record<string, unknown>;
+    const data = (await response.json()) as Record<string, unknown>;
     const result = extractResult(data);
 
     // Extract task ID from the A2A v1.0 response envelope:
@@ -461,10 +451,7 @@ export async function* streamRemoteSkill(
     });
 
     if (!response.ok) {
-      throw new RemoteAgentError(
-        `Remote agent returned HTTP ${response.status}`,
-        { status: response.status },
-      );
+      throw new RemoteAgentError(`Remote agent returned HTTP ${response.status}`, { status: response.status });
     }
 
     if (!response.body) {
@@ -528,8 +515,9 @@ export async function* streamRemoteSkill(
           }
 
           // Extract text from artifact update parts
-          const artifact = ((event.artifactUpdate as Record<string, unknown> | undefined)?.artifact ??
-            undefined) as Record<string, unknown> | undefined;
+          const artifact = ((event.artifactUpdate as Record<string, unknown> | undefined)?.artifact ?? undefined) as
+            | Record<string, unknown>
+            | undefined;
           if (artifact) {
             for (const part of (artifact.parts ?? []) as Array<Record<string, unknown>>) {
               const text = partText(part);
@@ -596,8 +584,9 @@ function extractResult(response: Record<string, unknown>): unknown {
   }
 
   // Task results: status message, then artifact parts
-  const statusMessage = ((result.status as Record<string, unknown> | undefined)?.message ??
-    undefined) as Record<string, unknown> | undefined;
+  const statusMessage = ((result.status as Record<string, unknown> | undefined)?.message ?? undefined) as
+    | Record<string, unknown>
+    | undefined;
   for (const part of (statusMessage?.parts ?? []) as Array<Record<string, unknown>>) {
     const text = partText(part);
     if (text) {

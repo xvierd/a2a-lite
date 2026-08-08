@@ -119,12 +119,7 @@ export {
 export type { AgentCardInfo } from './orchestration.js';
 
 // Push notifications (optional)
-export {
-  PushNotifier,
-  LogPushNotifier,
-  WebhookPushNotifier,
-  TaskPushRegistry,
-} from './push-notifications.js';
+export { PushNotifier, LogPushNotifier, WebhookPushNotifier, TaskPushRegistry } from './push-notifications.js';
 export type { PushEvent, WebhookPushNotifierOptions } from './push-notifications.js';
 
 // Router

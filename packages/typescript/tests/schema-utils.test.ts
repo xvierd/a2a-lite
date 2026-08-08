@@ -7,7 +7,7 @@ describe('Zod Schema Detection', () => {
     it('should detect Zod schemas', () => {
       const stringSchema = z.string();
       const objectSchema = z.object({ name: z.string() });
-      
+
       expect(isZodSchema(stringSchema)).toBe(true);
       expect(isZodSchema(objectSchema)).toBe(true);
     });
@@ -32,28 +32,28 @@ describe('Zod Schema Detection', () => {
     it('should convert string schema', () => {
       const schema = z.string();
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({ type: 'string' });
     });
 
     it('should convert number schema', () => {
       const schema = z.number();
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({ type: 'number' });
     });
 
     it('should convert boolean schema', () => {
       const schema = z.boolean();
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({ type: 'boolean' });
     });
 
     it('should convert integer schema', () => {
       const schema = z.number().int();
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({ type: 'integer' });
     });
 
@@ -62,9 +62,9 @@ describe('Zod Schema Detection', () => {
         name: z.string(),
         age: z.number(),
       });
-      
+
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         properties: {
@@ -80,9 +80,9 @@ describe('Zod Schema Detection', () => {
         name: z.string(),
         age: z.number().optional(),
       });
-      
+
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         properties: {
@@ -96,7 +96,7 @@ describe('Zod Schema Detection', () => {
     it('should handle array schema', () => {
       const schema = z.array(z.string());
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'array',
         items: { type: 'string' },
@@ -106,7 +106,7 @@ describe('Zod Schema Detection', () => {
     it('should handle enum schema', () => {
       const schema = z.enum(['a', 'b', 'c']);
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'string',
         enum: ['a', 'b', 'c'],
@@ -116,12 +116,9 @@ describe('Zod Schema Detection', () => {
     it('should handle union schema', () => {
       const schema = z.union([z.string(), z.number()]);
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
-        anyOf: [
-          { type: 'string' },
-          { type: 'number' },
-        ],
+        anyOf: [{ type: 'string' }, { type: 'number' }],
       });
     });
 
@@ -129,9 +126,9 @@ describe('Zod Schema Detection', () => {
       const schema = z.object({
         name: z.string().default('Anonymous'),
       });
-      
+
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         properties: {
@@ -144,7 +141,7 @@ describe('Zod Schema Detection', () => {
     it('should handle nullable', () => {
       const schema = z.string().nullable();
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: ['string', 'null'],
       });
@@ -154,9 +151,9 @@ describe('Zod Schema Detection', () => {
       const schema = z.object({
         name: z.string().describe('The user name'),
       });
-      
+
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         properties: {
@@ -173,9 +170,9 @@ describe('Zod Schema Detection', () => {
           email: z.string(),
         }),
       });
-      
+
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         properties: {
@@ -195,7 +192,7 @@ describe('Zod Schema Detection', () => {
     it('should handle record types', () => {
       const schema = z.record(z.string());
       const jsonSchema = zodToJsonSchema(schema);
-      
+
       expect(jsonSchema).toEqual({
         type: 'object',
         additionalProperties: { type: 'string' },
@@ -213,9 +210,9 @@ describe('Zod Schema Detection', () => {
         roles: z.array(z.enum(['user', 'admin', 'moderator'])),
         metadata: z.record(z.unknown()).optional(),
       });
-      
+
       const jsonSchema = zodToJsonSchema(UserSchema);
-      
+
       expect(jsonSchema.type).toBe('object');
       expect(jsonSchema.properties).toBeDefined();
       expect(jsonSchema.properties?.id).toBeDefined();

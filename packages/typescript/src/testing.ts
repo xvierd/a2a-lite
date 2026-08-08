@@ -25,20 +25,12 @@ interface AgentInternals {
 
 /** Type guard: checks if a value is async iterable. */
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    Symbol.asyncIterator in (value as object)
-  );
+  return value !== null && typeof value === 'object' && Symbol.asyncIterator in (value as object);
 }
 
 /** Type guard: checks if a value is (sync) iterable. */
 function isIterable(value: unknown): value is Iterable<unknown> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    Symbol.iterator in (value as object)
-  );
+  return value !== null && typeof value === 'object' && Symbol.iterator in (value as object);
 }
 
 /**

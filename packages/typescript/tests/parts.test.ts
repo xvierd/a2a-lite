@@ -156,9 +156,7 @@ describe('Artifact', () => {
   });
 
   it('should support chaining', () => {
-    const artifact = new Artifact({ name: 'combined' })
-      .addText('Summary')
-      .addData({ count: 10 });
+    const artifact = new Artifact({ name: 'combined' }).addText('Summary').addData({ count: 10 });
 
     expect(artifact.parts).toHaveLength(2);
   });
@@ -171,7 +169,7 @@ describe('Artifact', () => {
 
     expect(a2a.name).toBe('report');
     expect(a2a.description).toBe('Test');
-    expect((a2a.parts as any[])).toHaveLength(1);
+    expect(a2a.parts as any[]).toHaveLength(1);
   });
 });
 

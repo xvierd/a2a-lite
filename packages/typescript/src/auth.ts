@@ -57,9 +57,7 @@ export class APIKeyAuth implements AuthProvider {
 
   constructor(options: { keys: string[]; header?: string; queryParam?: string }) {
     // Store only hashes of keys for security
-    this.keyHashes = new Set(
-      options.keys.map((k) => createHash('sha256').update(k).digest('hex'))
-    );
+    this.keyHashes = new Set(options.keys.map((k) => createHash('sha256').update(k).digest('hex')));
     this.header = options.header ?? 'X-API-Key';
     this.queryParam = options.queryParam;
   }
@@ -70,8 +68,7 @@ export class APIKeyAuth implements AuthProvider {
 
   async authenticate(request: AuthRequest): Promise<AuthResult> {
     // Check header (case-insensitive)
-    const headerKey =
-      request.headers[this.header] || request.headers[this.header.toLowerCase()];
+    const headerKey = request.headers[this.header] || request.headers[this.header.toLowerCase()];
 
     if (headerKey) {
       const hash = this.hashKey(headerKey);
@@ -136,15 +133,12 @@ export class APIKeyAuth implements AuthProvider {
 export class BearerAuth implements AuthProvider {
   private validator: (token: string) => Promise<string | null> | string | null;
 
-  constructor(options: {
-    validator: (token: string) => Promise<string | null> | string | null;
-  }) {
+  constructor(options: { validator: (token: string) => Promise<string | null> | string | null }) {
     this.validator = options.validator;
   }
 
   async authenticate(request: AuthRequest): Promise<AuthResult> {
-    const authHeader =
-      request.headers['Authorization'] || request.headers['authorization'];
+    const authHeader = request.headers['Authorization'] || request.headers['authorization'];
 
     if (!authHeader) {
       return {
@@ -277,9 +271,7 @@ export class OAuth2Auth implements AuthProvider {
     try {
       // Try to use jose library (recommended)
       const jose = await import('jose').catch(() => {
-        throw new Error(
-          "OAuth2Auth requires the 'jose' package. Install it with: npm install jose"
-        );
+        throw new Error("OAuth2Auth requires the 'jose' package. Install it with: npm install jose");
       });
 
       const { jwtVerify, createRemoteJWKSet } = jose;

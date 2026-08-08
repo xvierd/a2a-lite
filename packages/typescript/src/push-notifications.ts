@@ -134,7 +134,7 @@ export class WebhookPushNotifier extends PushNotifier {
         lastError = err;
         if (attempt < this.maxRetries - 1) {
           const waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-          await new Promise(resolve => setTimeout(resolve, waitMs));
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
         }
       }
     }

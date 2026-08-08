@@ -42,7 +42,7 @@ export interface AgentConfig {
   network?: import('./orchestration.js').AgentNetwork;
   corsOrigins?: string[];
   production?: boolean;
-  mcpServers?: string[];  // MCP server URLs
+  mcpServers?: string[]; // MCP server URLs
 }
 
 export interface SkillConfig {
@@ -50,9 +50,9 @@ export interface SkillConfig {
   description?: string;
   tags?: string[];
   streaming?: boolean;
-  taskContext?: boolean | string;  // true or param name
+  taskContext?: boolean | string; // true or param name
   interaction?: boolean;
-  mcp?: boolean | string;          // true or param name
+  mcp?: boolean | string; // true or param name
 }
 
 export interface SkillDefinition {
@@ -65,14 +65,12 @@ export interface SkillDefinition {
   isStreaming: boolean;
   needsTaskContext: boolean;
   needsInteraction: boolean;
-  taskContextParam?: string;  // Name of the parameter that receives TaskContext
-  needsMcp: boolean;          // Whether skill needs MCPClient injection
-  mcpParam?: string;          // Name of the parameter that receives MCPClient
+  taskContextParam?: string; // Name of the parameter that receives TaskContext
+  needsMcp: boolean; // Whether skill needs MCPClient injection
+  mcpParam?: string; // Name of the parameter that receives MCPClient
 }
 
-export type SkillHandler = (
-  params: Record<string, unknown>
-) => Promise<unknown> | AsyncGenerator<unknown>;
+export type SkillHandler = (params: Record<string, unknown>) => Promise<unknown> | AsyncGenerator<unknown>;
 
 // Auth types
 export interface AuthRequest {
@@ -93,13 +91,7 @@ export interface AuthProvider {
 }
 
 // Task types
-export type TaskState =
-  | 'submitted'
-  | 'working'
-  | 'input-required'
-  | 'completed'
-  | 'failed'
-  | 'canceled';
+export type TaskState = 'submitted' | 'working' | 'input-required' | 'completed' | 'failed' | 'canceled';
 
 export interface TaskStatus {
   state: TaskState;

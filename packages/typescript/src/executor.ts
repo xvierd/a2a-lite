@@ -5,22 +5,11 @@
  * official @a2a-js/sdk's execution model.
  */
 
-import {
-  AgentEvent,
-  type AgentExecutor,
-  type RequestContext,
-  type ExecutionEventBus,
-} from '@a2a-js/sdk/server';
+import { AgentEvent, type AgentExecutor, type RequestContext, type ExecutionEventBus } from '@a2a-js/sdk/server';
 import { Role, TaskState } from '@a2a-js/sdk';
 import type { Message, Part, Task } from '@a2a-js/sdk';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  SkillDefinition,
-  MiddlewareContext,
-  Middleware,
-  AuthProvider,
-  TaskStore,
-} from './types.js';
+import type { SkillDefinition, MiddlewareContext, Middleware, AuthProvider, TaskStore } from './types.js';
 import { TaskContext } from './tasks.js';
 import { MCPClient } from './mcp/index.js';
 import { A2ALiteError, SkillNotFoundError } from './errors.js';
@@ -77,10 +66,7 @@ export class LiteAgentExecutor implements AgentExecutor {
    * message. Non-streaming skills publish a single message; streaming skills
    * publish the task first, then status updates per chunk, then completion.
    */
-  async execute(
-    requestContext: RequestContext,
-    eventBus: ExecutionEventBus
-  ): Promise<void> {
+  async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
     const execState: ExecutionState = {
       taskStarted: false,
       taskId: requestContext.taskId,
@@ -119,12 +105,9 @@ export class LiteAgentExecutor implements AgentExecutor {
 
       // If result is not null and not already streamed, send it
       if (result !== null && result !== undefined) {
-        const responseText =
-          typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+        const responseText = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
 
-        eventBus.publish(
-          AgentEvent.message(this.buildAgentTextMessage(responseText, requestContext.contextId))
-        );
+        eventBus.publish(AgentEvent.message(this.buildAgentTextMessage(responseText, requestContext.contextId)));
       }
 
       // Call completion hooks
@@ -181,7 +164,7 @@ export class LiteAgentExecutor implements AgentExecutor {
     params: Record<string, unknown>,
     eventBus: ExecutionEventBus,
     metadata: Record<string, unknown>,
-    execState: ExecutionState
+    execState: ExecutionState,
   ): Promise<unknown> {
     // Default to first skill only if there's exactly one
     if (!skillName) {
@@ -246,13 +229,11 @@ export class LiteAgentExecutor implements AgentExecutor {
             contextId: task.contextId,
             status: {
               state,
-              message: text !== undefined
-                ? this.buildAgentTextMessage(text, task.contextId, task.id)
-                : undefined,
+              message: text !== undefined ? this.buildAgentTextMessage(text, task.contextId, task.id) : undefined,
               timestamp: new Date().toISOString(),
             },
             metadata: undefined,
-          })
+          }),
         );
       };
 
@@ -322,11 +303,7 @@ export class LiteAgentExecutor implements AgentExecutor {
    * as a failed status update; otherwise as a single message (the first —
    * and only — event).
    */
-  private async handleError(
-    error: Error,
-    eventBus: ExecutionEventBus,
-    execState: ExecutionState
-  ): Promise<void> {
+  private async handleError(error: Error, eventBus: ExecutionEventBus, execState: ExecutionState): Promise<void> {
     let errorResult: unknown;
 
     if (error instanceof A2ALiteError) {
@@ -361,12 +338,10 @@ export class LiteAgentExecutor implements AgentExecutor {
             timestamp: new Date().toISOString(),
           },
           metadata: undefined,
-        })
+        }),
       );
     } else {
-      eventBus.publish(
-        AgentEvent.message(this.buildAgentTextMessage(errorText, execState.contextId))
-      );
+      eventBus.publish(AgentEvent.message(this.buildAgentTextMessage(errorText, execState.contextId)));
     }
     eventBus.finished();
   }
@@ -409,7 +384,7 @@ export class LiteAgentExecutor implements AgentExecutor {
    */
   async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
     eventBus.publish(
-      AgentEvent.message(this.buildAgentTextMessage(JSON.stringify({ status: 'cancelled', taskId }), ''))
+      AgentEvent.message(this.buildAgentTextMessage(JSON.stringify({ status: 'cancelled', taskId }), '')),
     );
     eventBus.finished();
   }

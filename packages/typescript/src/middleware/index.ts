@@ -159,10 +159,7 @@ export function timingMiddleware(): Middleware {
  *     console.log(`Request ID: ${metadata.requestId}`);
  *   });
  */
-export function requestIdMiddleware(options?: {
-  headerName?: string;
-  generator?: () => string;
-}): Middleware {
+export function requestIdMiddleware(options?: { headerName?: string; generator?: () => string }): Middleware {
   const { headerName = 'X-Request-ID', generator = generateId } = options ?? {};
 
   return async (ctx: MiddlewareContext, next: MiddlewareNext) => {
@@ -191,11 +188,7 @@ function generateId(): string {
  *     methods: ['GET', 'POST'],
  *   }));
  */
-export function corsMiddleware(options: {
-  origins: string[];
-  methods?: string[];
-  headers?: string[];
-}): Middleware {
+export function corsMiddleware(options: { origins: string[]; methods?: string[]; headers?: string[] }): Middleware {
   const { origins, methods = ['GET', 'POST', 'OPTIONS'], headers = [] } = options;
 
   return async (ctx: MiddlewareContext, next: MiddlewareNext) => {

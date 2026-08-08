@@ -323,6 +323,52 @@ class TestAuthIntegration:
         assert requirements, "card should declare security requirements"
         assert "apiKey" in requirements[0].get("schemes", {})
 
+    def test_agent_card_bearer_security_scheme(self):
+        """HTTP bearer schemes are advertised on the agent card."""
+        from a2a_lite import Agent, BearerAuth
+
+        agent = Agent(
+            name="BearerBot",
+            description="bearer auth",
+            auth=BearerAuth(validator=lambda t: "user" if t == "tok" else None),
+        )
+        card = agent.build_agent_card("localhost", 8787)
+        assert "bearer" in card.security_schemes or "http" in card.security_schemes
+        # scheme name is the http scheme string ("bearer")
+        assert any(k in card.security_schemes for k in ("bearer", "http"))
+
+    def test_agent_card_oauth2_security_scheme(self):
+        """OAuth2 schemes are advertised on the agent card without validating tokens."""
+        from a2a_lite.auth import OAuth2Auth
+
+        # Avoid network/JWT setup: only exercise get_scheme → card mapping
+        auth = OAuth2Auth.__new__(OAuth2Auth)
+        auth.issuer = "https://auth.example.com"
+        auth.audience = "my-agent"
+        auth._jwks_client = None
+
+        from a2a_lite import Agent
+
+        agent = Agent(name="OAuthBot", description="oauth", auth=auth)
+        card = agent.build_agent_card("localhost", 8787)
+        assert "oauth2" in card.security_schemes
+
+    def test_agent_card_unknown_scheme_skipped(self):
+        """Unknown scheme types are skipped (empty security schemes)."""
+        from a2a_lite import Agent
+        from a2a_lite.auth import AuthProvider, AuthRequest, AuthResult
+
+        class WeirdAuth(AuthProvider):
+            async def authenticate(self, request: AuthRequest) -> AuthResult:
+                return AuthResult(success=False, error="nope")
+
+            def get_scheme(self) -> dict:
+                return {"type": "mutualTLS"}
+
+        agent = Agent(name="Weird", description="x", auth=WeirdAuth())
+        schemes, reqs = agent._build_security_schemes()
+        assert schemes == {} and reqs == []
+
 
 class TestRequireAuth:
     """Test that require_auth decorator receives AuthResult from executor."""

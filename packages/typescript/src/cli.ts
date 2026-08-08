@@ -35,9 +35,7 @@ Options:
 
 function getVersion(): string {
   try {
-    const pkg = JSON.parse(
-      readFileSync(new URL('../package.json', import.meta.url), 'utf8')
-    );
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     return pkg.version;
   } catch {
     return '1.0.1';
@@ -90,7 +88,7 @@ agent.skill('echo', async ({ message }: { message: string }) => {
 });
 
 agent.run();
-`
+`,
   );
 
   writeFileSync(
@@ -105,8 +103,8 @@ agent.run();
         devDependencies: { tsx: '>=4.0.0', typescript: '>=5.0.0', vitest: '>=2.0.0' },
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 
   writeFileSync(join(dir, '.gitignore'), 'node_modules/\ndist/\n');
@@ -155,7 +153,7 @@ async function cmdInspect(url: string): Promise<void> {
   console.log(`|  Capabilities: ${capList}`);
   console.log(`|`);
   console.log(`|  Skills:`);
-  for (const skill of ((card.skills as any[]) ?? [])) {
+  for (const skill of (card.skills as any[]) ?? []) {
     const tags = skill.tags?.length ? ` [${skill.tags.join(', ')}]` : '';
     console.log(`|    - ${skill.name}: ${skill.description ?? '-'}${tags}`);
   }
@@ -293,9 +291,7 @@ async function cmdDoctor(url?: string): Promise<void> {
         [
           caps.streaming ? 'streaming' : null,
           caps.pushNotifications ? 'push-notifications' : null,
-          Array.isArray(caps.extensions) && caps.extensions.length
-            ? `${caps.extensions.length} extension(s)`
-            : null,
+          Array.isArray(caps.extensions) && caps.extensions.length ? `${caps.extensions.length} extension(s)` : null,
         ]
           .filter(Boolean)
           .join(', ') || 'none';
@@ -318,9 +314,7 @@ async function cmdDiscover(urls: string[]): Promise<void> {
       const card = await fetchAgentCard(url, 5000);
       const skillCount = ((card.skills as unknown[]) ?? []).length;
       const caps = (card.capabilities as Record<string, boolean>) ?? {};
-      console.log(
-        `OK ${card.name} v${card.version} -- ${skillCount} skills${caps.streaming ? ' [streaming]' : ''}`
-      );
+      console.log(`OK ${card.name} v${card.version} -- ${skillCount} skills${caps.streaming ? ' [streaming]' : ''}`);
       console.log(`  ${url}`);
     } catch (err) {
       console.log(`FAIL ${url} -- ${(err as Error).message}`);

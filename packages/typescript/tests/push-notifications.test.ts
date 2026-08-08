@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'crypto';
-import {
-  LogPushNotifier,
-  WebhookPushNotifier,
-} from '../src/push-notifications.js';
+import { LogPushNotifier, WebhookPushNotifier } from '../src/push-notifications.js';
 import type { PushEvent } from '../src/push-notifications.js';
 import { Agent, InMemoryTaskStore } from '../src/index.js';
 import { AgentTestClient } from '../src/testing.js';

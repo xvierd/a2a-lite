@@ -141,10 +141,7 @@ describe('CompositeAuth', () => {
   });
 
   it('should reject when all providers fail', async () => {
-    const auth = new CompositeAuth([
-      new APIKeyAuth({ keys: ['key1'] }),
-      new APIKeyAuth({ keys: ['key2'] }),
-    ]);
+    const auth = new CompositeAuth([new APIKeyAuth({ keys: ['key1'] }), new APIKeyAuth({ keys: ['key2'] })]);
 
     const result = await auth.authenticate({
       headers: { 'X-API-Key': 'wrong' },

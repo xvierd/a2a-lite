@@ -1,16 +1,16 @@
 /**
  * MCP (Model Context Protocol) tool integration for A2A Lite.
- * 
+ *
  * Wraps the MCP SDK to let skills call MCP tools.
- * 
+ *
  * Example:
  *   const agent = new Agent({ name: "Bot", mcpServers: ["http://localhost:5001"] });
- * 
+ *
  *   agent.skill("research", async ({ query, mcp }: { query: string; mcp: MCPClient }) => {
  *     const result = await mcp.callTool("web_search", { query });
  *     return result;
  *   });
- * 
+ *
  * Note: This is a stub implementation. Full MCP integration requires the MCP SDK.
  * Install with: npm install @modelcontextprotocol/sdk
  */
@@ -59,10 +59,10 @@ export interface MCPToolDescriptor {
 
 /**
  * Client for interacting with MCP servers.
- * 
+ *
  * Provides a simplified interface to call tools, list tools, and
  * read resources from one or more MCP servers.
- * 
+ *
  * Example:
  *   const mcp = new MCPClient(["http://localhost:5001"]);
  *   const result = await mcp.callTool("web_search", { query: "A2A protocol" });
@@ -74,7 +74,7 @@ export class MCPClient {
 
   /**
    * Create a new MCP client.
-   * 
+   *
    * @param serverUrls - List of MCP server URLs to connect to
    */
   constructor(serverUrls?: string[]) {
@@ -99,7 +99,7 @@ export class MCPClient {
 
   /**
    * Add an MCP server URL.
-   * 
+   *
    * @param url - The MCP server URL
    */
   addServer(url: string): void {
@@ -110,7 +110,7 @@ export class MCPClient {
 
   /**
    * Get or create an MCP client session for a server URL.
-   * 
+   *
    * @param url - The MCP server URL
    * @returns An MCP ClientSession instance
    * @throws MCPError if the MCP SDK is not installed or connection fails
@@ -126,19 +126,19 @@ export class MCPClient {
     // 2. Create a ClientSession
     // 3. Initialize the session
     // 4. Store it for reuse
-    
+
     throw new MCPError(
       'MCP integration requires the @modelcontextprotocol/sdk package. ' +
-      'Install it with: npm install @modelcontextprotocol/sdk'
+        'Install it with: npm install @modelcontextprotocol/sdk',
     );
   }
 
   /**
    * Call an MCP tool by name.
-   * 
+   *
    * If `serverUrl` is provided, calls that specific server.
    * Otherwise searches all registered servers for the tool.
-   * 
+   *
    * @param toolName - The name of the MCP tool to call
    * @param args - Arguments to pass to the tool
    * @param serverUrl - Optional specific server URL to use
@@ -146,13 +146,9 @@ export class MCPClient {
    * @throws ToolNotFoundError if the tool is not found on any server
    * @throws MCPError if the MCP SDK is not installed
    */
-  async callTool(
-    toolName: string,
-    args?: Record<string, unknown>,
-    serverUrl?: string
-  ): Promise<unknown> {
+  async callTool(toolName: string, args?: Record<string, unknown>, serverUrl?: string): Promise<unknown> {
     const urls = serverUrl ? [serverUrl] : this._serverUrls;
-    
+
     if (urls.length === 0) {
       throw new MCPError('No MCP server URLs configured');
     }
@@ -178,7 +174,7 @@ export class MCPClient {
           _lastError = error as Error;
           continue; // Try next server
         }
-        
+
         // Other errors - re-raise
         throw error;
       }
@@ -190,13 +186,13 @@ export class MCPClient {
 
   /**
    * Check if an exception indicates a tool was not found.
-   * 
+   *
    * This method attempts to detect tool-not-found errors without relying
    * solely on fragile string matching. It tries:
    * 1. Check for specific MCP SDK exception types
    * 2. Check for common error code patterns
    * 3. Fallback to checking error message content
-   * 
+   *
    * @param error - The exception to check
    * @returns True if the error indicates the tool was not found
    */
@@ -226,7 +222,7 @@ export class MCPClient {
       'no tool named',
       'tool does not exist',
     ];
-    
+
     for (const pattern of specificPatterns) {
       if (errorStr.includes(pattern)) {
         return true;
@@ -243,7 +239,7 @@ export class MCPClient {
 
   /**
    * List available tools from MCP servers.
-   * 
+   *
    * @param serverUrl - If provided, list tools from this server only
    * @returns List of tool descriptors with name, description, and input schema
    */
@@ -273,7 +269,7 @@ export class MCPClient {
 
   /**
    * Read a resource from an MCP server.
-   * 
+   *
    * @param uri - The resource URI to read
    * @param serverUrl - If provided, read from this server only
    * @returns The resource content
@@ -281,7 +277,7 @@ export class MCPClient {
    */
   async readResource(uri: string, serverUrl?: string): Promise<unknown> {
     const url = serverUrl ?? (this._serverUrls[0] || null);
-    
+
     if (url === null) {
       throw new MCPError('No MCP server URLs configured');
     }
@@ -313,7 +309,7 @@ export class MCPClient {
 
   /**
    * Extract content from an MCP tool result.
-   * 
+   *
    * @param result - The raw MCP CallToolResult
    * @returns The extracted content as a string or array
    */
@@ -323,7 +319,7 @@ export class MCPClient {
     }
 
     const contents = result.content;
-    
+
     if (contents.length === 1) {
       const item = contents[0];
       if (item.type === 'text') {
@@ -332,7 +328,7 @@ export class MCPClient {
       return item;
     }
 
-    return contents.map(c => c.type === 'text' ? c.text : c);
+    return contents.map((c) => (c.type === 'text' ? c.text : c));
   }
 
   /**

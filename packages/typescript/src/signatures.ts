@@ -14,11 +14,7 @@
  *   await verify(signedCard); // throws if no valid signature
  */
 
-import {
-  generateAgentCardSignature,
-  verifyAgentCardSignature,
-  canonicalizeAgentCard,
-} from '@a2a-js/sdk';
+import { generateAgentCardSignature, verifyAgentCardSignature, canonicalizeAgentCard } from '@a2a-js/sdk';
 
 export type SignaturePrivateKey = Parameters<typeof generateAgentCardSignature>[0];
 export type SignatureProtectedHeader = Parameters<typeof generateAgentCardSignature>[1];

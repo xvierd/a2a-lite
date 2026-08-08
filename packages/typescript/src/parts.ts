@@ -36,19 +36,13 @@ export class FilePart implements LiteFilePart {
   readonly data?: Buffer;
   readonly uri?: string;
 
-  constructor(options: {
-    name: string;
-    mimeType?: string;
-    data?: Buffer | string;
-    uri?: string;
-  }) {
+  constructor(options: { name: string; mimeType?: string; data?: Buffer | string; uri?: string }) {
     this.name = options.name;
     this.mimeType = options.mimeType ?? 'application/octet-stream';
     this.uri = options.uri;
 
     if (options.data) {
-      this.data =
-        typeof options.data === 'string' ? Buffer.from(options.data) : options.data;
+      this.data = typeof options.data === 'string' ? Buffer.from(options.data) : options.data;
     }
   }
 
@@ -166,11 +160,7 @@ export class Artifact implements IArtifact {
   parts: LitePart[] = [];
   metadata?: Record<string, unknown>;
 
-  constructor(options?: {
-    name?: string;
-    description?: string;
-    metadata?: Record<string, unknown>;
-  }) {
+  constructor(options?: { name?: string; description?: string; metadata?: Record<string, unknown> }) {
     this.name = options?.name;
     this.description = options?.description;
     this.metadata = options?.metadata;

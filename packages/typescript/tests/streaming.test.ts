@@ -107,9 +107,7 @@ describe('streamRemoteSkill()', () => {
   });
 
   it('throws RemoteAgentError on non-ok HTTP response', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(new Response('Internal Server Error', { status: 500 }));
 
     await expect(async () => {
       for await (const _chunk of streamRemoteSkill('http://agent', 'fail', {})) {
