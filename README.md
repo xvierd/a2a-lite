@@ -25,6 +25,8 @@
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API that stays **100% protocol-compatible** with zero boilerplate.
 
+> **v1.0.0 — A2A Protocol v1.0.** All three packages now serve **A2A protocol v1.0** on the official 1.x SDKs (`a2a-sdk 1.1.2`, `@a2a-js/sdk 1.0.1`, `a2a-java-sdk 1.1.0.Final`). v0.3 is **not** compatible — agents on 0.3 and 1.0 cannot call each other. The lite API is unchanged, so most agents migrate by just bumping the dependency. See [MIGRATION.md](MIGRATION.md) for breaking changes and SDK equivalence tables.
+
 ## Why A2A Lite?
 
 |  | Official A2A SDK | A2A Lite |
@@ -56,7 +58,7 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'com.a2alite:a2a-lite:0.3.8'
+    implementation 'io.github.xvierd:a2a-lite:1.0.0'
     implementation 'io.javalin:javalin:5.6.3'   // HTTP server
 }
 ```
@@ -123,9 +125,10 @@ agent.run(); // http://localhost:8787
 </tr>
 </table>
 
-That's it. A fully A2A-compliant agent, discoverable by any A2A client, serving:
-- `POST /` — JSON-RPC `message/send`
-- `GET /.well-known/agent.json` — Agent card with auto-generated skill schemas
+That's it. A fully A2A-compliant agent, discoverable by any A2A v1.0 client, serving:
+- `POST /` — JSON-RPC `SendMessage` (plus `SendStreamingMessage`, `GetTask`, `CancelTask`, push-notification config methods)
+- REST (HTTP+JSON) endpoints — Python and TypeScript (Java: planned)
+- `GET /.well-known/agent-card.json` — Agent card with auto-generated skill schemas
 
 ---
 
@@ -444,7 +447,7 @@ router.mount("/hotels", hotel_agent)
 router.mount("/flights", flight_agent)
 
 router.run(port=8787)
-# Merged card at /.well-known/agent.json
+# Merged card at /.well-known/agent-card.json
 # Each agent at /weather, /hotels, /flights
 ```
 
@@ -560,13 +563,39 @@ a2a-lite info <url>
 
 ---
 
+## A2A v1.0
+
+Since a2a-lite 1.0.0, all three packages serve **A2A protocol v1.0** on the official 1.x SDKs:
+
+- **JSON-RPC transport** — Python, TypeScript, Java.
+- **REST (HTTP+JSON) transport** — Python and TypeScript (Java: planned). gRPC: planned in all three.
+- **SSE streaming**, **per-task push notifications** (`TaskPushNotificationConfig`), and **`securitySchemes` in the agent card** — all three languages.
+- **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planned.
+- Agent card served at **`/.well-known/agent-card.json`** (the old `agent.json` path is gone).
+- **No v0.3 compatibility** — lite clients detect 0.3 cards and fail with a clear error.
+
+Migrating from a2a-lite 0.3.x? The lite API is unchanged — most agents only need a dependency bump. See [MIGRATION.md](MIGRATION.md) for breaking changes, per-language steps, and SDK 0.3 → 1.x equivalence tables.
+
+---
+
 ## Feature Matrix
 
 | Feature | Python | TypeScript | Java |
 |---|:---:|:---:|:---:|
+| **Protocol (A2A v1.0)** | | | |
+| A2A protocol v1.0 | ✅ | ✅ | ✅ |
+| JSON-RPC transport | ✅ | ✅ | ✅ |
+| REST (HTTP+JSON) transport | ✅ | ✅ | 🔜 planned |
+| gRPC transport | 🔜 planned | 🔜 planned | 🔜 planned |
+| `securitySchemes` in agent card | ✅ | ✅ | ✅ |
+| Signed Agent Cards | 🔜 planned | ✅ experimental | 🔜 planned |
+| `ListTasks` | 🔜 planned | 🔜 planned | 🔜 planned |
+| Multi-tenancy | 🔜 planned | 🔜 planned | 🔜 planned |
+| v0.3 compatibility | ❌ | ❌ | ❌ |
+| **Lite API** | | | |
 | Basic skills | ✅ | ✅ | ✅ |
 | Auto JSON schemas | ✅ Pydantic | ⚠️ Manual | ⚠️ Manual |
-| Streaming (`yield`) | ✅ | ✅ | — |
+| Streaming (`yield`) | ✅ | ✅ | ✅ |
 | Middleware | ✅ | ✅ | ✅ |
 | File handling (`FilePart`) | ✅ | ✅ | ✅ |
 | Structured data (`DataPart`) | ✅ | ✅ | ✅ |
@@ -586,7 +615,7 @@ a2a-lite info <url>
 | `get_tool_schemas()` | ✅ | ✅ | ✅ |
 | Structured errors | ✅ | ✅ | ✅ |
 | In-process TestClient | ✅ | ✅ | ✅ |
-| CLI tools | ✅ | ✅ | — |
+| CLI tools | ✅ | ✅ basic | — |
 | mDNS discovery | ✅ | — | — |
 | CORS control | ✅ | ✅ | — |
 | TaskHandle (remote task tracking) | ✅ | ✅ | ✅ |
@@ -594,6 +623,8 @@ a2a-lite info <url>
 | `get/cancel` remote tasks | ✅ | ✅ | ✅ |
 | Client-side SSE streaming | ✅ | ✅ | ✅ |
 | Per-task push notifications | ✅ | ✅ | ✅ |
+
+> **Note on v0.3:** a2a-lite 1.0.0 does not interoperate with A2A 0.3 agents (explicit decision — no compatibility mode). Lite clients detect 0.3 agent cards and fail with a clear error. See [MIGRATION.md](MIGRATION.md).
 
 ---
 
@@ -604,19 +635,23 @@ Everything in A2A Lite maps directly to the underlying protocol — no magic, no
 | A2A Lite | A2A Protocol |
 |----------|--------------|
 | `@agent.skill()` | Agent Skill definition |
-| `agent.run()` | JSON-RPC server at `POST /` |
-| `streaming=True` + `yield` | SSE streaming (`message/stream`) |
+| `agent.run()` | JSON-RPC server at `POST /` (+ REST in Python/TypeScript) |
+| `streaming=True` + `yield` | SSE streaming (`SendStreamingMessage`) |
 | `TaskContext.update()` | Task lifecycle states (submitted → working → completed) |
 | `FilePart` | A2A File parts |
 | `DataPart` | A2A Data parts |
 | `Artifact` | A2A Artifacts |
-| `APIKeyAuth` / `BearerAuth` / `OAuth2Auth` | A2A Security schemes |
-| `AgentNetwork.call()` | `message/send` over HTTP |
-| `/.well-known/agent.json` | Agent Card |
+| `APIKeyAuth` / `BearerAuth` / `OAuth2Auth` | A2A Security schemes (`securitySchemes` in the card) |
+| `AgentNetwork.call()` | `SendMessage` over HTTP |
+| `/.well-known/agent-card.json` | Agent Card |
 
 ---
 
 ## Examples
+
+### Google SDK vs A2A Lite — side-by-side comparison
+
+The [`examples/`](examples/) directory contains complete, runnable pairs of the same agent written with the official SDK and with A2A Lite (all migrated to A2A v1.0 / SDK 1.x): hello world, calculator, file handling, auth, streaming, LLM integration, human-in-the-loop, persistence, plus a playable **[battleship multi-agent demo](examples/python/11_battleship_lite/)** with web UI. See [examples/README.md](examples/README.md).
 
 ### Python
 
@@ -625,9 +660,12 @@ Everything in A2A Lite maps directly to the underlying protocol — no magic, no
 | [01_hello_world.py](packages/python/examples/01_hello_world.py) | Simplest agent (8 lines) |
 | [02_calculator.py](packages/python/examples/02_calculator.py) | Multiple skills |
 | [03_async_agent.py](packages/python/examples/03_async_agent.py) | Async operations |
+| [04_multi_agent/](packages/python/examples/04_multi_agent) | Two agents communicating |
 | [05_with_llm.py](packages/python/examples/05_with_llm.py) | OpenAI integration |
 | [06_pydantic_models.py](packages/python/examples/06_pydantic_models.py) | Auto Pydantic schemas |
+| [06_task_handle_discovery.py](packages/python/examples/06_task_handle_discovery.py) | TaskHandle + card discovery |
 | [07_middleware.py](packages/python/examples/07_middleware.py) | Middleware pipeline |
+| [07_client_streaming.py](packages/python/examples/07_client_streaming.py) | Client-side SSE streaming |
 | [08_streaming.py](packages/python/examples/08_streaming.py) | Streaming responses |
 | [09_testing.py](packages/python/examples/09_testing.py) | Built-in TestClient |
 | [10_file_handling.py](packages/python/examples/10_file_handling.py) | File upload & processing |
@@ -638,6 +676,11 @@ Everything in A2A Lite maps directly to the underlying protocol — no magic, no
 | [15_llm_openai.py](packages/python/examples/15_llm_openai.py) | OpenAI LLM skill |
 | [16_llm_anthropic.py](packages/python/examples/16_llm_anthropic.py) | Anthropic LLM skill |
 | [17_llm_bedrock.py](packages/python/examples/17_llm_bedrock.py) | AWS Bedrock LLM skill |
+| [18_per_task_push.py](packages/python/examples/18_per_task_push.py) | Per-task push notifications |
+| [19_capability_negotiation.py](packages/python/examples/19_capability_negotiation.py) | Capability negotiation |
+| [20_streaming_negotiation.py](packages/python/examples/20_streaming_negotiation.py) | Streaming negotiation |
+
+TypeScript and Java have their own example sets: [`packages/typescript/examples/`](packages/typescript/examples/) and [`packages/java/examples/`](packages/java/examples/).
 
 ---
 

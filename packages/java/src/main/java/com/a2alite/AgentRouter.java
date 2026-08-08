@@ -18,10 +18,12 @@ import java.util.logging.Logger;
  * router.run(8787);
  * }</pre>
  *
- * A merged agent card is served at {@code /.well-known/agent.json}.
+ * A merged agent card (A2A protocol v1.0) is served at
+ * {@code /.well-known/agent-card.json}.
  */
 public class AgentRouter {
     private static final Logger LOGGER = Logger.getLogger(AgentRouter.class.getName());
+    private static final String PROTOCOL_VERSION = "1.0";
 
     private final List<String> prefixes = new ArrayList<>();
     private final Map<String, Agent> agents = new LinkedHashMap<>();
@@ -61,8 +63,10 @@ public class AgentRouter {
         card.put("name", String.join(" + ", names));
         card.put("description", String.join("; ", descriptions));
         card.put("version", "1.0.0");
-        card.put("url", "http://" + host + ":" + port);
-        card.put("protocolVersion", "0.3.0");
+        var routerUrl = "http://" + host + ":" + port;
+        card.put("supportedInterfaces", List.of(
+            Map.of("protocolBinding", "JSONRPC", "url", routerUrl, "protocolVersion", PROTOCOL_VERSION),
+            Map.of("protocolBinding", "HTTP+JSON", "url", routerUrl, "protocolVersion", PROTOCOL_VERSION)));
         card.put("capabilities", Map.of("streaming", hasStreaming[0], "pushNotifications", false));
         card.put("defaultInputModes", List.of("application/json"));
         card.put("defaultOutputModes", List.of("application/json"));
@@ -85,7 +89,7 @@ public class AgentRouter {
 
             // Merged card at root
             final var mergedCard = buildMergedCard(displayHost, port);
-            getMethod.invoke(app, "/.well-known/agent.json",
+            getMethod.invoke(app, "/.well-known/agent-card.json",
                 Proxy.newProxyInstance(handlerClass.getClassLoader(), new Class[]{handlerClass},
                     (proxy, method, args) -> {
                         if ("handle".equals(method.getName()))
@@ -99,7 +103,7 @@ public class AgentRouter {
                 final var p = prefix;
 
                 // Agent card
-                getMethod.invoke(app, p + "/.well-known/agent.json",
+                getMethod.invoke(app, p + "/.well-known/agent-card.json",
                     Proxy.newProxyInstance(handlerClass.getClassLoader(), new Class[]{handlerClass},
                         (proxy, method, args) -> {
                             if ("handle".equals(method.getName()))
@@ -139,15 +143,17 @@ public class AgentRouter {
         var id = body.path("id").asText();
         var jsonMethod = ctx.getClass().getMethod("json", Object.class);
 
-        if ("message/send".equals(body.path("method").asText())) {
+        if ("SendMessage".equals(body.path("method").asText())) {
             var result = agent.handleMessage(body.path("params").path("message"),
                                              Collections.emptyMap());
             var response = mapper.createObjectNode();
             response.put("jsonrpc", "2.0");
             response.put("id", id);
-            var parts = response.putObject("result").putArray("parts").addObject();
-            parts.put("kind", "text");
-            parts.put("text", mapper.writeValueAsString(result));
+            var message = response.putObject("result").putObject("message");
+            message.put("role", "ROLE_AGENT");
+            message.put("messageId", java.util.UUID.randomUUID().toString().replace("-", ""));
+            message.putArray("parts").addObject()
+                .put("text", mapper.writeValueAsString(result));
             jsonMethod.invoke(ctx, response);
         } else {
             var response = mapper.createObjectNode();

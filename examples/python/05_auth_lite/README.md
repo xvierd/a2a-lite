@@ -49,7 +49,8 @@ python agent.py
 ```bash
 curl -X POST http://localhost:8790/ \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "message/send", "id": "1", "params": {"message": {"role": "user", "parts": [{"type": "text", "text": "{\"skill\": \"get_secret\"}"}]}}}'
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc": "2.0", "method": "SendMessage", "id": "1", "params": {"message": {"messageId": "msg-1", "role": "ROLE_USER", "parts": [{"text": "{\"skill\": \"get_secret\"}"}]}}}'
 
 # Expected: 401 Unauthorized
 ```
@@ -59,8 +60,9 @@ curl -X POST http://localhost:8790/ \
 ```bash
 curl -X POST http://localhost:8790/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "X-API-Key: secret-key-123" \
-  -d '{"jsonrpc": "2.0", "method": "message/send", "id": "1", "params": {"message": {"role": "user", "parts": [{"type": "text", "text": "{\"skill\": \"get_secret\"}"}]}}}'
+  -d '{"jsonrpc": "2.0", "method": "SendMessage", "id": "1", "params": {"message": {"messageId": "msg-2", "role": "ROLE_USER", "parts": [{"text": "{\"skill\": \"get_secret\"}"}]}}}'
 
 # Expected: {"secret": "The answer is 42"}
 ```
@@ -70,8 +72,9 @@ curl -X POST http://localhost:8790/ \
 ```bash
 curl -X POST http://localhost:8790/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "Authorization: Bearer valid-token-abc" \
-  -d '{"jsonrpc": "2.0", "method": "message/send", "id": "1", "params": {"message": {"role": "user", "parts": [{"type": "text", "text": "{\"skill\": \"whoami\"}"}]}}}'
+  -d '{"jsonrpc": "2.0", "method": "SendMessage", "id": "1", "params": {"message": {"messageId": "msg-3", "role": "ROLE_USER", "parts": [{"text": "{\"skill\": \"whoami\"}"}]}}}'
 
 # Expected: {"user": "bearer_user_valid-t...", "scheme": "bearer"}
 ```

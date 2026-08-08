@@ -28,7 +28,7 @@ if __name__ == "__main__":
     print("Skills: greet")
     print("-" * 60)
     print("Starting server on http://localhost:8787")
-    print("Agent card: http://localhost:8787/.well-known/agent.json")
+    print("Agent card: http://localhost:8787/.well-known/agent-card.json")
     print("=" * 60)
     
     # Run the agent

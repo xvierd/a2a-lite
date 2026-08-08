@@ -16,7 +16,9 @@ an A2A Lite agent.
 ## Run in dev mode
 
 ```bash
-npx tsx examples/typescript/10_persistence_lite/agent.ts
+cd examples/typescript/10_persistence_lite
+npm install
+npm start          # or: npx tsx agent.ts
 ```
 
 The `LogPushNotifier` will print every completion event to stdout.
@@ -26,7 +28,7 @@ The `LogPushNotifier` will print every completion event to stdout.
 ```bash
 WEBHOOK_URL=https://your.server/hook \
 WEBHOOK_SECRET=my-signing-secret \
-npx tsx examples/typescript/10_persistence_lite/agent.ts
+npm start
 ```
 
 Every time a skill finishes, the agent POSTs a JSON payload to your webhook:
@@ -42,18 +44,23 @@ Every time a skill finishes, the agent POSTs a JSON payload to your webhook:
 When `WEBHOOK_SECRET` is set, the request also carries an
 `X-A2A-Signature: sha256=<hex>` header you can verify with HMAC-SHA256.
 
-## Calling the skills
+## Calling the skills (A2A v1.0 wire)
 
 ```bash
+# Agent card (v1.0 well-known path)
+curl -s http://localhost:8790/.well-known/agent-card.json
+
 # echo
 curl -s -X POST http://localhost:8790/ \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"{\"skill\":\"echo\",\"params\":{\"message\":\"hello\"}}"}]}}}'
+  -H 'A2A-Version: 1.0' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"{\"skill\":\"echo\",\"params\":{\"message\":\"hello\"}}"}]}}}'
 
 # slowSum (waits 2 seconds, then push notification fires)
 curl -s -X POST http://localhost:8790/ \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"message/send","params":{"message":{"messageId":"m2","role":"user","parts":[{"kind":"text","text":"{\"skill\":\"slowSum\",\"params\":{\"a\":3,\"b\":4,\"delayMs\":2000}}"}]}}}'
+  -H 'A2A-Version: 1.0' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"SendMessage","params":{"message":{"messageId":"m2","role":"ROLE_USER","parts":[{"text":"{\"skill\":\"slowSum\",\"params\":{\"a\":3,\"b\":4,\"delayMs\":2000}}"}]}}}'
 ```
 
 ## Swapping the store

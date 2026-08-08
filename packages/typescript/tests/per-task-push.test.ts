@@ -97,13 +97,14 @@ describe('createPushNotificationMiddleware', () => {
     middleware = createPushNotificationMiddleware(registry);
   });
 
-  it('tasks/pushNotification/set stores config and returns success', async () => {
+  it('CreateTaskPushNotificationConfig stores config and returns success', async () => {
     const req = mockReq({
-      method: 'tasks/pushNotification/set',
+      method: 'CreateTaskPushNotificationConfig',
       id: '1',
       params: {
-        id: 'task-100',
-        pushNotificationConfig: { url: 'http://hook.test/cb', token: 'tok' },
+        taskId: 'task-100',
+        url: 'http://hook.test/cb',
+        token: 'tok',
       },
     });
     const res = mockRes();
@@ -117,15 +118,17 @@ describe('createPushNotificationMiddleware', () => {
       id: '1',
       result: {
         taskId: 'task-100',
-        pushNotificationConfig: { url: 'http://hook.test/cb', token: 'tok' },
+        id: 'task-100',
+        url: 'http://hook.test/cb',
+        token: 'tok',
       },
     });
     expect(registry.get('task-100')).toEqual({ url: 'http://hook.test/cb', token: 'tok' });
   });
 
-  it('tasks/pushNotification/set returns error when params are missing', async () => {
+  it('CreateTaskPushNotificationConfig returns error when params are missing', async () => {
     const req = mockReq({
-      method: 'tasks/pushNotification/set',
+      method: 'CreateTaskPushNotificationConfig',
       id: '2',
       params: {},
     });
@@ -138,13 +141,13 @@ describe('createPushNotificationMiddleware', () => {
     expect(res._json.error.code).toBe(-32602);
   });
 
-  it('tasks/pushNotification/get returns config when present', async () => {
+  it('GetTaskPushNotificationConfig returns config when present', async () => {
     registry.set('task-200', 'http://hook.test', 'abc');
 
     const req = mockReq({
-      method: 'tasks/pushNotification/get',
+      method: 'GetTaskPushNotificationConfig',
       id: '3',
-      params: { id: 'task-200' },
+      params: { taskId: 'task-200' },
     });
     const res = mockRes();
     const next = vi.fn();
@@ -154,15 +157,17 @@ describe('createPushNotificationMiddleware', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res._json.result).toEqual({
       taskId: 'task-200',
-      pushNotificationConfig: { url: 'http://hook.test', token: 'abc' },
+      id: 'task-200',
+      url: 'http://hook.test',
+      token: 'abc',
     });
   });
 
-  it('tasks/pushNotification/get returns error when config is missing', async () => {
+  it('GetTaskPushNotificationConfig returns error when config is missing', async () => {
     const req = mockReq({
-      method: 'tasks/pushNotification/get',
+      method: 'GetTaskPushNotificationConfig',
       id: '4',
-      params: { id: 'no-such-task' },
+      params: { taskId: 'no-such-task' },
     });
     const res = mockRes();
     const next = vi.fn();
@@ -173,13 +178,13 @@ describe('createPushNotificationMiddleware', () => {
     expect(res._json.error.code).toBe(-32001);
   });
 
-  it('tasks/pushNotification/delete removes config and returns success', async () => {
+  it('DeleteTaskPushNotificationConfig removes config and returns success', async () => {
     registry.set('task-300', 'http://hook.test');
 
     const req = mockReq({
-      method: 'tasks/pushNotification/delete',
+      method: 'DeleteTaskPushNotificationConfig',
       id: '5',
-      params: { id: 'task-300' },
+      params: { taskId: 'task-300' },
     });
     const res = mockRes();
     const next = vi.fn();
@@ -187,13 +192,13 @@ describe('createPushNotificationMiddleware', () => {
     await middleware(req, res, next);
 
     expect(next).not.toHaveBeenCalled();
-    expect(res._json.result).toEqual({ taskId: 'task-300', deleted: true });
+    expect(res._json.result).toEqual({});
     expect(registry.has('task-300')).toBe(false);
   });
 
   it('unknown method calls next()', async () => {
     const req = mockReq({
-      method: 'message/send',
+      method: 'SendMessage',
       id: '6',
       params: {},
     });
@@ -216,13 +221,14 @@ describe('createPushNotificationMiddleware', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('supports params.taskId as alternative to params.id', async () => {
+  it('uses params.id as config id when provided', async () => {
     const req = mockReq({
-      method: 'tasks/pushNotification/set',
+      method: 'CreateTaskPushNotificationConfig',
       id: '7',
       params: {
         taskId: 'task-alt',
-        pushNotificationConfig: { url: 'http://alt.test' },
+        id: 'cfg-1',
+        url: 'http://alt.test',
       },
     });
     const res = mockRes();
@@ -231,6 +237,7 @@ describe('createPushNotificationMiddleware', () => {
     await middleware(req, res, next);
 
     expect(res._json.result.taskId).toBe('task-alt');
+    expect(res._json.result.id).toBe('cfg-1');
     expect(registry.get('task-alt')).toEqual({ url: 'http://alt.test', token: undefined });
   });
 });
@@ -257,10 +264,10 @@ describe('setTaskPushNotification()', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/set');
-    expect(body.params.id).toBe('t1');
-    expect(body.params.pushNotificationConfig.url).toBe('http://hook');
-    expect(body.params.pushNotificationConfig.token).toBe('tok');
+    expect(body.method).toBe('CreateTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('t1');
+    expect(body.params.url).toBe('http://hook');
+    expect(body.params.token).toBe('tok');
   });
 
   it('omits token when not provided', async () => {
@@ -271,7 +278,7 @@ describe('setTaskPushNotification()', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.params.pushNotificationConfig).toEqual({ url: 'http://hook' });
+    expect(body.params.token).toBeUndefined();
   });
 });
 
@@ -293,8 +300,8 @@ describe('getTaskPushNotification()', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/get');
-    expect(body.params.id).toBe('t1');
+    expect(body.method).toBe('GetTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('t1');
   });
 });
 
@@ -316,8 +323,8 @@ describe('deleteTaskPushNotification()', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/delete');
-    expect(body.params.id).toBe('t1');
+    expect(body.method).toBe('DeleteTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('t1');
   });
 });
 
@@ -345,10 +352,10 @@ describe('TaskHandle push notification methods', () => {
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://agent:8787');
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/set');
-    expect(body.params.id).toBe('h1');
-    expect(body.params.pushNotificationConfig.url).toBe('http://my-hook');
-    expect(body.params.pushNotificationConfig.token).toBe('my-token');
+    expect(body.method).toBe('CreateTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('h1');
+    expect(body.params.url).toBe('http://my-hook');
+    expect(body.params.token).toBe('my-token');
   });
 
   it('unsubscribe() calls deleteTaskPushNotification', async () => {
@@ -360,8 +367,8 @@ describe('TaskHandle push notification methods', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/delete');
-    expect(body.params.id).toBe('h2');
+    expect(body.method).toBe('DeleteTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('h2');
   });
 
   it('getPushConfig() calls getTaskPushNotification', async () => {
@@ -373,7 +380,7 @@ describe('TaskHandle push notification methods', () => {
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.method).toBe('tasks/pushNotification/get');
-    expect(body.params.id).toBe('h3');
+    expect(body.method).toBe('GetTaskPushNotificationConfig');
+    expect(body.params.taskId).toBe('h3');
   });
 });

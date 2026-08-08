@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * A2A Lite CLI
  *
@@ -10,6 +9,7 @@
  */
 
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -25,6 +25,7 @@ Commands:
   info <url>                  Show agent info in a compact format
   test <url> <skill> [opts]   Call a skill and show the result
   discover <url...>           Discover and compare multiple agents
+  doctor [url]                Diagnose the environment (and a remote agent)
 
 Options:
   --help, -h    Show this help
@@ -39,8 +40,30 @@ function getVersion(): string {
     );
     return pkg.version;
   } catch {
-    return '0.2.5';
+    return '1.0.0';
   }
+}
+
+/** Installed version of @a2a-js/sdk, or null if it cannot be resolved. */
+function getSdkVersion(): string | null {
+  try {
+    // The SDK's exports map does not expose ./package.json, so resolve the
+    // entry point (…/@a2a-js/sdk/dist/index.js) and read two levels up.
+    const require = createRequire(import.meta.url);
+    const entry = require.resolve('@a2a-js/sdk');
+    const pkg = JSON.parse(readFileSync(join(entry, '..', '..', 'package.json'), 'utf8'));
+    return pkg.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const V03_MESSAGE =
+  'This agent speaks A2A 0.3 — a2a-lite 1.0 requires protocol v1.0. ' +
+  'Upgrade the agent to A2A v1.0 (see https://a2a-protocol.org/latest/).';
+
+function isV03Error(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('speaks A2A 0.3');
 }
 
 async function cmdInit(name: string): Promise<void> {
@@ -78,7 +101,7 @@ agent.run();
         version: '0.1.0',
         type: 'module',
         scripts: { start: 'npx tsx agent.ts', test: 'vitest run' },
-        dependencies: { 'a2a-lite': '>=0.2.5', express: '>=4.0.0' },
+        dependencies: { 'a2a-lite': '>=1.0.0', express: '>=4.0.0' },
         devDependencies: { tsx: '>=4.0.0', typescript: '>=5.0.0', vitest: '>=2.0.0' },
       },
       null,
@@ -97,11 +120,28 @@ agent.run();
   console.log(`  npm start`);
 }
 
-async function cmdInspect(url: string): Promise<void> {
-  const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent.json';
-  const res = await fetch(cardUrl);
+/** Fetch the A2A v1.0 agent card, rejecting 0.3 agents with a clear error. */
+async function fetchAgentCard(url: string, timeoutMs?: number): Promise<Record<string, unknown>> {
+  const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent-card.json';
+  const res = await fetch(cardUrl, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${cardUrl}`);
   const card = (await res.json()) as Record<string, unknown>;
+
+  // Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
+  if (!('supportedInterfaces' in card) && ('url' in card || 'protocolVersion' in card)) {
+    throw new Error(V03_MESSAGE);
+  }
+  return card;
+}
+
+/** Primary interface URL advertised by a v1.0 agent card. */
+function cardInterfaceUrl(card: Record<string, unknown>, fallback: string): string {
+  const interfaces = (card.supportedInterfaces as Array<Record<string, unknown>>) ?? [];
+  return interfaces.length > 0 ? (interfaces[0].url as string) : fallback;
+}
+
+async function cmdInspect(url: string): Promise<void> {
+  const card = await fetchAgentCard(url);
 
   const caps = (card.capabilities as Record<string, unknown>) ?? {};
   const capList =
@@ -111,7 +151,7 @@ async function cmdInspect(url: string): Promise<void> {
 
   console.log(`\n+-- ${card.name} v${card.version}`);
   console.log(`|  ${card.description}`);
-  console.log(`|  URL: ${card.url}`);
+  console.log(`|  URL: ${cardInterfaceUrl(card, url)}`);
   console.log(`|  Capabilities: ${capList}`);
   console.log(`|`);
   console.log(`|  Skills:`);
@@ -123,15 +163,12 @@ async function cmdInspect(url: string): Promise<void> {
 }
 
 async function cmdInfo(url: string): Promise<void> {
-  const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent.json';
-  const res = await fetch(cardUrl);
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${cardUrl}`);
-  const card = (await res.json()) as Record<string, unknown>;
+  const card = await fetchAgentCard(url);
 
   const agentName = (card.name as string) ?? 'Unknown';
   const agentVersion = (card.version as string) ?? '?';
   const agentDesc = (card.description as string) ?? '-';
-  const agentUrl = (card.url as string) ?? url;
+  const agentUrl = cardInterfaceUrl(card, url);
 
   console.log(`Agent: ${agentName} (v${agentVersion})`);
   console.log(`Description: ${agentDesc}`);
@@ -165,6 +202,14 @@ async function cmdInfo(url: string): Promise<void> {
 }
 
 async function cmdTest(url: string, skill: string, rawParams: string[]): Promise<void> {
+  // Detect legacy 0.3 agents before sending (fall through if the card cannot
+  // be fetched; the SendMessage error will surface instead)
+  try {
+    await fetchAgentCard(url);
+  } catch (err) {
+    if (isV03Error(err)) throw err;
+  }
+
   const params: Record<string, unknown> = {};
   for (const p of rawParams) {
     const [k, ...v] = p.split('=');
@@ -178,12 +223,12 @@ async function cmdTest(url: string, skill: string, rawParams: string[]): Promise
 
   const body = {
     jsonrpc: '2.0',
-    method: 'message/send',
+    method: 'SendMessage',
     id: Math.random().toString(36).slice(2),
     params: {
       message: {
-        role: 'user',
-        parts: [{ type: 'text', text: JSON.stringify({ skill, params }) }],
+        role: 'ROLE_USER',
+        parts: [{ text: JSON.stringify({ skill, params }) }],
         messageId: Math.random().toString(36).slice(2),
       },
     },
@@ -191,7 +236,7 @@ async function cmdTest(url: string, skill: string, rawParams: string[]): Promise
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'A2A-Version': '1.0' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -199,14 +244,78 @@ async function cmdTest(url: string, skill: string, rawParams: string[]): Promise
   console.log(JSON.stringify(data, null, 2));
 }
 
+async function cmdDoctor(url?: string): Promise<void> {
+  let healthy = true;
+
+  const sdkVersion = getSdkVersion();
+  const nodeVersion = process.versions.node;
+  const nodeMajor = parseInt(nodeVersion.split('.')[0], 10);
+
+  console.log('\nA2A Lite doctor\n');
+  console.log('Versions:');
+  console.log(`  a2a-lite:    ${getVersion()}`);
+  console.log(`  @a2a-js/sdk: ${sdkVersion ?? 'not found'}`);
+  console.log(`  Node.js:     v${nodeVersion}`);
+  console.log('');
+
+  if (!sdkVersion) {
+    healthy = false;
+    console.log('ERROR @a2a-js/sdk is not installed.');
+    console.log('  Install it with: npm install "@a2a-js/sdk@^1.0.1"');
+  } else if (!sdkVersion.startsWith('1.')) {
+    healthy = false;
+    console.log(`WARN @a2a-js/sdk ${sdkVersion} is outside the supported range >=1.0.1 <2.0.`);
+    console.log('  a2a-lite 1.0 targets A2A protocol v1.0. Please upgrade:');
+    console.log('  npm install "@a2a-js/sdk@^1.0.1"');
+  } else {
+    console.log(`OK @a2a-js/sdk ${sdkVersion} is within the supported range (>=1.0.1 <2.0)`);
+  }
+
+  if (nodeMajor < 20) {
+    console.log(`WARN Node.js >= 20 is required (found v${nodeVersion}).`);
+  } else {
+    console.log(`OK Node.js v${nodeVersion} (>= 20)`);
+  }
+
+  if (url) {
+    console.log('');
+    try {
+      const card = await fetchAgentCard(url);
+      console.log(`Remote agent: ${url}`);
+      console.log(`  ${card.name} v${card.version} -- ${card.description ?? '-'}`);
+      const interfaces = (card.supportedInterfaces as Array<Record<string, unknown>>) ?? [];
+      console.log('  Interfaces:');
+      for (const iface of interfaces) {
+        console.log(`    - ${iface.url} (${iface.protocolBinding}, protocol ${iface.protocolVersion})`);
+      }
+      const caps = (card.capabilities as Record<string, unknown>) ?? {};
+      const capList =
+        [
+          caps.streaming ? 'streaming' : null,
+          caps.pushNotifications ? 'push-notifications' : null,
+          Array.isArray(caps.extensions) && caps.extensions.length
+            ? `${caps.extensions.length} extension(s)`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(', ') || 'none';
+      console.log(`  Capabilities: ${capList}`);
+      const signatures = (card.signatures as unknown[]) ?? [];
+      if (signatures.length) console.log(`  Signatures: ${signatures.length} (card is signed)`);
+    } catch (err) {
+      healthy = false;
+      console.log(`ERROR ${(err as Error).message}`);
+    }
+  }
+
+  if (!healthy) process.exit(1);
+}
+
 async function cmdDiscover(urls: string[]): Promise<void> {
   console.log(`\nDiscovering ${urls.length} agent(s)...\n`);
   for (const url of urls) {
     try {
-      const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent.json';
-      const res = await fetch(cardUrl, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const card = (await res.json()) as Record<string, unknown>;
+      const card = await fetchAgentCard(url, 5000);
       const skillCount = ((card.skills as unknown[]) ?? []).length;
       const caps = (card.capabilities as Record<string, boolean>) ?? {};
       console.log(
@@ -282,6 +391,10 @@ async function cmdDiscover(urls: string[]): Promise<void> {
           process.exit(1);
         }
         await cmdDiscover(urls);
+        break;
+      }
+      case 'doctor': {
+        await cmdDoctor(args[1]);
         break;
       }
       default:

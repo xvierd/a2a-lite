@@ -76,15 +76,16 @@ public class FilePart {
     }
 
     /**
-     * Create a FilePart from A2A protocol format.
+     * Create a FilePart from A2A protocol format (v1.0).
+     *
+     * <p>Bytes content arrives as {@code {"raw": "<base64>", "filename", "mediaType"}},
+     * URI content as {@code {"url": ..., "filename", "mediaType"}}.
      */
     public static FilePart fromA2A(Map<String, Object> data) {
-        @SuppressWarnings("unchecked")
-        var file = (Map<String, Object>) data.getOrDefault("file", Map.of());
-        String name = (String) file.getOrDefault("name", "unknown");
-        String mimeType = (String) file.getOrDefault("mimeType", "application/octet-stream");
-        String bytesStr = (String) file.get("bytes");
-        String uri = (String) file.get("uri");
+        String name = (String) data.getOrDefault("filename", "unknown");
+        String mimeType = (String) data.getOrDefault("mediaType", "application/octet-stream");
+        String bytesStr = (String) data.get("raw");
+        String uri = (String) data.get("url");
 
         byte[] bytes = bytesStr != null ? Base64.getDecoder().decode(bytesStr) : null;
         return new FilePart(name, mimeType, bytes, uri);
@@ -136,24 +137,20 @@ public class FilePart {
     }
 
     /**
-     * Convert to A2A protocol format.
+     * Convert to A2A protocol format (v1.0).
+     *
+     * <p>Bytes content becomes {@code {"raw": "<base64>", "filename", "mediaType"}},
+     * URI content {@code {"url": ..., "filename", "mediaType"}}.
      */
     public Map<String, Object> toA2A() {
         var result = new LinkedHashMap<String, Object>();
-        result.put("type", "file");
-        result.put("kind", "file");
-
-        var file = new LinkedHashMap<String, Object>();
-        file.put("name", name);
-        file.put("mimeType", mimeType);
-
         if (uri != null) {
-            file.put("uri", uri);
+            result.put("url", uri);
         } else {
-            file.put("bytes", data != null ? Base64.getEncoder().encodeToString(data) : "");
+            result.put("raw", data != null ? Base64.getEncoder().encodeToString(data) : "");
         }
-
-        result.put("file", file);
+        result.put("filename", name);
+        result.put("mediaType", mimeType);
         return result;
     }
 

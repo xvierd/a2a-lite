@@ -136,7 +136,7 @@ def test_agent_card_url():
         return "test"
 
     card = agent.build_agent_card("example.com", 9000)
-    assert card.url == "http://example.com:9000"
+    assert card.supported_interfaces[0].url == "http://example.com:9000"
 
 
 def test_agent_card_custom_url():
@@ -148,7 +148,7 @@ def test_agent_card_custom_url():
         return "test"
 
     card = agent.build_agent_card()
-    assert card.url == "https://my-agent.example.com"
+    assert card.supported_interfaces[0].url == "https://my-agent.example.com"
 
 
 def test_error_handler_registration():

@@ -5,57 +5,57 @@ import io.javalin.http.Context;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.example.streaming.sse.CollectingEmitter;
 import com.example.streaming.sse.SseEventEmitter;
+import com.example.streaming.sse.StreamEmitter;
 import com.example.streaming.skills.*;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.UUID;
 
 /**
- * Streaming Agent - Google A2A SDK Implementation (Java)
- * 
- * Demonstrates Server-Sent Events (SSE) streaming with the official Google A2A SDK.
- * Shows full control over streaming infrastructure but requires significant boilerplate.
- * 
+ * Streaming Agent - A2A protocol v1.0 "from scratch" (Java)
+ *
+ * This example implements the A2A v1.0 wire protocol by hand with Javalin +
+ * Jackson — no SDK. For the official Java SDK approach see packages/java
+ * (LiteAgentExecutor / Quarkus integration).
+ *
  * Features:
- * - AgentCapabilities with streaming=true
- * - SSE streaming infrastructure
+ * - Agent card at /.well-known/agent-card.json with streaming=true
+ * - SendMessage (synchronous) and SendStreamingMessage (SSE) JSON-RPC methods
+ * - v1.0 SSE events: task first, then statusUpdate / artifactUpdate
  * - Multiple streaming skills: chat, count, story, progress
- * - Manual event management and client tracking
  */
 public class StreamingAgent {
-    
+
     private static final int PORT = 8787;
     private static final ObjectMapper mapper = new ObjectMapper();
-    
-    // Active SSE connections for streaming
-    private static final Map<String, SseEventEmitter> activeStreams = new ConcurrentHashMap<>();
-    
+    private static final String A2A_VERSION = "1.0";
+
     // Skill handlers
     private static final ChatSkill chatSkill = new ChatSkill();
     private static final CountSkill countSkill = new CountSkill();
     private static final StorySkill storySkill = new StorySkill();
     private static final ProgressSkill progressSkill = new ProgressSkill();
-    
+
     public static void main(String[] args) {
         System.out.println("=".repeat(70));
-        System.out.println("Streaming Agent - Google A2A SDK (Java)");
+        System.out.println("Streaming Agent - A2A v1.0 from scratch (Java)");
         System.out.println("=".repeat(70));
-        
+
         // Create agent card with streaming capabilities
         ObjectNode agentCard = createAgentCard();
-        
+
         // Setup Javalin server
         Javalin app = Javalin.create(config -> {
             config.showJavalinBanner = false;
         });
-        
-        // Agent card endpoint (A2A discovery)
-        app.get("/.well-known/agent.json", ctx -> {
+
+        // Agent card endpoint (A2A v1.0 discovery)
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.contentType("application/json");
             ctx.result(mapper.writeValueAsString(agentCard));
         });
-        
+
         // Health check
         app.get("/", ctx -> {
             ObjectNode health = mapper.createObjectNode();
@@ -64,324 +64,248 @@ public class StreamingAgent {
             health.put("streaming", true);
             ctx.json(health);
         });
-        
-        // SSE endpoint for streaming
-        app.get("/stream/{taskId}", ctx -> {
-            handleSseConnection(ctx);
-        });
-        
-        // Main A2A message endpoint (non-streaming)
+
+        // Main A2A JSON-RPC endpoint (SendMessage / SendStreamingMessage)
         app.post("/", ctx -> {
-            handleMessage(ctx);
+            handleRpc(ctx);
         });
-        
-        // Streaming message endpoint
-        app.post("/stream", ctx -> {
-            handleStreamingRequest(ctx);
-        });
-        
+
         System.out.println("Agent: StreamingAgent");
         System.out.println("Skills: chat, count, story, progress");
         System.out.println("Capabilities: streaming=true");
         System.out.println("-".repeat(70));
         System.out.println("Starting server on http://localhost:" + PORT);
-        System.out.println("Agent card: http://localhost:" + PORT + "/.well-known/agent.json");
-        System.out.println("SSE endpoint: http://localhost:" + PORT + "/stream/{taskId}");
+        System.out.println("Agent card: http://localhost:" + PORT + "/.well-known/agent-card.json");
         System.out.println("=".repeat(70));
-        
+
         app.start(PORT);
     }
-    
+
     /**
-     * Create the agent card with streaming capabilities.
+     * Create the A2A v1.0 agent card with streaming capabilities.
      */
     private static ObjectNode createAgentCard() {
         ObjectNode card = mapper.createObjectNode();
         card.put("name", "StreamingAgent");
-        card.put("description", "Streaming agent demonstrating SSE with Google A2A SDK");
+        card.put("description", "Streaming agent demonstrating SSE (A2A v1.0 from scratch)");
         card.put("version", "1.0.0");
-        card.put("url", "http://localhost:" + PORT + "/");
-        
-        // Skills array with streaming support
+
+        // v1.0: interfaces replace the root "url" field
+        ArrayNode interfaces = mapper.createArrayNode();
+        ObjectNode iface = mapper.createObjectNode();
+        iface.put("url", "http://localhost:" + PORT + "/");
+        iface.put("protocolBinding", "JSONRPC");
+        iface.put("protocolVersion", "1.0");
+        interfaces.add(iface);
+        card.set("supportedInterfaces", interfaces);
+
+        // Skills array
         ArrayNode skills = mapper.createArrayNode();
         skills.add(createSkillCard("chat", "Interactive chat with streaming responses",
-            createChatSchema()));
+            new String[]{"chat", "streaming"}));
         skills.add(createSkillCard("count", "Count to a number with progress updates",
-            createCountSchema()));
+            new String[]{"count", "progress"}));
         skills.add(createSkillCard("story", "Generate a story word by word",
-            createStorySchema()));
+            new String[]{"story", "generation"}));
         skills.add(createSkillCard("progress", "Show progress updates for long tasks",
-            createProgressSchema()));
+            new String[]{"progress", "tasks"}));
         card.set("skills", skills);
-        
+
         // Capabilities - IMPORTANT: streaming=true
         ObjectNode capabilities = mapper.createObjectNode();
         capabilities.put("streaming", true);
         capabilities.put("pushNotifications", false);
-        capabilities.put("stateTransitionHistory", false);
         card.set("capabilities", capabilities);
-        
+
+        // Input/output modes
+        ArrayNode modes = mapper.createArrayNode();
+        modes.add("text/plain");
+        card.set("defaultInputModes", modes);
+        card.set("defaultOutputModes", modes);
+
         return card;
     }
-    
-    private static ObjectNode createSkillCard(String name, String description, ObjectNode schema) {
+
+    private static ObjectNode createSkillCard(String id, String description, String[] tags) {
         ObjectNode skill = mapper.createObjectNode();
-        skill.put("name", name);
+        skill.put("id", id);
+        skill.put("name", id);
         skill.put("description", description);
-        skill.set("inputSchema", schema);
-        
-        ObjectNode outputSchema = mapper.createObjectNode();
-        outputSchema.put("type", "object");
-        skill.set("outputSchema", outputSchema);
-        
+        ArrayNode tagsNode = mapper.createArrayNode();
+        for (String tag : tags) {
+            tagsNode.add(tag);
+        }
+        skill.set("tags", tagsNode);
         return skill;
     }
-    
-    private static ObjectNode createChatSchema() {
-        ObjectNode schema = mapper.createObjectNode();
-        schema.put("type", "object");
-        ObjectNode props = mapper.createObjectNode();
-        ObjectNode msgProp = mapper.createObjectNode();
-        msgProp.put("type", "string");
-        msgProp.put("description", "Message to send");
-        props.set("message", msgProp);
-        schema.set("properties", props);
-        ArrayNode required = mapper.createArrayNode();
-        required.add("message");
-        schema.set("required", required);
-        return schema;
-    }
-    
-    private static ObjectNode createCountSchema() {
-        ObjectNode schema = mapper.createObjectNode();
-        schema.put("type", "object");
-        ObjectNode props = mapper.createObjectNode();
-        ObjectNode toProp = mapper.createObjectNode();
-        toProp.put("type", "integer");
-        toProp.put("description", "Count up to this number");
-        props.set("to", toProp);
-        schema.set("properties", props);
-        ArrayNode required = mapper.createArrayNode();
-        required.add("to");
-        schema.set("required", required);
-        return schema;
-    }
-    
-    private static ObjectNode createStorySchema() {
-        ObjectNode schema = mapper.createObjectNode();
-        schema.put("type", "object");
-        ObjectNode props = mapper.createObjectNode();
-        ObjectNode themeProp = mapper.createObjectNode();
-        themeProp.put("type", "string");
-        themeProp.put("description", "Story theme or topic");
-        props.set("theme", themeProp);
-        schema.set("properties", props);
-        ArrayNode required = mapper.createArrayNode();
-        required.add("theme");
-        schema.set("required", required);
-        return schema;
-    }
-    
-    private static ObjectNode createProgressSchema() {
-        ObjectNode schema = mapper.createObjectNode();
-        schema.put("type", "object");
-        ObjectNode props = mapper.createObjectNode();
-        ObjectNode stepsProp = mapper.createObjectNode();
-        stepsProp.put("type", "integer");
-        stepsProp.put("description", "Number of progress steps");
-        props.set("steps", stepsProp);
-        schema.set("properties", props);
-        ArrayNode required = mapper.createArrayNode();
-        required.add("steps");
-        schema.set("required", required);
-        return schema;
-    }
-    
+
     /**
-     * Handle SSE connection for streaming.
+     * Handle incoming A2A JSON-RPC requests.
      */
-    private static void handleSseConnection(Context ctx) {
-        String taskId = ctx.pathParam("taskId");
-        
-        ctx.header("Content-Type", "text/event-stream");
-        ctx.header("Cache-Control", "no-cache");
-        ctx.header("Connection", "keep-alive");
-        ctx.header("X-Accel-Buffering", "no"); // Disable nginx buffering
-        
-        SseEventEmitter emitter = new SseEventEmitter(ctx);
-        activeStreams.put(taskId, emitter);
-        
-        System.out.println("[SSE] Client connected: " + taskId);
-        
-        // Send initial connected event
-        emitter.sendEvent("connected", createStatusEvent("connected", "Stream established"));
-        
-        // Keep connection alive
-        ctx.async(() -> {
-            try {
-                while (!emitter.isClosed()) {
-                    Thread.sleep(1000);
-                    emitter.sendEvent("ping", createStatusEvent("ping", "Keepalive"));
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-    }
-    
-    /**
-     * Handle non-streaming message requests.
-     */
-    private static void handleMessage(Context ctx) {
+    private static void handleRpc(Context ctx) {
+        // A2A v1.0: echo the protocol version on every response
+        ctx.header("A2A-Version", A2A_VERSION);
+
+        ObjectNode request;
         try {
-            String body = ctx.body();
-            ObjectNode request = (ObjectNode) mapper.readTree(body);
-            
-            // Validate JSON-RPC
-            if (!request.has("jsonrpc") || !"2.0".equals(request.get("jsonrpc").asText())) {
-                sendError(ctx, request.get("id"), -32600, "Invalid JSON-RPC request");
-                return;
-            }
-            
-            String method = request.has("method") ? request.get("method").asText() : "";
-            if (!"message/send".equals(method)) {
-                sendError(ctx, request.get("id"), -32601, "Method not found: " + method);
-                return;
-            }
-            
-            // Process message synchronously
-            ObjectNode response = processMessage(request);
-            ctx.contentType("application/json");
-            ctx.result(mapper.writeValueAsString(response));
-            
+            request = (ObjectNode) mapper.readTree(ctx.body());
         } catch (Exception e) {
-            sendError(ctx, null, -32603, "Internal error: " + e.getMessage());
+            sendError(ctx, null, -32700, "Parse error: " + e.getMessage());
+            return;
+        }
+
+        // Validate JSON-RPC
+        if (!request.has("jsonrpc") || !"2.0".equals(request.get("jsonrpc").asText())) {
+            sendError(ctx, request.get("id"), -32600, "Invalid JSON-RPC request");
+            return;
+        }
+
+        String method = request.has("method") ? request.get("method").asText() : "";
+        switch (method) {
+            case "SendMessage" -> handleSendMessage(ctx, request);
+            case "SendStreamingMessage" -> handleSendStreamingMessage(ctx, request);
+            default -> sendError(ctx, request.get("id"), -32601, "Method not found: " + method);
         }
     }
-    
+
     /**
-     * Handle streaming requests - initiates SSE stream.
+     * SendMessage: run the skill synchronously and return an agent message.
      */
-    private static void handleStreamingRequest(Context ctx) {
+    private static void handleSendMessage(Context ctx, ObjectNode request) {
         try {
-            String body = ctx.body();
-            ObjectNode request = (ObjectNode) mapper.readTree(body);
-            
-            // Validate JSON-RPC
-            if (!request.has("jsonrpc") || !"2.0".equals(request.get("jsonrpc").asText())) {
-                sendError(ctx, request.get("id"), -32600, "Invalid JSON-RPC request");
-                return;
-            }
-            
-            // Generate task ID for this stream
-            String taskId = "task-" + System.currentTimeMillis() + "-" + 
-                          Math.abs(request.hashCode());
-            
-            // Return stream URL
+            SkillCall call = extractSkillCall(request);
+
+            // Run the skill, buffering its streamed output
+            CollectingEmitter collector = new CollectingEmitter();
+            executeSkill(call.skill, call.params, collector);
+
             ObjectNode response = mapper.createObjectNode();
             response.put("jsonrpc", "2.0");
             response.set("id", request.get("id"));
-            
+
+            ObjectNode message = mapper.createObjectNode();
+            message.put("messageId", UUID.randomUUID().toString());
+            message.put("role", "ROLE_AGENT");
+            ArrayNode parts = mapper.createArrayNode();
+            ObjectNode textPart = mapper.createObjectNode();
+            textPart.put("text", collector.getResult());
+            parts.add(textPart);
+            message.set("parts", parts);
+
             ObjectNode result = mapper.createObjectNode();
-            result.put("taskId", taskId);
-            result.put("streamUrl", "http://localhost:" + PORT + "/stream/" + taskId);
-            result.put("status", "streaming");
+            result.set("message", message);
             response.set("result", result);
-            
+
             ctx.contentType("application/json");
             ctx.result(mapper.writeValueAsString(response));
-            
-            // Start streaming in background
-            startStreaming(taskId, request);
-            
+
+        } catch (IllegalArgumentException e) {
+            sendError(ctx, request.get("id"), -32602, e.getMessage());
         } catch (Exception e) {
-            sendError(ctx, null, -32603, "Internal error: " + e.getMessage());
+            sendError(ctx, request.get("id"), -32603, "Internal error: " + e.getMessage());
         }
     }
-    
+
     /**
-     * Start streaming content to connected client.
+     * SendStreamingMessage: stream v1.0 SSE events on this HTTP response.
+     *
+     * The first event is always the task, followed by statusUpdate and
+     * artifactUpdate events. There is no `final` field — closing the stream
+     * signals terminality.
      */
-    private static void startStreaming(String taskId, ObjectNode request) {
-        new Thread(() -> {
-            try {
-                // Wait for client to connect
-                Thread.sleep(100);
-                
-                SseEventEmitter emitter = activeStreams.get(taskId);
-                if (emitter == null || emitter.isClosed()) {
-                    System.out.println("[SSE] No client connected for task: " + taskId);
-                    return;
-                }
-                
-                // Extract skill and parameters
-                ObjectNode params = (ObjectNode) request.get("params");
-                String skill = params.has("skill") ? params.get("skill").asText() : "chat";
-                
-                System.out.println("[SSE] Starting stream for skill: " + skill);
-                
-                // Route to appropriate streaming handler
-                switch (skill) {
-                    case "chat" -> chatSkill.stream(params, emitter);
-                    case "count" -> countSkill.stream(params, emitter);
-                    case "story" -> storySkill.stream(params, emitter);
-                    case "progress" -> progressSkill.stream(params, emitter);
-                    default -> emitter.sendEvent("error", createStatusEvent("error", 
-                        "Unknown skill: " + skill));
-                }
-                
-                // Send completion
-                emitter.sendEvent("complete", createStatusEvent("complete", "Stream finished"));
-                
-            } catch (Exception e) {
-                System.err.println("[SSE] Streaming error: " + e.getMessage());
-            } finally {
-                activeStreams.remove(taskId);
-                System.out.println("[SSE] Stream ended: " + taskId);
-            }
-        }).start();
-    }
-    
-    /**
-     * Process message synchronously.
-     */
-    private static ObjectNode processMessage(ObjectNode request) {
-        ObjectNode response = mapper.createObjectNode();
-        response.put("jsonrpc", "2.0");
-        response.set("id", request.get("id"));
-        
+    private static void handleSendStreamingMessage(Context ctx, ObjectNode request) {
+        SkillCall call;
         try {
-            ObjectNode params = (ObjectNode) request.get("params");
-            String skill = params.has("skill") ? params.get("skill").asText() : "chat";
-            
-            ObjectNode result = mapper.createObjectNode();
-            result.put("skill", skill);
-            result.put("status", "completed");
-            result.put("message", "Use /stream endpoint for streaming responses");
-            
-            response.set("result", result);
-        } catch (Exception e) {
-            ObjectNode error = mapper.createObjectNode();
-            error.put("code", -32603);
-            error.put("message", e.getMessage());
-            response.set("error", error);
+            call = extractSkillCall(request);
+        } catch (IllegalArgumentException e) {
+            sendError(ctx, request.get("id"), -32602, e.getMessage());
+            return;
         }
-        
-        return response;
+
+        // SSE response headers (must be set before the writer is obtained)
+        ctx.status(200);
+        ctx.header("Content-Type", "text/event-stream");
+        ctx.header("Cache-Control", "no-cache");
+        ctx.header("Connection", "keep-alive");
+        ctx.header("X-Accel-Buffering", "no"); // Disable proxy buffering
+
+        String taskId = UUID.randomUUID().toString();
+        String contextId = UUID.randomUUID().toString();
+
+        System.out.println("[SSE] Starting stream: task=" + taskId + ", skill=" + call.skill);
+
+        SseEventEmitter emitter = new SseEventEmitter(ctx, taskId, contextId);
+        try {
+            // v1.0: the task is always the first event
+            emitter.sendTask();
+            executeSkill(call.skill, call.params, emitter);
+        } catch (Exception e) {
+            emitter.sendError("Internal error: " + e.getMessage());
+        }
+
+        System.out.println("[SSE] Stream ended: " + taskId);
     }
-    
-    private static ObjectNode createStatusEvent(String status, String message) {
-        ObjectNode event = mapper.createObjectNode();
-        event.put("status", status);
-        event.put("message", message);
-        event.put("timestamp", System.currentTimeMillis());
-        return event;
+
+    /**
+     * Execute a skill by name, streaming its output through the emitter.
+     */
+    private static void executeSkill(String skill, ObjectNode params, StreamEmitter emitter) {
+        switch (skill) {
+            case "chat" -> chatSkill.stream(params, emitter);
+            case "count" -> countSkill.stream(params, emitter);
+            case "story" -> storySkill.stream(params, emitter);
+            case "progress" -> progressSkill.stream(params, emitter);
+            default -> emitter.sendError("Unknown skill: " + skill);
+        }
     }
-    
+
+    /**
+     * Extract the skill call from the message parts. v1.0 text parts are
+     * {"text": ...} with no kind/type; the text carries a JSON skill call
+     * of the form {"skill": "<name>", "params": {...}}.
+     */
+    private static SkillCall extractSkillCall(ObjectNode request) {
+        ObjectNode params = request.has("params") && request.get("params").isObject()
+            ? (ObjectNode) request.get("params") : null;
+        ObjectNode message = params != null && params.has("message") && params.get("message").isObject()
+            ? (ObjectNode) params.get("message") : null;
+        if (message == null || !message.has("parts") || !message.get("parts").isArray()) {
+            throw new IllegalArgumentException("Invalid params: expected params.message.parts");
+        }
+
+        String skillCallJson = null;
+        for (var part : (ArrayNode) message.get("parts")) {
+            if (part.isObject() && part.has("text")) {
+                skillCallJson = part.get("text").asText();
+                break;
+            }
+        }
+        if (skillCallJson == null) {
+            throw new IllegalArgumentException("No text part found in message");
+        }
+
+        ObjectNode skillCall;
+        try {
+            skillCall = (ObjectNode) mapper.readTree(skillCallJson);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Text part is not a valid skill call JSON");
+        }
+        if (!skillCall.has("skill")) {
+            throw new IllegalArgumentException("Skill call missing 'skill' field");
+        }
+
+        String skill = skillCall.get("skill").asText();
+        ObjectNode skillParams = skillCall.has("params") && skillCall.get("params").isObject()
+            ? (ObjectNode) skillCall.get("params") : mapper.createObjectNode();
+        return new SkillCall(skill, skillParams);
+    }
+
+    private record SkillCall(String skill, ObjectNode params) {}
+
     /**
      * Send JSON-RPC error response.
      */
-    private static void sendError(Context ctx, com.fasterxml.jackson.databind.JsonNode id, 
+    private static void sendError(Context ctx, com.fasterxml.jackson.databind.JsonNode id,
                                    int code, String message) {
         try {
             ObjectNode error = mapper.createObjectNode();
@@ -395,7 +319,7 @@ public class StreamingAgent {
             errorObj.put("code", code);
             errorObj.put("message", message);
             error.set("error", errorObj);
-            
+
             ctx.status(400);
             ctx.contentType("application/json");
             ctx.result(mapper.writeValueAsString(error));
@@ -403,9 +327,5 @@ public class StreamingAgent {
             ctx.status(500);
             ctx.result("Internal error");
         }
-    }
-    
-    public static void removeStream(String taskId) {
-        activeStreams.remove(taskId);
     }
 }

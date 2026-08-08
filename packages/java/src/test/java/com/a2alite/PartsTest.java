@@ -85,14 +85,10 @@ class PartsTest {
         var file = new FilePart("test.txt", "text/plain", data);
         var a2a = file.toA2A();
 
-        assertThat(a2a.get("type")).isEqualTo("file");
-        assertThat(a2a.get("kind")).isEqualTo("file");
-
-        @SuppressWarnings("unchecked")
-        var fileMap = (Map<String, Object>) a2a.get("file");
-        assertThat(fileMap.get("name")).isEqualTo("test.txt");
-        assertThat(fileMap.get("mimeType")).isEqualTo("text/plain");
-        assertThat(fileMap.get("bytes")).isEqualTo(Base64.getEncoder().encodeToString(data));
+        assertThat(a2a.get("raw")).isEqualTo(Base64.getEncoder().encodeToString(data));
+        assertThat(a2a.get("filename")).isEqualTo("test.txt");
+        assertThat(a2a.get("mediaType")).isEqualTo("text/plain");
+        assertThat(a2a).doesNotContainKey("url");
     }
 
     @Test
@@ -100,21 +96,18 @@ class PartsTest {
         var file = FilePart.fromUri("https://example.com/f.pdf", "f.pdf");
         var a2a = file.toA2A();
 
-        @SuppressWarnings("unchecked")
-        var fileMap = (Map<String, Object>) a2a.get("file");
-        assertThat(fileMap.get("uri")).isEqualTo("https://example.com/f.pdf");
-        assertThat(fileMap).doesNotContainKey("bytes");
+        assertThat(a2a.get("url")).isEqualTo("https://example.com/f.pdf");
+        assertThat(a2a.get("filename")).isEqualTo("f.pdf");
+        assertThat(a2a).doesNotContainKey("raw");
     }
 
     @Test
     void shouldParseFromA2AWithBytes() throws Exception {
         var encoded = Base64.getEncoder().encodeToString("hello".getBytes());
         var a2a = Map.<String, Object>of(
-            "file", Map.of(
-                "name", "test.txt",
-                "mimeType", "text/plain",
-                "bytes", encoded
-            )
+            "raw", encoded,
+            "filename", "test.txt",
+            "mediaType", "text/plain"
         );
 
         var file = FilePart.fromA2A(a2a);
@@ -127,10 +120,8 @@ class PartsTest {
     @Test
     void shouldParseFromA2AWithUri() {
         var a2a = Map.<String, Object>of(
-            "file", Map.of(
-                "name", "doc.pdf",
-                "uri", "https://example.com/doc.pdf"
-            )
+            "url", "https://example.com/doc.pdf",
+            "filename", "doc.pdf"
         );
 
         var file = FilePart.fromA2A(a2a);
@@ -176,9 +167,8 @@ class PartsTest {
     void shouldConvertDataPartToA2A() {
         var data = new DataPart(Map.of("key", "value"));
         var a2a = data.toA2A();
-        assertThat(a2a.get("type")).isEqualTo("data");
-        assertThat(a2a.get("kind")).isEqualTo("data");
         assertThat(a2a.get("data")).isEqualTo(Map.of("key", "value"));
+        assertThat(a2a).hasSize(1);
     }
 
     @Test

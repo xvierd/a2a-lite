@@ -50,21 +50,22 @@ No HTTP server needed! Tests run in milliseconds.
 # Addition
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}],
         "messageId": "msg-1"
       }
     }
   }'
 
 # Check auto-generated agent card
-curl http://localhost:8788/.well-known/agent.json
+curl http://localhost:8788/.well-known/agent-card.json
 ```
 
 ---
@@ -190,7 +191,7 @@ async def divide(a: float, b: float) -> dict:
 
 ### 2. Auto-Generated Schemas
 
-Visit `http://localhost:8788/.well-known/agent.json` to see:
+Visit `http://localhost:8788/.well-known/agent-card.json` to see:
 
 ```json
 {

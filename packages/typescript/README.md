@@ -9,6 +9,8 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple, intuitive API. 100% protocol-compatible.
 
+> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). Requires **Node.js >= 20**. No v0.3 compatibility. Experimental signed Agent Cards via `signAgentCard` / `verifyAgentCard`. See [MIGRATION.md](../../MIGRATION.md).
+
 ```typescript
 import { Agent } from 'a2a-lite';
 
@@ -28,6 +30,8 @@ agent.run();
 ```bash
 npm install a2a-lite
 ```
+
+**Requirements:** Node.js >= 20
 
 ---
 
@@ -344,9 +348,9 @@ Everything maps directly to the underlying protocol — no magic, no lock-in.
 | `AgentNetwork` | Multi-agent orchestration |
 | `TaskHandle` | Task ID + result wrapper |
 | `AgentCardInfo` | Agent card metadata |
-| `discoverAgent()` | `/.well-known/agent.json` |
-| `getRemoteTask()` | `tasks/get` JSON-RPC |
-| `cancelRemoteTask()` | `tasks/cancel` JSON-RPC |
+| `discoverAgent()` | `/.well-known/agent-card.json` |
+| `getRemoteTask()` | `GetTask` JSON-RPC |
+| `cancelRemoteTask()` | `CancelTask` JSON-RPC |
 | `streamRemoteSkill()` | SSE streaming consumer |
 
 ---

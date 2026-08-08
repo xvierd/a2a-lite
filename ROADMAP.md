@@ -24,6 +24,16 @@
 
 ## ✅ Recently Shipped
 
+- [x] **A2A protocol v1.0 parity** — all three packages on the official 1.x SDKs: Python `a2a-sdk 1.1.2`, TypeScript `@a2a-js/sdk 1.0.1`, Java `org.a2aproject.sdk 1.1.0.Final` (a2a-lite 1.0.0)
+- [x] **v1.0 wire protocol** — `SendMessage`/`SendStreamingMessage`/`GetTask`/`CancelTask`, `A2A-Version` header, new AgentCard shape (`supportedInterfaces`), card at `/.well-known/agent-card.json` (all languages)
+- [x] **REST (HTTP+JSON) transport** — out of the box alongside JSON-RPC (Python, TypeScript)
+- [x] **Signed Agent Cards** — `signAgentCard` / `verifyAgentCard` (TypeScript, experimental)
+- [x] **`securitySchemes` in the served agent card** — when an auth provider is configured (all languages)
+- [x] **Per-task push notifications on v1.0** — `TaskPushNotificationConfig` methods (all languages)
+- [x] **Google comparison examples rewritten to SDK 1.x** — [`examples/`](examples/) side-by-side suite (Python, TypeScript, Java)
+- [x] **`AgentNetwork.call` skill-param collision** — positional-only routing args (`/`) so skills may use params named `name` / `skill` (Python; TS/Java already use a params map)
+- [x] **`a2a-lite create` Docker smoke** — generated `Dockerfile` builds successfully with vendored local source (CLI test skips when Docker is unavailable)
+- [x] **Battleship showcase** — [`examples/python/11_battleship_lite/`](examples/python/11_battleship_lite/) human vs agent + agent-vs-agent arena over real A2A
 - [x] **AgentNetwork + delegate()** — multi-agent orchestration (Python, TypeScript, Java)
 - [x] **LLM skills** — OpenAI, Anthropic, Ollama, AWS Bedrock (Python, TypeScript, Java)
 - [x] **Router** — mount multiple agents under one server (Python, TypeScript, Java)
@@ -38,6 +48,18 @@
 ---
 
 ## 🚧 Coming Next
+
+### gRPC Transport
+Third A2A v1.0 binding alongside JSON-RPC and REST (all languages).
+
+### ListTasks
+Expose the v1.0 `ListTasks` method for task discovery and history (all languages).
+
+### Signed Agent Cards (Python, Java)
+Port the TypeScript experimental `signAgentCard` / `verifyAgentCard` support.
+
+### Multi-tenancy
+Tenant isolation for shared deployments (all languages).
 
 ### Background Tasks
 Return immediately, process async:

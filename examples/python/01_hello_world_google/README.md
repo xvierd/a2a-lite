@@ -40,7 +40,18 @@ Expected response:
   "name": "HelloAgent",
   "description": "A friendly greeting agent that responds to messages using Google A2A SDK",
   "version": "1.0.0",
-  "url": "http://localhost:8787/",
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:8787/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    },
+    {
+      "url": "http://localhost:8787/",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": false,
@@ -64,14 +75,16 @@ Expected response:
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"kind": "text", "text": "Hello from A2A!"}]
+        "messageId": "msg-1",
+        "role": "ROLE_USER",
+        "parts": [{"text": "Hello from A2A!"}]
       }
     }
   }'
@@ -83,13 +96,10 @@ Expected response:
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "id": "task-xxx",
-    "status": {
-      "state": "completed",
-      "message": {
-        "role": "agent",
-        "parts": [{"kind": "text", "text": "Hello! You said: 'Hello from A2A!'. Welcome to A2A! 👋"}]
-      }
+    "message": {
+      "messageId": "msg-xxx",
+      "role": "ROLE_AGENT",
+      "parts": [{"text": "Hello! You said: 'Hello from A2A!'. Welcome to A2A! 👋"}]
     }
   }
 }
@@ -98,7 +108,7 @@ Expected response:
 ### 3. Verify SDK Installation
 
 ```bash
-python -c "from a2a.server.apps.rest import A2ARESTFastAPIApplication; print('✅ SDK OK')"
+python -c "from a2a.server.routes import create_jsonrpc_routes; print('✅ SDK OK')"
 ```
 
 ## 📚 API Reference
@@ -108,13 +118,20 @@ python -c "from a2a.server.apps.rest import A2ARESTFastAPIApplication; print('�
 #### 1. AgentCard
 
 ```python
-from a2a.types import AgentCard, AgentSkill, AgentCapabilities
+from a2a.types import AgentCard, AgentInterface, AgentSkill, AgentCapabilities
 
 agent_card = AgentCard(
     name="HelloAgent",
     description="A friendly greeting agent",
     version="1.0.0",
-    url="http://localhost:8787/",
+    # v1.0: no top-level url; endpoints are declared per protocol binding
+    supported_interfaces=[
+        AgentInterface(
+            url="http://localhost:8787/",
+            protocol_binding="JSONRPC",
+            protocol_version="1.0",
+        ),
+    ],
     capabilities=AgentCapabilities(
         streaming=False,
         push_notifications=False,
@@ -153,30 +170,36 @@ class MyAgentExecutor(AgentExecutor):
 
 ```python
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.server.events import InMemoryQueueManager
 from a2a.server.request_handlers import DefaultRequestHandler
 
-# Create in-memory stores
+# Create in-memory store
 task_store = InMemoryTaskStore()
-queue_manager = InMemoryQueueManager()
 
 # Create request handler
 handler = DefaultRequestHandler(
     agent_executor=agent_executor,
     task_store=task_store,
-    queue_manager=queue_manager,
+    agent_card=agent_card,
 )
 ```
 
-#### 4. FastAPI Application
+#### 4. Starlette Application
 
 ```python
-from a2a.server.apps.rest import A2ARESTFastAPIApplication
+from starlette.applications import Starlette
+from a2a.server.routes import (
+    create_agent_card_routes,
+    create_jsonrpc_routes,
+    create_rest_routes,
+)
 
-app = A2ARESTFastAPIApplication(
-    agent_card=agent_card,
-    http_handler=handler,
-).build()
+# v1.0: the 0.3 application builders were removed; the app is
+# assembled from route factories on a plain Starlette app
+app = Starlette(
+    routes=create_agent_card_routes(agent_card)
+    + create_jsonrpc_routes(handler, rpc_url="/")
+    + create_rest_routes(handler)
+)
 ```
 
 ## 📖 Resources
@@ -190,10 +213,10 @@ app = A2ARESTFastAPIApplication(
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Server                           │
+│                    Starlette Server                         │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │         A2ARESTFastAPIApplication                   │   │
-│  │              (HTTP REST Endpoint)                   │   │
+│  │  create_agent_card_routes / create_jsonrpc_routes / │   │
+│  │  create_rest_routes  (well-known, JSON-RPC, REST)   │   │
 │  └──────────────────────┬──────────────────────────────┘   │
 │                         │                                   │
 │  ┌──────────────────────▼──────────────────────────────┐   │
@@ -207,7 +230,7 @@ app = A2ARESTFastAPIApplication(
 │  └──────────────────────┬──────────────────────────────┘   │
 │                         │                                   │
 │  ┌──────────────────────┴──────────────────────────────┐   │
-│  │  InMemoryTaskStore  │  InMemoryQueueManager         │   │
+│  │  InMemoryTaskStore                                  │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```

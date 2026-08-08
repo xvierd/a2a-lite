@@ -26,8 +26,9 @@ function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
 function makeRequestContext(text: string, contextId = 'ctx-1') {
   return {
     contextId,
+    taskId: 'task-1',
     userMessage: {
-      parts: [{ kind: 'text' as const, text }],
+      parts: [{ content: { $case: 'text' as const, value: text } }],
     },
   } as unknown as import('@a2a-js/sdk/server').RequestContext;
 }
@@ -38,6 +39,13 @@ function makeEventBus() {
     finished: vi.fn(),
     subscribe: vi.fn(),
   } as unknown as import('@a2a-js/sdk/server').ExecutionEventBus;
+}
+
+/** Extract the text of the first part of a published AgentExecutionEvent. */
+function publishedText(bus: ReturnType<typeof makeEventBus>, callIndex = 0): string {
+  const event = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[callIndex][0];
+  const part = event.data.parts[0];
+  return part.content.$case === 'text' ? part.content.value : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -92,9 +100,7 @@ describe('LiteAgentExecutor', () => {
 
     // With multiple skills and no skill name, it should error
     expect(bus.publish).toHaveBeenCalled();
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    const text = publishedMsg.parts[0].text;
-    expect(text).toContain('SkillNotFoundError');
+    expect(publishedText(bus)).toContain('SkillNotFoundError');
     expect(bus.finished).toHaveBeenCalled();
   });
 
@@ -107,8 +113,7 @@ describe('LiteAgentExecutor', () => {
 
     await executor.execute(ctx, bus);
 
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(publishedMsg.parts[0].text).toContain('SkillNotFoundError');
+    expect(publishedText(bus)).toContain('SkillNotFoundError');
   });
 
   it('publishes error when skill handler throws', async () => {
@@ -125,8 +130,7 @@ describe('LiteAgentExecutor', () => {
 
     await executor.execute(ctx, bus);
 
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(publishedMsg.parts[0].text).toContain('handler exploded');
+    expect(publishedText(bus)).toContain('handler exploded');
     expect(bus.finished).toHaveBeenCalled();
   });
 
@@ -150,8 +154,7 @@ describe('LiteAgentExecutor', () => {
     await executor.execute(ctx, bus);
 
     expect(errorHandler).toHaveBeenCalled();
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(publishedMsg.parts[0].text).toContain('"custom":true');
+    expect(publishedText(bus)).toContain('"custom":true');
   });
 
   it('formats A2ALiteError using toResponse()', async () => {
@@ -168,8 +171,7 @@ describe('LiteAgentExecutor', () => {
 
     await executor.execute(ctx, bus);
 
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    const parsed = JSON.parse(publishedMsg.parts[0].text);
+    const parsed = JSON.parse(publishedText(bus));
     expect(parsed.type).toBe('A2ALiteError');
     expect(parsed.error).toBe('a2a error');
   });
@@ -186,8 +188,7 @@ describe('LiteAgentExecutor', () => {
 
     await executor.execute(ctx, bus);
 
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(JSON.parse(publishedMsg.parts[0].text)).toEqual({ answer: 42 });
+    expect(JSON.parse(publishedText(bus))).toEqual({ answer: 42 });
   });
 
   it('converts non-object results to string', async () => {
@@ -202,8 +203,7 @@ describe('LiteAgentExecutor', () => {
 
     await executor.execute(ctx, bus);
 
-    const publishedMsg = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(publishedMsg.parts[0].text).toBe('123');
+    expect(publishedText(bus)).toBe('123');
   });
 });
 
@@ -278,12 +278,88 @@ describe('LiteAgentExecutor completion hooks', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Streaming — A2A v1.0 event rules (first event must be the task)
+// ---------------------------------------------------------------------------
+
+describe('LiteAgentExecutor streaming', () => {
+  it('publishes task first, then working status updates, then completion', async () => {
+    const skill = makeSkill({
+      isStreaming: true,
+      handler: vi.fn(async function* () {
+        yield 'chunk-1';
+        yield 'chunk-2';
+      }) as unknown as SkillDefinition['handler'],
+    });
+    const skills = new Map([['stream', skill]]);
+    const executor = new LiteAgentExecutor({ skills });
+
+    const ctx = makeRequestContext(JSON.stringify({ skill: 'stream' }));
+    const bus = makeEventBus();
+
+    await executor.execute(ctx, bus);
+
+    const events = (bus.publish as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+
+    // First event: the task
+    expect(events[0].kind).toBe('task');
+    expect(events[0].data.id).toBe('task-1');
+    expect(events[0].data.contextId).toBe('ctx-1');
+
+    // Then: working (start) + one working status per chunk
+    expect(events[1].kind).toBe('statusUpdate');
+    expect(events[1].data.status.state).toBe(2); // TASK_STATE_WORKING
+    expect(events[2].kind).toBe('statusUpdate');
+    expect(events[2].data.status.message.parts[0].content.value).toBe('chunk-1');
+    expect(events[3].data.status.message.parts[0].content.value).toBe('chunk-2');
+
+    // Final: completed terminal status
+    const last = events[events.length - 1];
+    expect(last.kind).toBe('statusUpdate');
+    expect(last.data.status.state).toBe(3); // TASK_STATE_COMPLETED
+
+    expect(bus.finished).toHaveBeenCalled();
+  });
+
+  it('publishes a failed status update when a streaming skill throws mid-stream', async () => {
+    const skill = makeSkill({
+      isStreaming: true,
+      handler: vi.fn(async function* () {
+        yield 'first';
+        throw new Error('stream exploded');
+      }) as unknown as SkillDefinition['handler'],
+    });
+    const skills = new Map([['stream', skill]]);
+    const executor = new LiteAgentExecutor({ skills });
+
+    const ctx = makeRequestContext(JSON.stringify({ skill: 'stream' }));
+    const bus = makeEventBus();
+
+    await executor.execute(ctx, bus);
+
+    const events = (bus.publish as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(events[0].kind).toBe('task');
+    const last = events[events.length - 1];
+    expect(last.kind).toBe('statusUpdate');
+    expect(last.data.status.state).toBe(4); // TASK_STATE_FAILED
+    expect(last.data.status.message.parts[0].content.value).toContain('stream exploded');
+    expect(bus.finished).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // cancelTask
 // ---------------------------------------------------------------------------
 
 describe('LiteAgentExecutor.cancelTask()', () => {
-  it('resolves without error (no-op)', async () => {
+  it('publishes a cancellation acknowledgement message and finishes', async () => {
     const executor = new LiteAgentExecutor({ skills: new Map() });
-    await expect(executor.cancelTask()).resolves.toBeUndefined();
+    const bus = makeEventBus();
+    await executor.cancelTask('task-9', bus);
+
+    expect(bus.publish).toHaveBeenCalledTimes(1);
+    const event = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(event.kind).toBe('message');
+    expect(publishedText(bus)).toContain('cancelled');
+    expect(bus.finished).toHaveBeenCalled();
   });
 });

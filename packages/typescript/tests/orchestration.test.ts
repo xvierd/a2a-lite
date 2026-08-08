@@ -81,7 +81,7 @@ describe('AgentNetwork.call()', () => {
   });
 
   it('calls fetch with the correct URL', async () => {
-    const responseBody = { result: { parts: [{ kind: 'text', text: '"pong"' }] } };
+    const responseBody = { result: { message: { parts: [{ text: '"pong"' }] } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
@@ -109,7 +109,7 @@ describe('AgentNetwork.broadcast()', () => {
   });
 
   it('calls all agents and collects results', async () => {
-    const responseBody = { result: { parts: [{ kind: 'text', text: '"ok"' }] } };
+    const responseBody = { result: { message: { parts: [{ text: '"ok"' }] } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     const net = new AgentNetwork({ a: 'http://a', b: 'http://b' });
@@ -145,7 +145,7 @@ describe('callRemoteSkill()', () => {
   });
 
   it('sends a JSON-RPC request with skill and params', async () => {
-    const responseBody = { result: { parts: [{ kind: 'text', text: '"done"' }] } };
+    const responseBody = { result: { message: { parts: [{ text: '"done"' }] } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     await callRemoteSkill('http://agent', 'doWork', { x: 1 });
@@ -153,8 +153,9 @@ describe('callRemoteSkill()', () => {
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.jsonrpc).toBe('2.0');
-    expect(body.method).toBe('message/send');
-    expect(body.params.message.role).toBe('user');
+    expect(body.method).toBe('SendMessage');
+    expect(body.params.message.role).toBe('ROLE_USER');
+    expect((init.headers as Record<string, string>)['A2A-Version']).toBe('1.0');
   });
 
   it('throws RemoteAgentError on non-ok HTTP response', async () => {
@@ -171,7 +172,7 @@ describe('callRemoteSkill()', () => {
   });
 
   it('parses JSON text parts from the response', async () => {
-    const responseBody = { result: { parts: [{ kind: 'text', text: '{"answer":42}' }] } };
+    const responseBody = { result: { message: { parts: [{ text: '{"answer":42}' }] } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     const result = await callRemoteSkill('http://agent', 'calc', {});
@@ -179,7 +180,7 @@ describe('callRemoteSkill()', () => {
   });
 
   it('returns raw text when JSON parsing fails', async () => {
-    const responseBody = { result: { parts: [{ kind: 'text', text: 'just a string' }] } };
+    const responseBody = { result: { message: { parts: [{ text: 'just a string' }] } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     const result = await callRemoteSkill('http://agent', 'echo', {});
@@ -194,11 +195,13 @@ describe('callRemoteSkill()', () => {
     expect(result).toEqual({ custom: 'data' });
   });
 
-  it('also handles type: "text" parts (not just kind: "text")', async () => {
-    const responseBody = { result: { parts: [{ type: 'text', text: '"hello"' }] } };
+  it('extracts text from a task result envelope', async () => {
+    const responseBody = {
+      result: { task: { id: 't-1', status: { message: { parts: [{ text: '"from-task"' }] } } } },
+    };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
 
     const result = await callRemoteSkill('http://agent', 'greet', {});
-    expect(result).toBe('hello');
+    expect(result).toBe('from-task');
   });
 });

@@ -57,7 +57,7 @@ Total: 3 files, ~260 lines
 Javalin app = Javalin.create(config -> config.showJavalinBanner = false);
 
 // Manual agent card endpoint
-app.get("/.well-known/agent.json", ctx -> {
+app.get("/.well-known/agent-card.json", ctx -> {
     ctx.contentType("application/json");
     ctx.result(mapper.writeValueAsString(agentCard));
 });
@@ -124,8 +124,10 @@ private ObjectNode createAgentCard() {
     card.put("name", "LLMAgent");
     card.put("description", "...");
     card.put("version", "1.0.0");
-    card.put("url", "http://localhost:" + PORT + "/");
-    card.put("protocolVersion", "0.3.0");
+    card.putArray("supportedInterfaces").addObject()
+        .put("url", "http://localhost:" + PORT + "/")
+        .put("protocolBinding", "JSONRPC")
+        .put("protocolVersion", "1.0");
     
     ObjectNode capabilities = card.putObject("capabilities");
     capabilities.put("streaming", false);
@@ -323,7 +325,7 @@ private void handleRequest(Context ctx) {
         
         // Method validation
         String method = request.has("method") ? ... : "";
-        if (!"message/send".equals(method)) {
+        if (!"SendMessage".equals(method)) {
             sendError(ctx, ..., -32601, "Method not found");
             return;
         }

@@ -53,7 +53,7 @@ is also provided.
 ### Agent card
 
 ```bash
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 ```
 
 ### echo skill
@@ -61,13 +61,16 @@ curl http://localhost:8787/.well-known/agent.json
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"echo\", \"params\": {\"message\": \"hello\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"echo\", \"params\": {\"message\": \"hello\"}}"}]
       }
     }
   }'
@@ -78,13 +81,16 @@ curl -X POST http://localhost:8787/ \
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "2",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"slowSum\", \"params\": {\"n\": 5}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"slowSum\", \"params\": {\"n\": 5}}"}]
       }
     }
   }'
@@ -92,7 +98,7 @@ curl -X POST http://localhost:8787/ \
 
 ## Swapping the TaskStore
 
-Replace `InMemoryTaskStore` with any class implementing `com.a2alite.tasks.TaskStore`:
+Replace `InMemoryTaskStore` with any class implementing `com.a2alite.TaskStore`:
 
 ```java
 TaskStore taskStore = new MyRedisTaskStore(redisClient);

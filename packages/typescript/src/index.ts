@@ -130,6 +130,17 @@ export type { PushEvent, WebhookPushNotifierOptions } from './push-notifications
 // Router
 export { Router } from './router.js';
 
+// Agent Card signatures (experimental)
+export { signAgentCard, verifyAgentCard, canonicalizeAgentCard } from './signatures.js';
+export type {
+  SignaturePrivateKey,
+  SignatureProtectedHeader,
+  SignatureUnprotectedHeader,
+  SignatureKeyResolver,
+  AgentCardSigner,
+  AgentCardVerifier,
+} from './signatures.js';
+
 // LLM (optional — requires peer deps)
 export { openaiSkill, anthropicSkill, ollamaSkill, bedrockSkill } from './llm.js';
 export type { OpenAISkillConfig, AnthropicSkillConfig, OllamaSkillConfig, BedrockSkillConfig } from './llm.js';

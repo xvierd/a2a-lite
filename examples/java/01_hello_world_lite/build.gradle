@@ -18,7 +18,7 @@ repositories {
 
 dependencies {
     // A2A Lite library - will be substituted from composite build
-    implementation 'com.a2alite:a2a-lite:0.2.5'
+    implementation 'io.github.xvierd:a2a-lite:1.0.0'
     
     // Javalin for standalone mode
     implementation 'io.javalin:javalin:5.6.3'

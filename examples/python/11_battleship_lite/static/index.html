@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Batalla Naval A2A — a2a-lite</title>
+<style>
+  :root {
+    --bg: #0b1526;
+    --panel: #12233f;
+    --panel2: #0e1c33;
+    --grid-line: #1f3a5f;
+    --water: #16305a;
+    --water-hover: #1d4076;
+    --ship: #5b7ba6;
+    --ship-hit: #d97706;
+    --miss: #2d4a73;
+    --hit: #e11d48;
+    --sunk: #7f1d1d;
+    --text: #dbeafe;
+    --muted: #7d9cc4;
+    --accent: #38bdf8;
+    --win: #22c55e;
+    --lose: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: radial-gradient(ellipse at top, #10203d 0%, var(--bg) 60%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    text-align: center;
+    padding: 18px 12px 6px;
+  }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: 1px; }
+  header h1 .anchor { color: var(--accent); }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 0.85rem; }
+  .container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 24px;
+    padding: 16px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .board-panel {
+    background: var(--panel);
+    border: 1px solid var(--grid-line);
+    border-radius: 12px;
+    padding: 14px 16px 18px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  }
+  .board-panel h2 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    text-align: center;
+    color: var(--accent);
+    letter-spacing: .5px;
+  }
+  .board-grid {
+    display: grid;
+    grid-template-columns: 22px repeat(10, 34px);
+    grid-template-rows: 22px repeat(10, 34px);
+    gap: 2px;
+    user-select: none;
+  }
+  .coord {
+    display: flex; align-items: center; justify-content: center;
+    font-size: .72rem; color: var(--muted);
+  }
+  .cell {
+    background: var(--water);
+    border: 1px solid var(--grid-line);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+    cursor: default;
+    transition: background .15s, transform .1s;
+  }
+  .cell.clickable { cursor: crosshair; }
+  .cell.clickable:hover { background: var(--water-hover); transform: scale(1.06); }
+  .cell.ship { background: var(--ship); }
+  .cell.miss { background: var(--miss); }
+  .cell.hit  { background: var(--ship-hit); }
+  .cell.sunk { background: var(--sunk); }
+  .cell.flash { animation: flash .5s ease; }
+  @keyframes flash {
+    0% { transform: scale(1.35); filter: brightness(2); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+  .side-panel {
+    width: 320px;
+    max-width: 92vw;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--grid-line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: .9rem; color: var(--accent); }
+  #status-line { font-size: .92rem; min-height: 1.4em; }
+  #log {
+    background: var(--panel2);
+    border: 1px solid var(--grid-line);
+    border-radius: 8px;
+    height: 260px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-size: .8rem;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    line-height: 1.5;
+  }
+  #log .me { color: #93c5fd; }
+  #log .foe { color: #fda4af; }
+  #log .sys { color: var(--muted); font-style: italic; }
+  button {
+    background: var(--accent);
+    color: #06263b;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: .9rem;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #banner {
+    display: none;
+    text-align: center;
+    padding: 14px;
+    margin: 0 16px;
+    border-radius: 12px;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+  }
+  #banner.win  { display: block; background: rgba(34,197,94,.15); border: 2px solid var(--win); color: var(--win); }
+  #banner.lose { display: block; background: rgba(239,68,68,.15); border: 2px solid var(--lose); color: var(--lose); }
+  .score { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-top: 6px; }
+  @media (max-width: 860px) {
+    .board-grid { grid-template-columns: 20px repeat(10, 28px); grid-template-rows: 20px repeat(10, 28px); }
+    .side-panel { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚓ Batalla Naval <span class="anchor">A2A</span></h1>
+  <p>Toda la partida viaja por el protocolo A2A v1.0 (JSON-RPC <code>SendMessage</code>, header <code>A2A-Version: 1.0</code>)</p>
+  <p style="font-size:.8rem;color:var(--muted)">
+    Humano vs bot: <code>python agent.py</code> → <a href="http://localhost:8790/" style="color:var(--accent)">:8790</a>
+    · Arena bot vs bot: <code>python arena.py</code> → <a href="http://localhost:8793/?mode=arena" style="color:var(--accent)">:8793/?mode=arena</a>
+  </p>
+</header>
+
+<div id="banner"></div>
+
+<div class="container" id="human-mode">
+  <div class="board-panel">
+    <h2>Tu flota</h2>
+    <div class="board-grid" id="my-board"></div>
+    <div class="score"><span>Barcos a flote: <b id="my-ships">5</b></span><span>Disparos recibidos: <b id="my-received">0</b></span></div>
+  </div>
+  <div class="board-panel">
+    <h2>Flota enemiga</h2>
+    <div class="board-grid" id="enemy-board"></div>
+    <div class="score"><span>Barcos enemigos: <b id="enemy-ships">5</b></span><span>Tus disparos: <b id="my-shots">0</b></span></div>
+  </div>
+  <div class="side-panel">
+    <div class="card">
+      <h3>Estado</h3>
+      <div id="status-line">Conectando con el agente…</div>
+    </div>
+    <button id="rematch-btn">🔄 Nueva partida</button>
+    <div class="card" style="flex:1">
+      <h3>Registro de combate</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<div class="container" id="arena-mode" style="display:none">
+  <div class="board-panel">
+    <h2 id="arena-name-a">Jugador A</h2>
+    <div class="board-grid" id="arena-board-a"></div>
+  </div>
+  <div class="board-panel">
+    <h2 id="arena-name-b">Jugador B</h2>
+    <div class="board-grid" id="arena-board-b"></div>
+  </div>
+  <div class="side-panel">
+    <div class="card">
+      <h3>Estado de la arena</h3>
+      <div id="arena-status-line">Conectando…</div>
+    </div>
+    <button id="arena-new-btn">⚔️ Nueva batalla</button>
+    <div class="card" style="flex:1">
+      <h3>Registro en vivo</h3>
+      <div id="arena-log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------
+// Constantes del juego (espejo de game.py)
+// ---------------------------------------------------------------------
+const SIZE = 10;
+const FLEET = [
+  ["carrier", 5], ["battleship", 4], ["cruiser", 3],
+  ["submarine", 3], ["destroyer", 2]
+];
+const ROWS = "ABCDEFGHIJ";
+const label = (r, c) => ROWS[r] + (c + 1);
+
+const MODE = new URLSearchParams(location.search).get("mode") === "arena" ? "arena" : "human";
+
+// ---------------------------------------------------------------------
+// Cliente A2A (JSON-RPC SendMessage, convención lite)
+// ---------------------------------------------------------------------
+let rpcId = 0;
+async function skill(name, params = {}) {
+  rpcId += 1;
+  const res = await fetch("/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "A2A-Version": "1.0" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: String(rpcId),
+      method: "SendMessage",
+      params: {
+        message: {
+          role: "ROLE_USER",
+          messageId: "ui-" + rpcId,
+          parts: [{ text: JSON.stringify({ skill: name, params: params }) }]
+        }
+      }
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error("Error A2A: " + JSON.stringify(data.error));
+  const msg = (data.result && data.result.message) || {};
+  const parts = msg.parts || [];
+  if (!parts.length) throw new Error("Respuesta A2A sin parts");
+  return JSON.parse(parts[0].text);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------------
+// Construcción de tableros en el DOM
+// ---------------------------------------------------------------------
+function buildBoard(containerId, onCellClick) {
+  const grid = document.getElementById(containerId);
+  grid.innerHTML = "";
+  grid.appendChild(document.createElement("div")); // esquina vacía
+  for (let c = 0; c < SIZE; c++) {
+    const d = document.createElement("div");
+    d.className = "coord";
+    d.textContent = c + 1;
+    grid.appendChild(d);
+  }
+  const cells = [];
+  for (let r = 0; r < SIZE; r++) {
+    const d = document.createElement("div");
+    d.className = "coord";
+    d.textContent = ROWS[r];
+    grid.appendChild(d);
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.row = r;
+      cell.dataset.col = c;
+      if (onCellClick) {
+        cell.classList.add("clickable");
+        cell.addEventListener("click", () => onCellClick(r, c));
+      }
+      grid.appendChild(cell);
+      cells.push(cell);
+    }
+  }
+  return cells; // indexado como r * SIZE + c
+}
+
+function cellAt(cells, r, c) { return cells[r * SIZE + c]; }
+
+function mark(cells, r, c, kind, icon) {
+  const cell = cellAt(cells, r, c);
+  cell.classList.remove("clickable", "flash");
+  cell.classList.add(kind, "flash");
+  cell.textContent = icon;
+}
+
+function addLog(el, cls, text) {
+  const d = document.createElement("div");
+  d.className = cls;
+  d.textContent = text;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---------------------------------------------------------------------
+// Flota local del jugador humano (colocación aleatoria en cliente)
+// ---------------------------------------------------------------------
+function placeLocalFleet() {
+  const grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  const ships = [];
+  for (const [name, len] of FLEET) {
+    let placed = false;
+    while (!placed) {
+      const horizontal = Math.random() < 0.5;
+      const r = Math.floor(Math.random() * SIZE);
+      const c = Math.floor(Math.random() * SIZE);
+      const cells = [];
+      for (let i = 0; i < len; i++) {
+        cells.push(horizontal ? [r, c + i] : [r + i, c]);
+      }
+      if (cells.every(([rr, cc]) => rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE && !grid[rr][cc])) {
+        for (const [rr, cc] of cells) grid[rr][cc] = name;
+        ships.push({ name, cells, hits: 0 });
+        placed = true;
+      }
+    }
+  }
+  return { grid, ships };
+}
+
+// ---------------------------------------------------------------------
+// MODO 1: humano contra el agente
+// ---------------------------------------------------------------------
+const human = {
+  myCells: null,
+  enemyCells: null,
+  fleet: null,
+  enemyShots: new Set(),
+  enemyShipsRemaining: 5,
+  lock: false,
+  over: false,
+  logEl: null
+};
+
+function humanSetStatus(text) {
+  document.getElementById("status-line").textContent = text;
+}
+
+function showBanner(win, text) {
+  const b = document.getElementById("banner");
+  b.style.display = "block";
+  b.className = win ? "win" : "lose";
+  b.textContent = text;
+}
+
+function hideBanner() {
+  const b = document.getElementById("banner");
+  b.className = "";
+  b.style.display = "none";
+  b.textContent = "";
+}
+
+function renderMyFleet() {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const cell = cellAt(human.myCells, r, c);
+      cell.className = "cell" + (human.fleet.grid[r][c] ? " ship" : "");
+      cell.textContent = "";
+    }
+  }
+}
+
+async function humanNewGame() {
+  human.over = false;
+  human.lock = false;
+  human.enemyShots = new Set();
+  human.enemyShipsRemaining = 5;
+  human.fleet = placeLocalFleet();
+  hideBanner();
+  document.getElementById("my-ships").textContent = "5";
+  document.getElementById("my-received").textContent = "0";
+  document.getElementById("enemy-ships").textContent = "5";
+  document.getElementById("my-shots").textContent = "0";
+  human.logEl.innerHTML = "";
+  renderMyFleet();
+  human.enemyCells = buildBoard("enemy-board", onEnemyCellClick);
+  addLog(human.logEl, "sys", "Nueva partida. Tu flota está lista. ¡Dispara!");
+  humanSetStatus("Preparando al agente por A2A…");
+  await skill("new_game");
+  humanSetStatus("Tu turno: haz clic en el tablero enemigo.");
+}
+
+async function onEnemyCellClick(r, c) {
+  if (human.lock || human.over) return;
+  const key = r + "," + c;
+  if (human.enemyShots.has(key)) return;
+  human.lock = true;
+  humanSetStatus("Disparando a " + label(r, c) + " (A2A receive_shot)…");
+  try {
+    const res = await skill("receive_shot", { row: r, col: c });
+    if (res.already_shot) { human.lock = false; return; }
+    human.enemyShots.add(key);
+    document.getElementById("my-shots").textContent = human.enemyShots.size;
+
+    if (res.result === "miss") {
+      mark(human.enemyCells, r, c, "miss", "🌊");
+      addLog(human.logEl, "me", "Tú: " + label(r, c) + " — Agua");
+    } else if (res.result === "hit") {
+      mark(human.enemyCells, r, c, "hit", "💥");
+      addLog(human.logEl, "me", "Tú: " + label(r, c) + " — ¡Tocado! (" + res.ship + ")");
+    } else if (res.result === "sunk") {
+      for (const [rr, cc] of res.cells || [[r, c]]) mark(human.enemyCells, rr, cc, "sunk", "☠️");
+      human.enemyShipsRemaining -= 1;
+      document.getElementById("enemy-ships").textContent = human.enemyShipsRemaining;
+      addLog(human.logEl, "me", "Tú: " + label(r, c) + " — ¡Hundido " + res.ship + "!");
+    }
+
+    if (res.game_over) {
+      human.over = true;
+      humanSetStatus("Partida terminada.");
+      addLog(human.logEl, "sys", "Has hundido toda la flota enemiga.");
+      showBanner(true, "🏆 ¡VICTORIA! Hundiste la flota del agente");
+      return;
+    }
+    await agentTurn();
+  } catch (err) {
+    humanSetStatus("Error: " + err.message);
+    addLog(human.logEl, "sys", "Error A2A: " + err.message);
+  } finally {
+    human.lock = false;
+  }
+}
+
+async function agentTurn() {
+  humanSetStatus("Turno del agente (A2A next_shot)…");
+  await sleep(450); // pausa dramática mínima
+  const shot = await skill("next_shot");
+  const r = shot.row, c = shot.col;
+
+  const shipName = human.fleet.grid[r][c];
+  let result = "miss", sunkShip = null;
+  if (shipName) {
+    const ship = human.fleet.ships.find((s) => s.name === shipName);
+    ship.hits += 1;
+    result = ship.hits === ship.cells.length ? "sunk" : "hit";
+    if (result === "sunk") sunkShip = ship;
+  }
+
+  // Pintar en mi tablero
+  if (result === "miss") {
+    mark(human.myCells, r, c, "miss", "🌊");
+    addLog(human.logEl, "foe", "Agente: " + label(r, c) + " — Agua");
+  } else if (result === "hit") {
+    mark(human.myCells, r, c, "hit", "💥");
+    addLog(human.logEl, "foe", "Agente: " + label(r, c) + " — ¡Tocado tu " + shipName + "!");
+  } else {
+    for (const [rr, cc] of sunkShip.cells) mark(human.myCells, rr, cc, "sunk", "☠️");
+    addLog(human.logEl, "foe", "Agente: " + label(r, c) + " — ¡Hundió tu " + shipName + "!");
+  }
+
+  // Informar al agente del resultado (para su estrategia)
+  await skill("report_shot_result", { row: r, col: c, result: result, ship: shipName || "" });
+
+  const status = await skill("status");
+  document.getElementById("my-received").textContent = status.shots_received;
+  document.getElementById("my-ships").textContent = status.ships_remaining;
+
+  if (status.ships_remaining === 0) {
+    human.over = true;
+    humanSetStatus("Partida terminada.");
+    showBanner(false, "☠️ DERROTA — El agente hundió tu flota");
+    addLog(human.logEl, "sys", "El agente ha hundido toda tu flota.");
+    return;
+  }
+  humanSetStatus("Tu turno: haz clic en el tablero enemigo.");
+}
+
+// ---------------------------------------------------------------------
+// MODO 2: arena agente vs agente (espectador)
+// ---------------------------------------------------------------------
+const arena = {
+  cellsA: null,
+  cellsB: null,
+  logEl: null,
+  renderedLog: 0
+};
+
+function paintArenaBoard(cells, matrix) {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const v = matrix[r][c];
+      const cell = cellAt(cells, r, c);
+      if (!v) {
+        if (cell.textContent) { cell.className = "cell"; cell.textContent = ""; }
+        continue;
+      }
+      const kind = v === "miss" ? "miss" : v === "hit" ? "hit" : "sunk";
+      const icon = v === "miss" ? "🌊" : v === "hit" ? "💥" : "☠️";
+      if (cell.textContent !== icon) {
+        cell.className = "cell " + kind + " flash";
+        cell.textContent = icon;
+      }
+    }
+  }
+}
+
+async function arenaPoll() {
+  try {
+    const res = await fetch("/arena/state");
+    // Human-mode agent (agent.py) serves this same HTML but has no /arena/* routes.
+    // Arena endpoints live only on arena.py (default http://localhost:8793/?mode=arena).
+    if (!res.ok) {
+      const hint = res.status === 404
+        ? "Esta página no es el servidor de arena. Arranca `python arena.py` y abre http://localhost:8793/?mode=arena (no uses el puerto del agente solo)."
+        : "HTTP " + res.status + " al pedir /arena/state";
+      document.getElementById("arena-status-line").textContent = hint;
+      return;
+    }
+    const st = await res.json();
+    const [a, b] = st.players;
+    document.getElementById("arena-name-a").textContent = "🛡️ " + a;
+    document.getElementById("arena-name-b").textContent = "🛡️ " + b;
+    paintArenaBoard(arena.cellsA, st.boards[a]);
+    paintArenaBoard(arena.cellsB, st.boards[b]);
+
+    const line = st.status === "finished"
+      ? (st.winner ? "Finalizada — ganador: " + st.winner : "Finalizada — empate")
+      : "Turno " + st.turn + " — combatiendo por A2A…";
+    document.getElementById("arena-status-line").textContent = line;
+
+    // Log incremental
+    for (; arena.renderedLog < st.log.length; arena.renderedLog++) {
+      addLog(arena.logEl, "", st.log[arena.renderedLog]);
+    }
+    if (arena.renderedLog > st.log.length) arena.renderedLog = st.log.length;
+
+    if (st.status === "finished" && st.winner) {
+      showBanner(true, "🏆 " + st.winner + " gana la batalla");
+    } else if (st.status === "finished") {
+      showBanner(false, "Empate — límite de turnos");
+    } else {
+      hideBanner();
+    }
+  } catch (err) {
+    document.getElementById("arena-status-line").textContent =
+      "No se pudo contactar la arena: " + err.message +
+      " — ¿está corriendo `python arena.py`? Abre http://localhost:8793/?mode=arena";
+  }
+}
+
+async function arenaNewBattle() {
+  hideBanner();
+  arena.logEl.innerHTML = "";
+  arena.renderedLog = 0;
+  for (const cells of [arena.cellsA, arena.cellsB]) {
+    for (const cell of cells) { cell.className = "cell"; cell.textContent = ""; }
+  }
+  await fetch("/arena/new", { method: "POST" });
+}
+
+// ---------------------------------------------------------------------
+// Arranque
+// ---------------------------------------------------------------------
+window.addEventListener("DOMContentLoaded", () => {
+  if (MODE === "arena") {
+    document.getElementById("human-mode").style.display = "none";
+    document.getElementById("arena-mode").style.display = "flex";
+    arena.cellsA = buildBoard("arena-board-a", null);
+    arena.cellsB = buildBoard("arena-board-b", null);
+    arena.logEl = document.getElementById("arena-log");
+    document.getElementById("arena-new-btn").addEventListener("click", arenaNewBattle);
+    arenaPoll();
+    setInterval(arenaPoll, 800);
+  } else {
+    human.myCells = buildBoard("my-board", null);
+    human.logEl = document.getElementById("log");
+    document.getElementById("rematch-btn").addEventListener("click", () => {
+      humanNewGame().catch((e) => humanSetStatus("Error: " + e.message));
+    });
+    humanNewGame().catch((e) => {
+      humanSetStatus("No se pudo contactar con el agente: " + e.message);
+      addLog(human.logEl, "sys", "¿Está el agente en marcha? python agent.py");
+    });
+  }
+});
+</script>
+</body>
+</html>

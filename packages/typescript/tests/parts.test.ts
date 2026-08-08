@@ -42,7 +42,7 @@ describe('FilePart', () => {
     expect(part.isBytes).toBe(false);
   });
 
-  it('should convert to A2A format with bytes', () => {
+  it('should convert to A2A v1.0 format with bytes (raw)', () => {
     const part = new FilePart({
       name: 'test.txt',
       mimeType: 'text/plain',
@@ -51,12 +51,12 @@ describe('FilePart', () => {
 
     const a2a = part.toA2A();
 
-    expect(a2a.type).toBe('file');
-    expect((a2a.file as any).name).toBe('test.txt');
-    expect((a2a.file as any).bytes).toBe(Buffer.from('Hello').toString('base64'));
+    expect(a2a.raw).toBe(Buffer.from('Hello').toString('base64'));
+    expect(a2a.filename).toBe('test.txt');
+    expect(a2a.mediaType).toBe('text/plain');
   });
 
-  it('should convert to A2A format with URI', () => {
+  it('should convert to A2A v1.0 format with URI (url)', () => {
     const part = new FilePart({
       name: 'test.txt',
       uri: 'https://example.com/file.txt',
@@ -64,23 +64,21 @@ describe('FilePart', () => {
 
     const a2a = part.toA2A();
 
-    expect(a2a.type).toBe('file');
-    expect((a2a.file as any).uri).toBe('https://example.com/file.txt');
+    expect(a2a.url).toBe('https://example.com/file.txt');
+    expect(a2a.filename).toBe('test.txt');
   });
 
-  it('should parse from A2A format', () => {
+  it('should parse from A2A v1.0 format', () => {
     const a2aData = {
-      type: 'file',
-      file: {
-        name: 'test.txt',
-        mimeType: 'text/plain',
-        bytes: Buffer.from('Hello').toString('base64'),
-      },
+      raw: Buffer.from('Hello').toString('base64'),
+      filename: 'test.txt',
+      mediaType: 'text/plain',
     };
 
     const part = FilePart.fromA2A(a2aData);
 
     expect(part.name).toBe('test.txt');
+    expect(part.mimeType).toBe('text/plain');
     expect(part.data?.toString()).toBe('Hello');
   });
 
@@ -111,16 +109,16 @@ describe('DataPart', () => {
     expect(part.data).toEqual({ key: 'value', count: 42 });
   });
 
-  it('should convert to A2A format', () => {
+  it('should convert to A2A v1.0 format', () => {
     const part = new DataPart({ key: 'value' });
     const a2a = part.toA2A();
 
-    expect(a2a.type).toBe('data');
     expect(a2a.data).toEqual({ key: 'value' });
+    expect(a2a.mediaType).toBe('application/json');
   });
 
-  it('should parse from A2A format', () => {
-    const part = DataPart.fromA2A({ type: 'data', data: { key: 'value' } });
+  it('should parse from A2A v1.0 format', () => {
+    const part = DataPart.fromA2A({ data: { key: 'value' } });
     expect(part.data).toEqual({ key: 'value' });
   });
 });
@@ -179,26 +177,28 @@ describe('Artifact', () => {
 
 describe('parsePart', () => {
   it('should parse text part', () => {
-    const part = parsePart({ type: 'text', text: 'Hello' });
+    const part = parsePart({ text: 'Hello' });
     expect(part.type).toBe('text');
     expect((part as any).text).toBe('Hello');
   });
 
-  it('should parse file part', () => {
+  it('should parse raw file part', () => {
     const part = parsePart({
-      type: 'file',
-      file: { name: 'test.txt', bytes: Buffer.from('data').toString('base64') },
+      raw: Buffer.from('data').toString('base64'),
+      filename: 'test.txt',
+      mediaType: 'text/plain',
     });
     expect(part.type).toBe('file');
   });
 
-  it('should parse data part', () => {
-    const part = parsePart({ type: 'data', data: { key: 'value' } });
-    expect(part.type).toBe('data');
+  it('should parse url file part', () => {
+    const part = parsePart({ url: 'https://example.com/f.txt', filename: 'f.txt' });
+    expect(part.type).toBe('file');
+    expect((part as any).isUri).toBe(true);
   });
 
-  it('should handle kind alias', () => {
-    const part = parsePart({ kind: 'text', text: 'Hello' });
-    expect(part.type).toBe('text');
+  it('should parse data part', () => {
+    const part = parsePart({ data: { key: 'value' } });
+    expect(part.type).toBe('data');
   });
 });

@@ -33,7 +33,7 @@ class TextPart:
     text: str
 
     def to_a2a(self) -> dict[str, Any]:
-        return {"type": "text", "text": self.text}
+        return {"text": self.text}
 
     @classmethod
     def from_a2a(cls, data: dict) -> TextPart:
@@ -92,32 +92,25 @@ class FilePart:
     def to_a2a(self) -> dict[str, Any]:
         if self.uri:
             return {
-                "type": "file",
-                "file": {
-                    "name": self.name,
-                    "mimeType": self.mime_type,
-                    "uri": self.uri,
-                },
+                "url": self.uri,
+                "filename": self.name,
+                "mediaType": self.mime_type,
             }
         else:
             return {
-                "type": "file",
-                "file": {
-                    "name": self.name,
-                    "mimeType": self.mime_type,
-                    "bytes": base64.b64encode(self.data or b"").decode(),
-                },
+                "raw": base64.b64encode(self.data or b"").decode(),
+                "filename": self.name,
+                "mediaType": self.mime_type,
             }
 
     @classmethod
     def from_a2a(cls, data: dict) -> FilePart:
-        file_data = data.get("file", {})
-        bytes_data = file_data.get("bytes")
+        bytes_data = data.get("raw")
         return cls(
-            name=file_data.get("name", "unknown"),
-            mime_type=file_data.get("mimeType", "application/octet-stream"),
+            name=data.get("filename", "unknown"),
+            mime_type=data.get("mediaType", "application/octet-stream"),
             data=base64.b64decode(bytes_data) if bytes_data else None,
-            uri=file_data.get("uri"),
+            uri=data.get("url"),
         )
 
     @classmethod
@@ -152,8 +145,8 @@ class DataPart:
 
     def to_a2a(self) -> dict[str, Any]:
         return {
-            "type": "data",
             "data": self.data,
+            "mediaType": self.mime_type,
         }
 
     @classmethod
@@ -211,15 +204,17 @@ class Artifact:
 
 # Helper to parse incoming parts
 def parse_part(data: dict) -> Union[TextPart, FilePart, DataPart]:
-    """Parse an A2A part dict into the appropriate Part type."""
-    part_type = data.get("type") or data.get("kind")
+    """Parse an A2A v1.0 part dict into the appropriate Part type.
 
-    if part_type == "text":
+    Part content is detected by presence of the content key:
+    ``text`` / ``data`` / ``raw`` or ``url`` (file parts).
+    """
+    if "text" in data:
         return TextPart.from_a2a(data)
-    elif part_type == "file":
-        return FilePart.from_a2a(data)
-    elif part_type == "data":
+    elif "data" in data:
         return DataPart.from_a2a(data)
+    elif "raw" in data or "url" in data:
+        return FilePart.from_a2a(data)
     else:
         # Default to text
         return TextPart(text=str(data))

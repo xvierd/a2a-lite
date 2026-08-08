@@ -185,7 +185,7 @@ class TestConvertParams:
         executor = LiteAgentExecutor(skills={"process": skill})
         result = executor._convert_params(
             skill,
-            {"file": {"file": {"name": "test.txt", "bytes": base64.b64encode(b"hello").decode()}}},
+            {"file": {"raw": base64.b64encode(b"hello").decode(), "filename": "test.txt"}},
             {},
         )
         assert isinstance(result["file"], FilePart)
@@ -217,7 +217,7 @@ class TestConvertParams:
         executor = LiteAgentExecutor(skills={"analyze": skill})
         result = executor._convert_params(
             skill,
-            {"data": {"type": "data", "data": {"key": "value"}}},
+            {"data": {"data": {"key": "value"}, "mediaType": "application/json"}},
             {},
         )
         assert isinstance(result["data"], DataPart)

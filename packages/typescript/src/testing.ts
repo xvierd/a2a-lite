@@ -90,18 +90,17 @@ export class AgentTestClient {
   async call(skill: string, params: Record<string, unknown> = {}): Promise<TestResult> {
     const app = this.agent.buildApp();
 
-    // Create A2A JSON-RPC request
+    // Create A2A v1.0 JSON-RPC request
     const message = JSON.stringify({ skill, params });
     const requestBody = {
       jsonrpc: '2.0',
-      method: 'message/send',
+      method: 'SendMessage',
       id: Math.random().toString(36).slice(2),
       params: {
         message: {
-          kind: 'message',
-          role: 'user',
+          role: 'ROLE_USER',
           messageId: Math.random().toString(36).slice(2),
-          parts: [{ kind: 'text', text: message }],
+          parts: [{ text: message }],
         },
       },
     };
@@ -114,11 +113,13 @@ export class AgentTestClient {
         url: '/',
         headers: {
           'content-type': 'application/json',
+          'a2a-version': '1.0',
         },
         hostname: 'localhost',
         get: (header: string) => {
           if (header.toLowerCase() === 'host') return 'localhost:8787';
           if (header.toLowerCase() === 'content-type') return 'application/json';
+          if (header.toLowerCase() === 'a2a-version') return '1.0';
           return undefined;
         },
       };
@@ -211,19 +212,22 @@ export class AgentTestClient {
   }
 
   /**
-   * Extract result from A2A JSON-RPC response.
+   * Extract result from A2A v1.0 JSON-RPC response.
+   * The result envelope is `{ message: {...} }` or `{ task: {...} }`;
+   * text parts use the `{ "text": ... }` wire shape.
    */
   private extractResult(response: Record<string, unknown>): TestResult {
     if (response.error) {
       throw new TestClientError(JSON.stringify(response.error));
     }
 
-    const result = response.result as Record<string, unknown>;
+    const envelope = (response.result ?? {}) as Record<string, unknown>;
+    const result = (envelope.message ?? envelope.task ?? envelope) as Record<string, unknown>;
 
     // Handle A2A message format
     if (result?.parts) {
-      const parts = result.parts as Array<{ kind?: string; type?: string; text?: string }>;
-      const textPart = parts.find((p) => p.kind === 'text' || p.type === 'text');
+      const parts = result.parts as Array<{ text?: string }>;
+      const textPart = parts.find((p) => typeof p.text === 'string');
       if (textPart?.text) {
         let data: unknown;
         try {

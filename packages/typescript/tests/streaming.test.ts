@@ -58,11 +58,12 @@ describe('streamRemoteSkill()', () => {
     vi.restoreAllMocks();
   });
 
-  it('yields text chunks from artifact parts and stops at final', async () => {
+  it('yields text chunks from artifact updates and stops at terminal state', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"Hello"}]},"final":false}\n\n',
-      'data: {"artifact":{"parts":[{"kind":"text","text":" World"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"task":{"id":"t1","contextId":"c1","status":{"state":"TASK_STATE_WORKING"}}}}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -75,10 +76,10 @@ describe('streamRemoteSkill()', () => {
     expect(chunks).toEqual(['Hello', ' World']);
   });
 
-  it('handles type: "text" parts (not just kind: "text")', async () => {
+  it('yields text from status update message parts', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"type":"text","text":"typed"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_WORKING","message":{"parts":[{"text":"typed"}]}}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -93,7 +94,7 @@ describe('streamRemoteSkill()', () => {
 
   it('throws RemoteAgentError on failed status', async () => {
     const sseData =
-      'data: {"status":{"state":"failed","message":{"parts":[{"text":"something broke"}]}},"final":true}\n\n';
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_FAILED","message":{"parts":[{"text":"something broke"}]}}}}}\n\n';
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
 
@@ -117,8 +118,8 @@ describe('streamRemoteSkill()', () => {
     }).rejects.toThrow(RemoteAgentError);
   });
 
-  it('sends a JSON-RPC request with method message/stream', async () => {
-    const sseData = 'data: {"status":{"state":"completed"},"final":true}\n\n';
+  it('sends a JSON-RPC SendStreamingMessage request with the A2A-Version header', async () => {
+    const sseData = 'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n';
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
 
     const chunks: string[] = [];
@@ -129,15 +130,17 @@ describe('streamRemoteSkill()', () => {
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.jsonrpc).toBe('2.0');
-    expect(body.method).toBe('message/stream');
-    expect(body.params.message.role).toBe('user');
+    expect(body.method).toBe('SendStreamingMessage');
+    expect(body.params.message.role).toBe('ROLE_USER');
+    expect(body.params.message.parts[0].text).toBe(JSON.stringify({ skill: 'doWork', params: { x: 1 } }));
+    expect((init.headers as Record<string, string>)['A2A-Version']).toBe('1.0');
   });
 
   it('handles chunked delivery across multiple reads', async () => {
     const chunks = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"ch',
-      'unk1"}]},"final":false}\n\ndata: {"artifact":{"parts":[{"kind":"text","text":"chunk2"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ch',
+      'unk1"}]}}}}\n\ndata: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"chunk2"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ];
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponseChunked(chunks));
@@ -152,8 +155,8 @@ describe('streamRemoteSkill()', () => {
 
   it('stops at canceled state', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"partial"}]},"final":false}\n\n',
-      'data: {"status":{"state":"canceled"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"partial"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_CANCELED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -170,8 +173,8 @@ describe('streamRemoteSkill()', () => {
     const sseData = [
       ':comment line\n',
       'event: update\n',
-      'data: {"artifact":{"parts":[{"kind":"text","text":"ok"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ok"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -210,9 +213,9 @@ describe('AgentNetwork.stream()', () => {
 
   it('yields text chunks from the named agent', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"A"}]},"final":false}\n\n',
-      'data: {"artifact":{"parts":[{"kind":"text","text":"B"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"A"}]}}}}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"B"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -245,9 +248,9 @@ describe('Agent.delegate() with stream: true', () => {
 
   it('returns an async generator when stream: true', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"Hello"}]},"final":false}\n\n',
-      'data: {"artifact":{"parts":[{"kind":"text","text":" World"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
@@ -267,8 +270,8 @@ describe('Agent.delegate() with stream: true', () => {
 
   it('works with direct URL and stream: true', async () => {
     const sseData = [
-      'data: {"artifact":{"parts":[{"kind":"text","text":"direct"}]},"final":false}\n\n',
-      'data: {"status":{"state":"completed"},"final":true}\n\n',
+      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"direct"}]}}}}\n\n',
+      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));

@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from typing import Any
 
 import uvicorn
-from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
+    AgentInterface,
     AgentSkill,
 )
 
@@ -95,6 +96,10 @@ class Agent:
                 secret="signing-secret",
             ),
         )
+
+    WITH GRPC (EXPERIMENTAL, opt-in):
+        # Requires: pip install a2a-lite[grpc]
+        agent.run_grpc()  # serves gRPC on 0.0.0.0:50051 (standalone, no HTTP app)
     """
 
     name: str
@@ -320,6 +325,7 @@ class Agent:
         self,
         target: str,
         skill: str,
+        /,
         timeout: float = 30.0,
         return_handle: bool = False,
         discover: bool = False,
@@ -395,8 +401,15 @@ class Agent:
             return TaskHandle(task_id=task_id, result=result, _agent_url=url)
         return result
 
-    def build_agent_card(self, host: str = "localhost", port: int = 8787) -> AgentCard:
-        """Generate A2A-compliant Agent Card from registered skills."""
+    def build_agent_card(self, host: str = "localhost", port: int = 8787, grpc_url: str | None = None) -> AgentCard:
+        """Generate A2A 1.0-compliant Agent Card from registered skills.
+
+        Args:
+            host: Hostname for the HTTP interface URLs.
+            port: Port for the HTTP interface URLs.
+            grpc_url: Optional "host:port" of a running gRPC endpoint (EXPERIMENTAL).
+                When provided, a GRPC AgentInterface is added to supported_interfaces.
+        """
         skills = []
 
         for skill_def in self._skills.values():
@@ -405,26 +418,106 @@ class Agent:
                 name=skill_def.name,
                 description=skill_def.description,
                 tags=skill_def.tags,
-                inputModes=["application/json"],
-                outputModes=["application/json"],
+                input_modes=["application/json"],
+                output_modes=["application/json"],
             )
             skills.append(skill)
 
         url = self.url or f"http://{host}:{port}"
 
-        return AgentCard(
-            name=self.name,
-            description=self.description,
-            version=self.version,
-            url=url,
-            capabilities=AgentCapabilities(
+        supported_interfaces = [
+            AgentInterface(url=url, protocol_binding="JSONRPC", protocol_version="1.0"),
+            AgentInterface(url=url, protocol_binding="HTTP+JSON", protocol_version="1.0"),
+        ]
+        if grpc_url is not None:
+            supported_interfaces.append(
+                AgentInterface(url=grpc_url, protocol_binding="GRPC", protocol_version="1.0")
+            )
+
+        card_kwargs: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "version": self.version,
+            "supported_interfaces": supported_interfaces,
+            "capabilities": AgentCapabilities(
                 streaming=self._has_streaming,
-                pushNotifications=bool(self._on_complete) or bool(self.push_registry),
+                push_notifications=bool(self._on_complete) or bool(self.push_registry),
             ),
-            defaultInputModes=["application/json"],
-            defaultOutputModes=["application/json"],
-            skills=skills,
+            "default_input_modes": ["application/json"],
+            "default_output_modes": ["application/json"],
+            "skills": skills,
+        }
+
+        # Advertise the security scheme when an auth provider is configured
+        security_schemes, security_requirements = self._build_security_schemes()
+        if security_schemes:
+            card_kwargs["security_schemes"] = security_schemes
+            card_kwargs["security_requirements"] = security_requirements
+
+        return AgentCard(**card_kwargs)
+
+    def _build_security_schemes(self) -> tuple[dict, list]:
+        """Convert the auth provider's scheme dict to A2A 1.0 proto types.
+
+        Returns (security_schemes_map, security_requirements) or ({}, [])
+        when no auth provider is configured.
+        """
+        if self.auth is None or not hasattr(self._auth, "get_scheme"):
+            return {}, []
+
+        scheme = self._auth.get_scheme()
+        if not scheme:
+            return {}, []
+
+        from a2a.types import (
+            APIKeySecurityScheme,
+            AuthorizationCodeOAuthFlow,
+            HTTPAuthSecurityScheme,
+            OAuth2SecurityScheme,
+            OAuthFlows,
+            SecurityRequirement,
+            SecurityScheme,
         )
+
+        scheme_type = scheme.get("type")
+
+        if scheme_type == "apiKey":
+            name = "apiKey"
+            proto_scheme = SecurityScheme(
+                api_key_security_scheme=APIKeySecurityScheme(
+                    name=scheme.get("name", "X-API-Key"),
+                    location=scheme.get("in", "header"),
+                )
+            )
+        elif scheme_type == "http":
+            name = scheme.get("scheme", "http")
+            proto_scheme = SecurityScheme(
+                http_auth_security_scheme=HTTPAuthSecurityScheme(
+                    scheme=scheme.get("scheme", "bearer"),
+                )
+            )
+        elif scheme_type == "oauth2":
+            name = "oauth2"
+            flows_dict = scheme.get("flows", {})
+            auth_code = flows_dict.get("authorizationCode", {})
+            proto_scheme = SecurityScheme(
+                oauth2_security_scheme=OAuth2SecurityScheme(
+                    flows=OAuthFlows(
+                        authorization_code=AuthorizationCodeOAuthFlow(
+                            authorization_url=auth_code.get("authorizationUrl", ""),
+                            token_url=auth_code.get("tokenUrl", ""),
+                            scopes=auth_code.get("scopes", {}),
+                        )
+                    )
+                )
+            )
+        else:
+            logger.warning("Unknown auth scheme type %r; skipping agent card security schemes", scheme_type)
+            return {}, []
+
+        requirement = SecurityRequirement()
+        requirement.schemes[name]  # empty scope list
+        return {name: proto_scheme}, [requirement]
 
     def run(  # pragma: no cover
         self,
@@ -478,7 +571,7 @@ class Agent:
                 f"[dim]{self.description}[/]\n\n"
                 f"[bold]Skills:[/]\n{skills_list}{features_str}\n\n"
                 f"[bold]Endpoints:[/]\n"
-                f"  • Agent Card: http://{display_host}:{port}/.well-known/agent.json\n"
+                f"  • Agent Card: http://{display_host}:{port}/.well-known/agent-card.json\n"
                 f"  • API: http://{display_host}:{port}/",
                 title="🚀 A2A Lite Agent Started",
                 border_style="green",
@@ -539,44 +632,35 @@ class Agent:
         message: str,
         timeout: float = 30.0,
     ) -> dict[str, Any]:
-        """Call a remote A2A agent."""
+        """Call a remote A2A agent (JSON-RPC SendMessage, wire v1.0)."""
         from uuid import uuid4
 
         import httpx
-        from a2a.client import A2AClient
-        from a2a.types import MessageSendParams, SendMessageRequest
+
+        request_body = {
+            "jsonrpc": "2.0",
+            "method": "SendMessage",
+            "id": uuid4().hex,
+            "params": {
+                "message": {
+                    "role": "ROLE_USER",
+                    "parts": [{"text": message}],
+                    "messageId": uuid4().hex,
+                }
+            },
+        }
 
         async with httpx.AsyncClient(timeout=timeout) as http_client:
-            card_url = f"{agent_url.rstrip('/')}/.well-known/agent.json"
-
-            client = await A2AClient.get_client_from_agent_card_url(http_client, card_url)
-
-            request = SendMessageRequest(
-                id=uuid4().hex,
-                params=MessageSendParams(
-                    message={
-                        "role": "user",
-                        "parts": [{"type": "text", "text": message}],
-                        "messageId": uuid4().hex,
-                    }
-                ),
+            response = await http_client.post(
+                agent_url,
+                json=request_body,
+                headers={"A2A-Version": "1.0"},
             )
+            response.raise_for_status()
+            return response.json()
 
-            response = await client.send_message(request)
-            return response.model_dump()
-
-    def _build_app(self, host: str = "localhost", port: int = 8787):
-        """Build the Starlette ASGI application.
-
-        Args:
-            host: Hostname for the agent card URL.
-            port: Port for the agent card URL.
-
-        Returns:
-            The configured Starlette application.
-        """
-        agent_card = self.build_agent_card(host, port)
-
+    def _build_request_handler(self, agent_card: AgentCard) -> DefaultRequestHandler:
+        """Build the SDK DefaultRequestHandler (shared executor + task store wiring)."""
         # Wire push notifier as first on_complete hook if configured
         on_complete = list(self._on_complete)
         if self._push_notifier is not None:
@@ -613,17 +697,32 @@ class Agent:
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
         _protocol_store = self.protocol_task_store if self.protocol_task_store is not None else InMemoryTaskStore()
-        request_handler = DefaultRequestHandler(
+        return DefaultRequestHandler(
             agent_executor=executor,
             task_store=_protocol_store,
-        )
-
-        app_builder = A2AStarletteApplication(
             agent_card=agent_card,
-            http_handler=request_handler,
         )
 
-        app = app_builder.build()
+    def _build_app(self, host: str = "localhost", port: int = 8787):
+        """Build the Starlette ASGI application.
+
+        Args:
+            host: Hostname for the agent card URL.
+            port: Port for the agent card URL.
+
+        Returns:
+            The configured Starlette application.
+        """
+        agent_card = self.build_agent_card(host, port)
+        request_handler = self._build_request_handler(agent_card)
+
+        from starlette.applications import Starlette
+
+        app = Starlette(
+            routes=create_agent_card_routes(agent_card)
+            + create_jsonrpc_routes(request_handler, rpc_url="/")
+            + create_rest_routes(request_handler)
+        )
 
         # Add CORS middleware if configured
         if self.cors_origins is not None:
@@ -645,6 +744,103 @@ class Agent:
     def get_app(self):
         """Get the Starlette application without running it."""
         return self._build_app()
+
+    def build_grpc_server(self, host: str = "0.0.0.0", port: int = 50051):
+        """Build a configured (not yet started) grpc.aio server. EXPERIMENTAL.
+
+        Uses the same skill executor and task store wiring as the HTTP app.
+        The agent card served through this server advertises a GRPC
+        AgentInterface pointing at host:port.
+
+        Requires the optional grpc extra: pip install a2a-lite[grpc]
+
+        Args:
+            host: Bind address for the gRPC server.
+            port: Port for the gRPC server.
+
+        Returns:
+            A grpc.aio.Server with the A2AService registered. Await
+            server.start() / server.stop() to manage its lifecycle.
+        """
+        try:
+            import grpc
+            from a2a.server.request_handlers import GrpcHandler
+            from a2a.types import a2a_pb2_grpc
+        except ImportError as e:
+            raise ImportError(
+                "gRPC support is EXPERIMENTAL and requires extra dependencies. "
+                "Install with: pip install a2a-lite[grpc]"
+            ) from e
+
+        display_host = "localhost" if host == "0.0.0.0" else host
+        agent_card = self.build_agent_card(display_host, port, grpc_url=f"{display_host}:{port}")
+        request_handler = self._build_request_handler(agent_card)
+
+        server = grpc.aio.server()
+        a2a_pb2_grpc.add_A2AServiceServicer_to_server(GrpcHandler(request_handler), server)
+        server.add_insecure_port(f"{host}:{port}")
+        return server
+
+    def run_grpc(  # pragma: no cover
+        self,
+        host: str = "0.0.0.0",
+        port: int = 50051,
+    ) -> None:
+        """Start an EXPERIMENTAL gRPC A2A server (blocking).
+
+        Standalone transport: it does NOT serve the HTTP app, so the
+        well-known agent card endpoint is not available here (the card is
+        reachable over gRPC via GetExtendedAgentCard, and the card's
+        JSONRPC/HTTP+JSON interfaces are only live if you also run
+        agent.run() in parallel).
+
+        Requires: pip install a2a-lite[grpc]
+
+        Simple:
+            agent.run_grpc()
+
+        With options:
+            agent.run_grpc(port=50052)
+        """
+        display_host = "localhost" if host == "0.0.0.0" else host
+
+        logger.warning("gRPC transport is EXPERIMENTAL - expect rough edges")
+        logger.info("gRPC (experimental) server on %s:%d", display_host, port)
+
+        async def _serve():
+            # grpc.aio.server() binds to the running event loop at creation
+            # time, so the server must be built inside the coroutine.
+            server = self.build_grpc_server(host, port)
+
+            # Run startup hooks
+            for hook in self._on_startup:
+                if asyncio.iscoroutinefunction(hook):
+                    await hook()
+                else:
+                    hook()
+
+            await server.start()
+            try:
+                await server.wait_for_termination()
+            except asyncio.CancelledError:
+                await server.stop(grace=2)
+                raise
+
+        try:
+            asyncio.run(_serve())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            # Run shutdown hooks
+            async def _run_shutdown():
+                for hook in self._on_shutdown:
+                    if asyncio.iscoroutinefunction(hook):
+                        await hook()
+                    else:
+                        hook()
+
+            if self._on_shutdown:
+                asyncio.run(_run_shutdown())
 
     def get_tool_schemas(self, format: str = "openai") -> list[dict]:
         """

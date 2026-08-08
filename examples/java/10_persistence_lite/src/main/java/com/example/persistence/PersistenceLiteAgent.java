@@ -5,7 +5,7 @@ import com.a2alite.SkillConfig;
 import com.a2alite.push.LogPushNotifier;
 import com.a2alite.push.PushNotifier;
 import com.a2alite.push.WebhookPushNotifier;
-import com.a2alite.tasks.InMemoryTaskStore;
+import com.a2alite.InMemoryTaskStore;
 
 import java.time.Duration;
 import java.util.Map;

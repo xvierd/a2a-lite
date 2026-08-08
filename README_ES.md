@@ -16,6 +16,8 @@
 
 A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) para darte una API simple basada en decoradores que mantiene **100% de compatibilidad con el protocolo**.
 
+> **v1.0.0 — Protocolo A2A v1.0.** Los tres paquetes sirven ahora el **protocolo A2A v1.0** sobre los SDKs oficiales 1.x (`a2a-sdk 1.1.2`, `@a2a-js/sdk 1.0.1`, `a2a-java-sdk 1.1.0.Final`). v0.3 **no** es compatible — los agentes en 0.3 y 1.0 no pueden llamarse entre si. La API lite no cambia, asi que la mayoria de los agentes migran con solo actualizar la dependencia. Consulta [MIGRATION.md](MIGRATION.md) para los breaking changes y las tablas de equivalencia de los SDKs.
+
 ## Por que A2A Lite?
 
 |  | SDK Oficial A2A | A2A Lite |
@@ -109,7 +111,7 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'com.a2alite:a2a-lite:0.2.5'
+    implementation 'io.github.xvierd:a2a-lite:1.0.0'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -290,25 +292,65 @@ a2a-lite discover                # Encontrar agentes en la red local (mDNS)
 
 ---
 
+## A2A v1.0
+
+Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre los SDKs oficiales 1.x:
+
+- **Transporte JSON-RPC** — Python, TypeScript, Java.
+- **Transporte REST (HTTP+JSON)** — Python y TypeScript (Java: planeado). gRPC: planeado en los tres.
+- **Streaming SSE**, **push notifications por tarea** (`TaskPushNotificationConfig`) y **`securitySchemes` en la agent card** — en los tres lenguajes.
+- **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planeado.
+- Agent card servida en **`/.well-known/agent-card.json`** (la ruta antigua `agent.json` ya no existe).
+- **Sin compatibilidad con v0.3** — los clientes lite detectan cards 0.3 y fallan con un error claro.
+
+Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes solo necesitan actualizar la dependencia. Consulta [MIGRATION.md](MIGRATION.md) para breaking changes, pasos por lenguaje y tablas de equivalencia SDK 0.3 → 1.x.
+
+---
+
 ## Matriz de Caracteristicas
 
 | Caracteristica | Python | TypeScript | Java |
-|----------------|--------|------------|------|
+|---|:---:|:---:|:---:|
+| **Protocolo (A2A v1.0)** | | | |
+| Protocolo A2A v1.0 | ✅ | ✅ | ✅ |
+| Transporte JSON-RPC | ✅ | ✅ | ✅ |
+| Transporte REST (HTTP+JSON) | ✅ | ✅ | 🔜 planeado |
+| Transporte gRPC | 🔜 planeado | 🔜 planeado | 🔜 planeado |
+| `securitySchemes` en la agent card | ✅ | ✅ | ✅ |
+| Signed Agent Cards | 🔜 planeado | ✅ experimental | 🔜 planeado |
+| `ListTasks` | 🔜 planeado | 🔜 planeado | 🔜 planeado |
+| Multi-tenancy | 🔜 planeado | 🔜 planeado | 🔜 planeado |
+| Compatibilidad v0.3 | ❌ | ❌ | ❌ |
+| **API Lite** | | | |
 | Habilidades basicas | `@agent.skill()` | `agent.skill()` | `agent.skill()` |
-| Pydantic / Zod / POJO | Auto | Manual | Manual |
-| Streaming | `yield` | `yield` | — |
+| Esquemas JSON automaticos | ✅ Pydantic | ⚠️ Manual | ⚠️ Manual |
+| Streaming | `yield` | `yield` | `SkillConfig.withStreaming()` |
 | Middleware | `@agent.middleware` | `agent.use()` | `agent.use()` |
-| Manejo de archivos | `FilePart` | `FilePart` | — |
-| Datos estructurados | `DataPart` | `DataPart` | — |
-| Salidas ricas | `Artifact` | `Artifact` | — |
-| Seguimiento de tareas | `TaskContext` | — | — |
+| Manejo de archivos | `FilePart` | `FilePart` | `FilePart` |
+| Datos estructurados | `DataPart` | `DataPart` | `DataPart` |
+| Salidas ricas | `Artifact` | `Artifact` | `Artifact` |
+| Seguimiento de tareas | `TaskContext` | `TaskContext` | `TaskContext` |
 | Auth API Key | `APIKeyAuth` | `APIKeyAuth` | `APIKeyAuth` |
 | Bearer / JWT | `BearerAuth` | `BearerAuth` | `BearerAuth` |
-| OAuth2 | `OAuth2Auth` | — | — |
-| CORS | `cors_origins=[...]` | `corsOrigins` | — |
+| OAuth2 | `OAuth2Auth` | `OAuth2Auth` | `OAuth2Auth` |
+| Auth compuesta | ✅ | ✅ | — |
+| AgentNetwork + `delegate()` | ✅ | ✅ | ✅ |
+| Skills LLM (OpenAI/Anthropic/Ollama/Bedrock) | ✅ | ✅ | ✅ |
+| Cliente MCP | ✅ | ✅ | — |
+| Router (multi-agente) | ✅ | ✅ | ✅ |
+| `get_tool_schemas()` | ✅ | ✅ | ✅ |
+| Errores estructurados | ✅ | ✅ | ✅ |
 | Testing | `AgentTestClient` | `AgentTestClient` | `AgentTestClient` |
-| CLI | `a2a-lite` | — | — |
+| CLI | `a2a-lite` | basico | — |
 | Descubrimiento mDNS | `a2a-lite discover` | — | — |
+| Control de CORS | ✅ | ✅ | — |
+| TaskHandle (seguimiento de tareas remotas) | ✅ | ✅ | ✅ |
+| Descubrimiento de agent card | ✅ | ✅ | ✅ |
+| `get/cancel` de tareas remotas | ✅ | ✅ | ✅ |
+| Streaming SSE del lado cliente | ✅ | ✅ | ✅ |
+| Push notifications por tarea | ✅ | ✅ | ✅ |
+
+> **Nota sobre v0.3:** a2a-lite 1.0.0 no interopera con agentes A2A 0.3 (decision explicita — sin modo compatibilidad). Los clientes lite detectan cards 0.3 y fallan con un error claro. Consulta [MIGRATION.md](MIGRATION.md).
 
 ---
 
@@ -330,6 +372,12 @@ Todo en A2A Lite se mapea directamente al protocolo subyacente — sin magia, si
 
 ## Ejemplos
 
+### Google SDK vs A2A Lite — comparacion lado a lado
+
+El directorio [`examples/`](examples/) contiene pares completos y ejecutables del mismo agente escrito con el SDK oficial y con A2A Lite (todos migrados a A2A v1.0 / SDK 1.x): hello world, calculadora, manejo de archivos, auth, streaming, integracion LLM, human-in-the-loop, persistencia. Consulta [examples/README.md](examples/README.md).
+
+### Python
+
 | Ejemplo | Que muestra |
 |---------|-------------|
 | [01_hello_world.py](packages/python/examples/01_hello_world.py) | Agente mas simple (8 lineas) |
@@ -338,12 +386,24 @@ Todo en A2A Lite se mapea directamente al protocolo subyacente — sin magia, si
 | [04_multi_agent/](packages/python/examples/04_multi_agent) | Dos agentes comunicandose |
 | [05_with_llm.py](packages/python/examples/05_with_llm.py) | Integracion con OpenAI / Anthropic |
 | [06_pydantic_models.py](packages/python/examples/06_pydantic_models.py) | Conversion automatica con Pydantic |
+| [06_task_handle_discovery.py](packages/python/examples/06_task_handle_discovery.py) | TaskHandle + descubrimiento de card |
 | [07_middleware.py](packages/python/examples/07_middleware.py) | Pipeline de middleware |
+| [07_client_streaming.py](packages/python/examples/07_client_streaming.py) | Streaming SSE del lado cliente |
 | [08_streaming.py](packages/python/examples/08_streaming.py) | Respuestas en streaming |
 | [09_testing.py](packages/python/examples/09_testing.py) | TestClient incluido |
 | [10_file_handling.py](packages/python/examples/10_file_handling.py) | Carga y procesamiento de archivos |
 | [11_task_tracking.py](packages/python/examples/11_task_tracking.py) | Actualizaciones de progreso |
 | [12_with_auth.py](packages/python/examples/12_with_auth.py) | Autenticacion |
+| [13_mcp_tools.py](packages/python/examples/13_mcp_tools.py) | Integracion con servidores MCP |
+| [14_multi_agent_network.py](packages/python/examples/14_multi_agent_network.py) | AgentNetwork + delegate() |
+| [15_llm_openai.py](packages/python/examples/15_llm_openai.py) | Skill LLM con OpenAI |
+| [16_llm_anthropic.py](packages/python/examples/16_llm_anthropic.py) | Skill LLM con Anthropic |
+| [17_llm_bedrock.py](packages/python/examples/17_llm_bedrock.py) | Skill LLM con AWS Bedrock |
+| [18_per_task_push.py](packages/python/examples/18_per_task_push.py) | Push notifications por tarea |
+| [19_capability_negotiation.py](packages/python/examples/19_capability_negotiation.py) | Negociacion de capacidades |
+| [20_streaming_negotiation.py](packages/python/examples/20_streaming_negotiation.py) | Negociacion de streaming |
+
+TypeScript y Java tienen sus propios ejemplos: [`packages/typescript/examples/`](packages/typescript/examples/) y [`packages/java/examples/`](packages/java/examples/).
 
 ---
 

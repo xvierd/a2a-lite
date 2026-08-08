@@ -1,10 +1,9 @@
-# Google A2A Python SDK with HTTP server support
-a2a-sdk[http-server]>=0.4.0
+# Google A2A Python SDK with HTTP server support (A2A protocol v1.0)
+a2a-sdk[http-server]>=1.1.2,<2.0
 
 # ASGI server
 uvicorn>=0.23.0
 
 # Testing
 pytest>=7.0.0
-pytest-asyncio>=0.21.0
 httpx>=0.25.0

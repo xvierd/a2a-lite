@@ -1,8 +1,11 @@
-# LLM Integration - Google A2A SDK (Java)
+# LLM Integration - A2A protocol v1.0 from scratch (Java)
 
 > **Complete LLM-powered agent with conversation memory and tool calling.**
 
-This example demonstrates building an LLM-powered agent using the official Google A2A Java SDK with real OpenAI/Anthropic API integration.
+This example demonstrates building an LLM-powered agent that speaks the A2A
+v1.0 wire protocol implemented **from scratch** with Javalin + Jackson (Maven,
+no SDK), with real OpenAI/Anthropic API integration. For the official Java SDK
+approach, see [`packages/java`](../../../packages/java).
 
 ---
 
@@ -73,14 +76,16 @@ java -jar target/llm-agent-google-1.0.0.jar
 ```bash
 curl -X POST http://localhost:8793/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello!\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello!\"}}"}]
       }
     }
   }'
@@ -91,14 +96,16 @@ curl -X POST http://localhost:8793/ \
 ```bash
 curl -X POST http://localhost:8793/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"clear_memory\", \"params\": {}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m2",
+        "parts": [{"text": "{\"skill\": \"clear_memory\", \"params\": {}}"}]
       }
     }
   }'
@@ -109,18 +116,22 @@ curl -X POST http://localhost:8793/ \
 ```bash
 curl -X POST http://localhost:8793/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "3",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"info\", \"params\": {}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m3",
+        "parts": [{"text": "{\"skill\": \"info\", \"params\": {}}"}]
       }
     }
   }'
 ```
+
+The response follows the A2A v1.0 shape: `{"jsonrpc":"2.0","id":"3","result":{"message":{"messageId":"<uuid>","role":"ROLE_AGENT","parts":[{"text":"..."}]}}}`.
 
 ---
 
@@ -173,8 +184,8 @@ curl -X POST http://localhost:8793/ \
 
 See [../08_llm_integration_lite/](../08_llm_integration_lite/) for comparison.
 
-| Aspect | Google SDK | A2A Lite |
-|--------|------------|----------|
+| Aspect | From scratch (this example) | A2A Lite |
+|--------|-----------------------------|----------|
 | **Code Lines** | ~765 lines | ~120 lines |
 | **Reduction** | Baseline | **~84% less code** |
 | **Memory** | Manual implementation | Built-in |

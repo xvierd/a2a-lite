@@ -53,7 +53,7 @@ public class Artifact {
      * Add a text part.
      */
     public Artifact addText(String text) {
-        parts.add(Map.of("type", "text", "text", text));
+        parts.add(new TextPart(text));
         return this;
     }
 

@@ -1,6 +1,5 @@
 package com.a2alite;
 
-import com.a2alite.tasks.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

@@ -215,22 +215,22 @@ class TestAuthIntegration:
 
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
             },
         }
 
-        response = client.post("/", json=request_body)
+        response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
         data = response.json()
 
         # The response should contain an auth error, not the skill result
-        result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+        result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert "error" in result_text.lower() or "auth" in result_text.lower() or "key" in result_text.lower()
         assert "secret: hello" not in result_text
 
@@ -247,12 +247,12 @@ class TestAuthIntegration:
 
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
             },
@@ -261,11 +261,11 @@ class TestAuthIntegration:
         response = client.post(
             "/",
             json=request_body,
-            headers={"X-API-Key": "valid-key"},
+            headers={"X-API-Key": "valid-key", "A2A-Version": "1.0"},
         )
         data = response.json()
 
-        result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+        result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert "secret: hello" in result_text
 
     def test_wrong_key_rejected(self):
@@ -281,12 +281,12 @@ class TestAuthIntegration:
 
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": json.dumps({"skill": "secret", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
             },
@@ -295,12 +295,33 @@ class TestAuthIntegration:
         response = client.post(
             "/",
             json=request_body,
-            headers={"X-API-Key": "wrong-key"},
+            headers={"X-API-Key": "wrong-key", "A2A-Version": "1.0"},
         )
         data = response.json()
 
-        result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+        result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert "secret: hello" not in result_text
+
+    def test_agent_card_advertises_security_scheme(self):
+        """The agent card should include securitySchemes/security when auth is configured."""
+        from starlette.testclient import TestClient
+
+        agent = self._make_agent_with_auth()
+        app = agent.get_app()
+        client = TestClient(app)
+
+        response = client.get("/.well-known/agent-card.json")
+        assert response.status_code == 200
+        card = response.json()
+
+        schemes = card.get("securitySchemes", {})
+        assert "apiKey" in schemes
+        api_key_scheme = schemes["apiKey"].get("apiKeySecurityScheme", {})
+        assert api_key_scheme.get("name") == "X-API-Key"
+        assert api_key_scheme.get("location") == "header"
+        requirements = card.get("securityRequirements", [])
+        assert requirements, "card should declare security requirements"
+        assert "apiKey" in requirements[0].get("schemes", {})
 
 
 class TestRequireAuth:
@@ -333,23 +354,23 @@ class TestRequireAuth:
         # Without auth — should be rejected at the gate
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": json.dumps({"skill": "admin", "params": {"data": "hello"}})}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": json.dumps({"skill": "admin", "params": {"data": "hello"}})}],
                     "messageId": uuid4().hex,
                 }
             },
         }
-        response = client.post("/", json=request_body)
-        result_text = response.json().get("result", {}).get("parts", [{}])[0].get("text", "")
+        response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
+        result_text = response.json().get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert "admin:" not in result_text
 
         # With valid auth — require_auth checks scopes (no admin scope, so should fail)
-        response = client.post("/", json=request_body, headers={"X-API-Key": "my-key"})
-        result_text = response.json().get("result", {}).get("parts", [{}])[0].get("text", "")
+        response = client.post("/", json=request_body, headers={"X-API-Key": "my-key", "A2A-Version": "1.0"})
+        result_text = response.json().get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert "Insufficient permissions" in result_text or "error" in result_text.lower()
 
     def test_auth_param_injected_without_decorator(self):
@@ -376,19 +397,19 @@ class TestRequireAuth:
 
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": json.dumps({"skill": "whoami", "params": {}})}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": json.dumps({"skill": "whoami", "params": {}})}],
                     "messageId": uuid4().hex,
                 }
             },
         }
 
-        response = client.post("/", json=request_body, headers={"X-API-Key": "my-key"})
-        result_text = response.json().get("result", {}).get("parts", [{}])[0].get("text", "")
+        response = client.post("/", json=request_body, headers={"X-API-Key": "my-key", "A2A-Version": "1.0"})
+        result_text = response.json().get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
         assert result_text.startswith("user:")
 
 

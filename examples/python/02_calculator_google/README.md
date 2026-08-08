@@ -7,9 +7,8 @@ This example demonstrates a complete, production-ready calculator agent with 5 a
 - **AgentCard** with multiple skills (add, subtract, multiply, divide, power)
 - **Custom AgentExecutor** with `execute()` and `cancel()` methods
 - **TaskStore** (InMemoryTaskStore) for task persistence
-- **QueueManager** (InMemoryQueueManager) for event queue management
 - **DefaultRequestHandler** for handling A2A protocol requests
-- **A2ARESTFastAPIApplication** for REST API endpoints
+- **Starlette** app with agent card, JSON-RPC and REST routes (`create_agent_card_routes`, `create_jsonrpc_routes`, `create_rest_routes`)
 
 ---
 
@@ -52,7 +51,7 @@ The server will start at `http://localhost:8788`
 ### Get Agent Card
 
 ```bash
-curl http://localhost:8788/.well-known/agent.json
+curl http://localhost:8788/.well-known/agent-card.json
 ```
 
 ### Test Addition
@@ -60,14 +59,15 @@ curl http://localhost:8788/.well-known/agent.json
 ```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}],
         "messageId": "msg-1"
       }
     }
@@ -81,14 +81,15 @@ curl -X POST http://localhost:8788/ \
 ```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 3}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 3}}"}],
         "messageId": "msg-2"
       }
     }
@@ -102,14 +103,15 @@ curl -X POST http://localhost:8788/ \
 ```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "3",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 0}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 0}}"}],
         "messageId": "msg-3"
       }
     }
@@ -123,14 +125,15 @@ curl -X POST http://localhost:8788/ \
 ```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "4",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"power\", \"params\": {\"base\": 2, \"exponent\": 10}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"power\", \"params\": {\"base\": 2, \"exponent\": 10}}"}],
         "messageId": "msg-4"
       }
     }
@@ -153,7 +156,7 @@ python -m pytest test_calculator.py -v
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    A2ARESTFastAPIApplication                     │
+│              Starlette (agent card + JSON-RPC + REST routes)     │
 │                         (main.py:300)                           │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
@@ -163,13 +166,13 @@ python -m pytest test_calculator.py -v
 │              (handles A2A protocol methods)                     │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
-            ┌─────────────────┼─────────────────┐
-            ▼                 ▼                 ▼
-    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-    │CalculatorExecutor│  │ InMemoryTaskStore │  │InMemoryQueueManager│
-    │  (execute()  │  │              │  │              │
-    │   cancel())  │  │              │  │              │
-    └──────────────┘  └──────────────┘  └──────────────┘
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+            ┌──────────────┐    ┌──────────────┐
+            │CalculatorExecutor│  │ InMemoryTaskStore │
+            │  (execute()  │    │              │
+            │   cancel())  │    │              │
+            └──────────────┘    └──────────────┘
 ```
 
 ### Key Components
@@ -180,7 +183,14 @@ python -m pytest test_calculator.py -v
 AGENT_CARD = AgentCard(
     name="CalculatorAgent",
     description="A calculator agent with arithmetic operations",
-    capabilities=AgentCapabilities(streaming=True, pushNotifications=False),
+    supported_interfaces=[
+        AgentInterface(
+            url="http://localhost:8788/",
+            protocol_binding="JSONRPC",
+            protocol_version="1.0",
+        ),
+    ],
+    capabilities=AgentCapabilities(streaming=True, push_notifications=False),
     skills=[
         AgentSkill(id="add", name="Addition", ...),
         AgentSkill(id="subtract", name="Subtraction", ...),
@@ -207,18 +217,18 @@ class CalculatorExecutor(AgentExecutor):
 #### 3. Server Setup
 
 ```python
-task_store = InMemoryTaskStore()
-queue_manager = InMemoryQueueManager()
+from starlette.applications import Starlette
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
+from a2a.server.tasks import InMemoryTaskStore
+
 agent_executor = CalculatorExecutor()
-request_handler = DefaultRequestHandler(
-    agent_executor=agent_executor,
-    task_store=task_store,
-    queue_manager=queue_manager,
+handler = DefaultRequestHandler(agent_executor, InMemoryTaskStore(), AGENT_CARD)
+app = Starlette(
+    routes=create_agent_card_routes(AGENT_CARD)
+    + create_jsonrpc_routes(handler, rpc_url="/")
+    + create_rest_routes(handler)
 )
-app = A2ARESTFastAPIApplication(
-    agent_card=AGENT_CARD,
-    http_handler=request_handler,
-).build()
 ```
 
 ---
@@ -241,10 +251,10 @@ The server implements the following A2A JSON-RPC methods:
 
 | Method | Description |
 |--------|-------------|
-| `tasks/send` | Send a message and wait for response |
-| `tasks/get` | Get task status |
-| `tasks/cancel` | Cancel a running task |
-| `tasks/sendSubscribe` | Send a message with streaming response |
+| `SendMessage` | Send a message and wait for response |
+| `GetTask` | Get task status |
+| `CancelTask` | Cancel a running task |
+| `SendStreamingMessage` | Send a message with streaming response |
 
 ---
 
@@ -253,13 +263,12 @@ The server implements the following A2A JSON-RPC methods:
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "tasks/send",
+  "method": "SendMessage",
   "id": "unique-request-id",
   "params": {
     "message": {
-      "role": "user",
+      "role": "ROLE_USER",
       "parts": [{
-        "type": "text",
         "text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"
       }],
       "messageId": "unique-message-id"
@@ -267,6 +276,8 @@ The server implements the following A2A JSON-RPC methods:
   }
 }
 ```
+
+All JSON-RPC requests must include the `A2A-Version: 1.0` HTTP header.
 
 ---
 
@@ -277,7 +288,7 @@ The server implements the following A2A JSON-RPC methods:
 | Lines of Code | ~350 | ~40 |
 | Files | 1 main file | 1 file |
 | Abstraction Level | Full SDK | Lightweight wrapper |
-| Task Management | TaskStore + QueueManager | Built-in |
+| Task Management | TaskStore | Built-in |
 | Protocol Compliance | Full A2A protocol | Simplified |
 | Extensibility | High (full SDK) | Medium |
 

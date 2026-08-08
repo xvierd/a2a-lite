@@ -41,21 +41,19 @@ echo "Hello, this is a test file for A2A protocol." > test_file.txt
 # Upload via curl (base64 encoded)
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
         "parts": [
           {
-            "type": "file",
-            "file": {
-              "name": "test_file.txt",
-              "mimeType": "text/plain",
-              "bytes": "SGVsbG8sIHRoaXMgaXMgYSB0ZXN0IGZpbGUgZm9yIEEyQSBwcm90b2NvbC4="
-            }
+            "raw": "SGVsbG8sIHRoaXMgaXMgYSB0ZXN0IGZpbGUgZm9yIEEyQSBwcm90b2NvbC4=",
+            "filename": "test_file.txt",
+            "mediaType": "text/plain"
           }
         ],
         "messageId": "msg-1"

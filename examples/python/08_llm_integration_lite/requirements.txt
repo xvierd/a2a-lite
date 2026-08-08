@@ -1,5 +1,6 @@
-# A2A Lite with LLM support
-a2a-lite[llm]>=0.2.0
+# A2A Lite with LLM support (choose the provider you use)
+a2a-lite[openai]>=1.0.0
+# or: a2a-lite[anthropic]>=1.0.0
 
 # Environment
 python-dotenv>=1.0.0

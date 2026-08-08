@@ -20,7 +20,7 @@ def test_chat_streaming():
     
     # Each chunk should have a token
     for chunk in chunks[:-1]:  # All except possibly last
-        assert "token" in chunk.data
+        assert "token" in chunk
 
 
 def test_count_streaming():
@@ -30,7 +30,7 @@ def test_count_streaming():
     chunks = client.stream("count", start=1, end=5)
     
     # Should get 5 number chunks
-    numbers = [c.data["number"] for c in chunks if "number" in c.data]
+    numbers = [c["number"] for c in chunks if "number" in c]
     assert numbers == [1, 2, 3, 4, 5]
 
 
@@ -41,12 +41,12 @@ def test_count_progress():
     chunks = client.stream("count", start=1, end=4)
     
     # Check progress in chunks
-    progress_chunks = [c for c in chunks if "progress" in c.data]
+    progress_chunks = [c for c in chunks if "progress" in c]
     assert len(progress_chunks) == 4
     
     # First should be 25%, last should be 100%
-    assert progress_chunks[0].data["progress"]["percentage"] == 25.0
-    assert progress_chunks[-1].data["progress"]["percentage"] == 100.0
+    assert progress_chunks[0]["progress"]["percentage"] == 25.0
+    assert progress_chunks[-1]["progress"]["percentage"] == 100.0
 
 
 def test_story_streaming():
@@ -56,12 +56,12 @@ def test_story_streaming():
     chunks = client.stream("story", theme="adventure")
     
     # Should get story parts
-    parts = [c for c in chunks if "part" in c.data]
+    parts = [c for c in chunks if "part" in c]
     assert len(parts) > 0
     
     # Parts should be sequential
     for i, chunk in enumerate(parts):
-        assert chunk.data["part_number"] == i + 1
+        assert chunk["part_number"] == i + 1
 
 
 def test_progress_simulation():
@@ -71,7 +71,7 @@ def test_progress_simulation():
     chunks = client.stream("progress", task="upload")
     
     # Should get progress updates
-    progress_values = [c.data["progress"] for c in chunks if "progress" in c.data]
+    progress_values = [c["progress"] for c in chunks if "progress" in c]
     assert len(progress_values) > 0
     assert progress_values[-1] == 100  # Completes at 100%
 
@@ -96,18 +96,18 @@ if __name__ == "__main__":
     print("\n1. Testing chat streaming...")
     chunks = client.stream("chat", message="Hello world")
     print(f"   Received {len(chunks)} chunks")
-    print(f"   First token: '{chunks[0].data.get('token', 'N/A')}'")
+    print(f"   First token: '{chunks[0].get('token', 'N/A')}'")
     
     # Test count
     print("\n2. Testing count streaming...")
     chunks = client.stream("count", start=1, end=5)
-    numbers = [c.data["number"] for c in chunks if "number" in c.data]
+    numbers = [c["number"] for c in chunks if "number" in c]
     print(f"   Numbers: {numbers}")
     
     # Test story
     print("\n3. Testing story streaming...")
     chunks = client.stream("story", theme="mystery")
-    parts = [c.data["part"] for c in chunks if "part" in c.data]
+    parts = [c["part"] for c in chunks if "part" in c]
     print(f"   Generated story with {len(parts)} parts")
     print(f"   First part: '{parts[0][:50]}...'")
     

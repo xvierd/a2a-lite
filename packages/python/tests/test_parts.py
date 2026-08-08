@@ -16,10 +16,10 @@ class TestTextPart:
 
     def test_to_a2a(self):
         part = TextPart(text="Hello")
-        assert part.to_a2a() == {"type": "text", "text": "Hello"}
+        assert part.to_a2a() == {"text": "Hello"}
 
     def test_from_a2a(self):
-        part = TextPart.from_a2a({"type": "text", "text": "Hello"})
+        part = TextPart.from_a2a({"text": "Hello"})
         assert part.text == "Hello"
 
 
@@ -48,26 +48,24 @@ class TestFilePart:
         part = FilePart(name="test.txt", data=data)
         result = part.to_a2a()
 
-        assert result["type"] == "file"
-        assert result["file"]["name"] == "test.txt"
-        assert result["file"]["bytes"] == base64.b64encode(data).decode()
+        assert result["raw"] == base64.b64encode(data).decode()
+        assert result["filename"] == "test.txt"
+        assert result["mediaType"] == "application/octet-stream"
 
     def test_to_a2a_uri(self):
         part = FilePart(name="test.txt", uri="https://example.com/file.txt")
         result = part.to_a2a()
 
-        assert result["type"] == "file"
-        assert result["file"]["uri"] == "https://example.com/file.txt"
+        assert result["url"] == "https://example.com/file.txt"
+        assert result["filename"] == "test.txt"
+        assert result["mediaType"] == "application/octet-stream"
 
     def test_from_a2a_bytes(self):
         data = b"Hello"
         a2a_data = {
-            "type": "file",
-            "file": {
-                "name": "test.txt",
-                "mimeType": "text/plain",
-                "bytes": base64.b64encode(data).decode(),
-            },
+            "raw": base64.b64encode(data).decode(),
+            "filename": "test.txt",
+            "mediaType": "text/plain",
         }
         part = FilePart.from_a2a(a2a_data)
 
@@ -76,11 +74,8 @@ class TestFilePart:
 
     def test_from_a2a_uri(self):
         a2a_data = {
-            "type": "file",
-            "file": {
-                "name": "remote.txt",
-                "uri": "https://example.com/file.txt",
-            },
+            "url": "https://example.com/file.txt",
+            "filename": "remote.txt",
         }
         part = FilePart.from_a2a(a2a_data)
 
@@ -109,11 +104,11 @@ class TestDataPart:
         part = DataPart(data={"key": "value"})
         result = part.to_a2a()
 
-        assert result["type"] == "data"
         assert result["data"] == {"key": "value"}
+        assert result["mediaType"] == "application/json"
 
     def test_from_a2a(self):
-        part = DataPart.from_a2a({"type": "data", "data": {"key": "value"}})
+        part = DataPart.from_a2a({"data": {"key": "value"}, "mediaType": "application/json"})
         assert part.data == {"key": "value"}
 
 
@@ -163,31 +158,36 @@ class TestArtifact:
 
 class TestParsePart:
     def test_parse_text(self):
-        part = parse_part({"type": "text", "text": "Hello"})
+        part = parse_part({"text": "Hello"})
         assert isinstance(part, TextPart)
         assert part.text == "Hello"
 
     def test_parse_file(self):
-        part = parse_part({"type": "file", "file": {"name": "test.txt", "bytes": base64.b64encode(b"data").decode()}})
+        part = parse_part({"raw": base64.b64encode(b"data").decode(), "filename": "test.txt"})
         assert isinstance(part, FilePart)
 
+    def test_parse_file_url(self):
+        part = parse_part({"url": "https://example.com/f.txt", "filename": "f.txt"})
+        assert isinstance(part, FilePart)
+        assert part.uri == "https://example.com/f.txt"
+
     def test_parse_data(self):
-        part = parse_part({"type": "data", "data": {"key": "value"}})
+        part = parse_part({"data": {"key": "value"}})
         assert isinstance(part, DataPart)
 
     def test_parse_kind_alias(self):
-        # A2A sometimes uses 'kind' instead of 'type'
+        # SDK messages may carry a 'kind' discriminator; content keys still win
         part = parse_part({"kind": "text", "text": "Hello"})
         assert isinstance(part, TextPart)
 
     def test_parse_unknown_type_fallback(self):
-        """Unknown part types should fall back to TextPart."""
-        part = parse_part({"type": "unknown", "data": "test"})
+        """Dicts without any content key should fall back to TextPart."""
+        part = parse_part({"type": "unknown", "foo": "bar"})
         assert isinstance(part, TextPart)
 
     def test_parse_no_type(self):
-        """Parts without type or kind should fall back to TextPart."""
-        part = parse_part({"data": "some data"})
+        """Parts without any content key should fall back to TextPart."""
+        part = parse_part({"foo": "bar"})
         assert isinstance(part, TextPart)
 
 
@@ -241,7 +241,7 @@ class TestFilePartEdgeCases:
         """Test to_a2a with no data (defaults to empty bytes)."""
         part = FilePart(name="empty.txt", mime_type="text/plain")
         result = part.to_a2a()
-        assert result["file"]["bytes"] == base64.b64encode(b"").decode()
+        assert result["raw"] == base64.b64encode(b"").decode()
 
     def test_is_bytes_and_is_uri_both_none(self):
         """Test that both is_bytes and is_uri return False when no data."""
@@ -287,6 +287,6 @@ class TestArtifactEdgeCases:
 
         result = artifact.to_a2a()
         assert len(result["parts"]) == 3
-        assert result["parts"][0]["type"] == "text"
-        assert result["parts"][1]["type"] == "data"
-        assert result["parts"][2]["type"] == "file"
+        assert "text" in result["parts"][0]
+        assert "data" in result["parts"][1]
+        assert "raw" in result["parts"][2]

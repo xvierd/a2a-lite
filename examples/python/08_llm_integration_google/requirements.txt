@@ -1,13 +1,15 @@
-# Google A2A Python SDK (official)
-a2a-sdk[http-server]>=0.1.0
+# Google A2A Python SDK (official) with HTTP server support (A2A protocol v1.0)
+a2a-sdk[http-server]>=1.1.2,<2.0
 
-# Web framework
-fastapi>=0.100.0
+# ASGI server
 uvicorn>=0.23.0
 
-# LLM APIs
+# LLM APIs (only needed for the "chat" skill at runtime)
 openai>=1.0.0
 anthropic>=0.30.0
 
 # Environment
 python-dotenv>=1.0.0
+
+# Testing client
+httpx>=0.27.0

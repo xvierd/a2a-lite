@@ -32,12 +32,12 @@ public class MessageHandler {
             ObjectNode params = (ObjectNode) request.get("params");
             ObjectNode message = (ObjectNode) params.get("message");
             ArrayNode parts = (ArrayNode) message.get("parts");
-            
-            // Find text part containing skill call
+
+            // Find text part containing skill call (v1.0 parts: {"text": ...})
             String skillCallJson = null;
             for (int i = 0; i < parts.size(); i++) {
                 ObjectNode part = (ObjectNode) parts.get(i);
-                if ("text".equals(part.get("type").asText())) {
+                if (part.has("text")) {
                     skillCallJson = part.get("text").asText();
                     break;
                 }
@@ -90,11 +90,11 @@ public class MessageHandler {
         
         ObjectNode resultObj = mapper.createObjectNode();
         ObjectNode messageObj = mapper.createObjectNode();
-        messageObj.put("role", "agent");
-        
+        messageObj.put("messageId", java.util.UUID.randomUUID().toString());
+        messageObj.put("role", "ROLE_AGENT");
+
         ArrayNode parts = mapper.createArrayNode();
         ObjectNode textPart = mapper.createObjectNode();
-        textPart.put("type", "text");
         textPart.put("text", result.toString());
         parts.add(textPart);
         messageObj.set("parts", parts);

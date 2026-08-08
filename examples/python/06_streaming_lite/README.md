@@ -50,14 +50,16 @@ python agent.py
 curl -N -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendStreamingMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-1",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello\"}}"}]
       }
     }
   }'

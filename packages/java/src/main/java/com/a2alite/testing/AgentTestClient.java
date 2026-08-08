@@ -36,7 +36,6 @@ public class AgentTestClient {
         var messageWrapper = mapper.createObjectNode();
         var parts = messageWrapper.putArray("parts");
         var textPart = parts.addObject();
-        textPart.put("kind", "text");
         textPart.put("text", mapper.writeValueAsString(message));
 
         Object data = agent.handleMessage(messageWrapper, Collections.emptyMap());

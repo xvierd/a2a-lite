@@ -156,6 +156,7 @@ class AgentNetwork:
         self,
         name: str,
         skill: str,
+        /,
         timeout: float = 30.0,
         return_handle: bool = False,
         **params: Any,
@@ -218,6 +219,7 @@ class AgentNetwork:
         self,
         name: str,
         skill: str,
+        /,
         timeout: float = 30.0,
         **params: Any,
     ) -> AsyncGenerator[str, None]:
@@ -244,6 +246,7 @@ class AgentNetwork:
     async def broadcast(
         self,
         skill: str,
+        /,
         timeout: float = 30.0,
         **params: Any,
     ) -> dict[str, Any]:
@@ -340,32 +343,54 @@ async def _call_remote_skill(
     message = json.dumps({"skill": skill, "params": params})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
-    # Extract task_id from the A2A response: result.id
+    # Extract task_id from the A2A v1.0 response: result.task.id or result.message.taskId
     rpc_result = data.get("result", {})
-    task_id = rpc_result.get("id") if isinstance(rpc_result, dict) else None
+    task_id = None
+    if isinstance(rpc_result, dict):
+        task = rpc_result.get("task")
+        if isinstance(task, dict):
+            task_id = task.get("id")
+        if not task_id:
+            message_result = rpc_result.get("message")
+            if isinstance(message_result, dict):
+                task_id = message_result.get("taskId")
+        if not task_id:
+            task_id = rpc_result.get("id")
     if not task_id:
         task_id = uuid4().hex
 
     return _extract_result(data), task_id
 
 
-_TERMINAL_STATES = {"completed", "failed", "canceled", "rejected"}
+_TERMINAL_STATES = {
+    "TASK_STATE_COMPLETED",
+    "TASK_STATE_FAILED",
+    "TASK_STATE_CANCELED",
+    "TASK_STATE_REJECTED",
+    "TASK_STATE_INPUT_REQUIRED",
+    "TASK_STATE_AUTH_REQUIRED",
+}
+
+
+def _part_text(part: dict) -> str:
+    """Extract text from a v1.0 part dict (content key presence)."""
+    return part.get("text", "") if "text" in part else ""
 
 
 async def stream_remote_skill(
@@ -377,7 +402,7 @@ async def stream_remote_skill(
     """Stream chunks from a remote A2A agent skill via SSE.
 
     The remote agent must support streaming (supports_streaming=True in its card).
-    Uses message/stream JSON-RPC method and consumes the SSE response.
+    Uses the SendStreamingMessage JSON-RPC method and consumes the SSE response.
 
     Args:
         agent_url: Base URL of the remote agent.
@@ -396,19 +421,21 @@ async def stream_remote_skill(
     message = json.dumps({"skill": skill, "params": params})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/stream",
+        "method": "SendStreamingMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
-        async with client.stream("POST", agent_url, json=request_body) as response:
+        async with client.stream(
+            "POST", agent_url, json=request_body, headers={"A2A-Version": "1.0"}
+        ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
                 line = line.strip()
@@ -430,18 +457,29 @@ async def stream_remote_skill(
                     logger.debug("Skipping non-JSON SSE data: %s", data_str)
                     continue
 
+                # A2A v1.0 SSE events: {"result": {"task"|"statusUpdate"|"artifactUpdate"|"message": ...}}
+                # No `final` field: a terminal status state (or the stream closing) marks the end.
+                event = data.get("result", data)
+                if not isinstance(event, dict):
+                    continue
+
+                status = None
+                if "statusUpdate" in event:
+                    status = (event.get("statusUpdate") or {}).get("status") or {}
+                elif "task" in event:
+                    status = (event.get("task") or {}).get("status") or {}
+
+                state = status.get("state", "") if status else ""
+
                 # Check for failed state
-                status = data.get("status") or {}
-                state = status.get("state", "")
-                if state == "failed":
+                if state == "TASK_STATE_FAILED":
                     from .errors import RemoteAgentError
 
                     msg = status.get("message", {})
-                    parts = msg.get("parts", []) if isinstance(msg, dict) else []
                     error_text = ""
-                    for part in parts:
-                        if part.get("kind") == "text" or part.get("type") == "text":
-                            error_text = part.get("text", "")
+                    for part in msg.get("parts", []) if isinstance(msg, dict) else []:
+                        error_text = _part_text(part)
+                        if error_text:
                             break
                     raise RemoteAgentError(
                         error_text or "Remote agent task failed",
@@ -449,32 +487,31 @@ async def stream_remote_skill(
                     )
 
                 # Extract text from artifact parts
-                artifact = data.get("artifact") or {}
-                # Also check nested result.artifact pattern
-                if not artifact:
-                    result = data.get("result") or {}
-                    artifact = result.get("artifact") or {}
-
-                artifact_parts = artifact.get("parts", [])
-                for part in artifact_parts:
-                    if part.get("kind") == "text" or part.get("type") == "text":
-                        text = part.get("text", "")
-                        if text:
-                            yield text
+                artifact = (event.get("artifactUpdate") or {}).get("artifact") or {}
+                for part in artifact.get("parts", []):
+                    text = _part_text(part)
+                    if text:
+                        yield text
 
                 # Extract text from status message parts
                 if status:
                     msg = status.get("message") or {}
                     if isinstance(msg, dict):
-                        msg_parts = msg.get("parts", [])
-                        for part in msg_parts:
-                            if part.get("kind") == "text" or part.get("type") == "text":
-                                text = part.get("text", "")
-                                if text:
-                                    yield text
+                        for part in msg.get("parts", []):
+                            text = _part_text(part)
+                            if text:
+                                yield text
 
-                # Stop on terminal event
-                if data.get("final") is True or state in _TERMINAL_STATES:
+                # Extract text from a direct message event
+                msg_event = event.get("message") or {}
+                if isinstance(msg_event, dict):
+                    for part in msg_event.get("parts", []):
+                        text = _part_text(part)
+                        if text:
+                            yield text
+
+                # Stop on terminal state (stream end also terminates the generator)
+                if state in _TERMINAL_STATES:
                     return
 
 
@@ -495,15 +532,29 @@ def _extract_result(response: dict[str, Any]) -> Any:
         raise RemoteAgentError(message, response)
 
     result = response.get("result", {})
-    parts = result.get("parts", [])
 
-    for part in parts:
-        if part.get("kind") == "text" or part.get("type") == "text":
-            text = part.get("text", "")
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return text
+    # A2A v1.0: result.message.parts (Message) or result.task.status.message.parts (Task)
+    candidates: list[dict] = []
+    if isinstance(result, dict):
+        if isinstance(result.get("message"), dict):
+            candidates.append(result["message"])
+        if isinstance(result.get("task"), dict):
+            task = result["task"]
+            status = task.get("status") or {}
+            if isinstance(status.get("message"), dict):
+                candidates.append(status["message"])
+        # Tolerate a bare result with parts (legacy shape)
+        if "parts" in result:
+            candidates.append(result)
+
+    for candidate in candidates:
+        for part in candidate.get("parts", []):
+            if "text" in part:
+                text = part.get("text", "")
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    return text
 
     return result
 
@@ -523,13 +574,13 @@ async def get_remote_task(agent_url: str, task_id: str, timeout: float = 10.0) -
 
     request_body = {
         "jsonrpc": "2.0",
-        "method": "tasks/get",
+        "method": "GetTask",
         "id": uuid4().hex,
         "params": {"id": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
@@ -558,13 +609,13 @@ async def cancel_remote_task(agent_url: str, task_id: str, timeout: float = 10.0
 
     request_body = {
         "jsonrpc": "2.0",
-        "method": "tasks/cancel",
+        "method": "CancelTask",
         "id": uuid4().hex,
         "params": {"id": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
@@ -601,16 +652,17 @@ async def set_task_push_notification(
 
     request_body = {
         "jsonrpc": "2.0",
-        "method": "tasks/pushNotification/set",
+        "method": "CreateTaskPushNotificationConfig",
         "id": uuid4().hex,
         "params": {
-            "id": task_id,
-            "pushNotificationConfig": {"url": webhook_url, "token": token},
+            "taskId": task_id,
+            "url": webhook_url,
+            "token": token,
         },
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
@@ -643,13 +695,13 @@ async def get_task_push_notification(
 
     request_body = {
         "jsonrpc": "2.0",
-        "method": "tasks/pushNotification/get",
+        "method": "GetTaskPushNotificationConfig",
         "id": uuid4().hex,
-        "params": {"id": task_id},
+        "params": {"taskId": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
@@ -682,13 +734,13 @@ async def delete_task_push_notification(
 
     request_body = {
         "jsonrpc": "2.0",
-        "method": "tasks/pushNotification/delete",
+        "method": "DeleteTaskPushNotificationConfig",
         "id": uuid4().hex,
-        "params": {"id": task_id},
+        "params": {"taskId": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body)
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
         response.raise_for_status()
         data = response.json()
 
@@ -703,7 +755,7 @@ async def delete_task_push_notification(
 
 
 async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
-    """Fetch and parse an agent's card from /.well-known/agent.json.
+    """Fetch and parse an agent's card from /.well-known/agent-card.json.
 
     Args:
         agent_url: Base URL of the remote agent.
@@ -711,15 +763,30 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
 
     Returns:
         The parsed AgentCardInfo.
+
+    Raises:
+        RemoteAgentError: If the remote agent speaks A2A 0.3 (unsupported).
     """
     import httpx
 
-    card_url = f"{agent_url.rstrip('/')}/.well-known/agent.json"
+    card_url = f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.get(card_url)
         response.raise_for_status()
         data = response.json()
+
+    # Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
+    if "supportedInterfaces" not in data and ("url" in data or "protocolVersion" in data):
+        from .errors import RemoteAgentError
+
+        raise RemoteAgentError(
+            f"Agent at {agent_url} speaks A2A 0.3, not supported by a2a-lite 1.0",
+            data,
+        )
+
+    interfaces = data.get("supportedInterfaces", [])
+    interface_url = interfaces[0].get("url", agent_url) if interfaces else agent_url
 
     capabilities = data.get("capabilities", {})
     skills_raw = data.get("skills", [])
@@ -728,7 +795,7 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
     return AgentCardInfo(
         name=data.get("name", ""),
         description=data.get("description", ""),
-        url=data.get("url", agent_url),
+        url=interface_url,
         version=data.get("version", ""),
         skills=skills,
         supports_streaming=capabilities.get("streaming", False),

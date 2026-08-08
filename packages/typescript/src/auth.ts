@@ -276,7 +276,6 @@ export class OAuth2Auth implements AuthProvider {
 
     try {
       // Try to use jose library (recommended)
-      // @ts-expect-error jose is an optional peer dependency
       const jose = await import('jose').catch(() => {
         throw new Error(
           "OAuth2Auth requires the 'jose' package. Install it with: npm install jose"

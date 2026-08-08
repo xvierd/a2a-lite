@@ -40,12 +40,10 @@ public class DataPart {
     }
 
     /**
-     * Convert to A2A protocol format.
+     * Convert to A2A protocol format (v1.0: {@code {"data": ...}}).
      */
     public Map<String, Object> toA2A() {
         var result = new LinkedHashMap<String, Object>();
-        result.put("type", "data");
-        result.put("kind", "data");
         result.put("data", data);
         return result;
     }

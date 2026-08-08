@@ -100,16 +100,17 @@ class TestPushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": "req-1",
-                "method": "tasks/pushNotification/set",
+                "method": "CreateTaskPushNotificationConfig",
                 "params": {
-                    "id": "task-42",
-                    "pushNotificationConfig": {"url": "http://hook.test/cb", "token": "secret"},
+                    "taskId": "task-42",
+                    "url": "http://hook.test/cb",
+                    "token": "secret",
                 },
             },
         )
         assert status == 200
-        assert resp["result"]["id"] == "task-42"
-        assert resp["result"]["pushNotificationConfig"]["url"] == "http://hook.test/cb"
+        assert resp["result"]["taskId"] == "task-42"
+        assert resp["result"]["url"] == "http://hook.test/cb"
         # Verify it's actually in the registry
         assert "task-42" in reg
         assert reg.get("task-42")["url"] == "http://hook.test/cb"
@@ -123,12 +124,12 @@ class TestPushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": "req-2",
-                "method": "tasks/pushNotification/get",
-                "params": {"id": "task-42"},
+                "method": "GetTaskPushNotificationConfig",
+                "params": {"taskId": "task-42"},
             },
         )
         assert status == 200
-        assert resp["result"]["pushNotificationConfig"]["url"] == "http://hook.test/cb"
+        assert resp["result"]["url"] == "http://hook.test/cb"
 
     @pytest.mark.asyncio
     async def test_middleware_delete(self):
@@ -139,12 +140,12 @@ class TestPushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": "req-3",
-                "method": "tasks/pushNotification/delete",
-                "params": {"id": "task-42"},
+                "method": "DeleteTaskPushNotificationConfig",
+                "params": {"taskId": "task-42"},
             },
         )
         assert status == 200
-        assert resp["result"]["id"] == "task-42"
+        assert resp["result"] == {}
         assert "task-42" not in reg
 
     @pytest.mark.asyncio
@@ -159,7 +160,7 @@ class TestPushNotificationMiddleware:
             # Read the replayed body
             msg = await receive()
             body = json.loads(msg["body"])
-            assert body["method"] == "message/send"
+            assert body["method"] == "SendMessage"
             # Send a response
             resp = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": {}}).encode()
             await send(
@@ -173,7 +174,7 @@ class TestPushNotificationMiddleware:
 
         mw = PushNotificationMiddleware(app=inner_app, registry=reg)
 
-        body = json.dumps({"jsonrpc": "2.0", "id": "req-x", "method": "message/send", "params": {}}).encode()
+        body = json.dumps({"jsonrpc": "2.0", "id": "req-x", "method": "SendMessage", "params": {}}).encode()
         scope = {"type": "http", "method": "POST", "path": "/"}
 
         sent: list[dict] = []
@@ -189,15 +190,15 @@ class TestPushNotificationMiddleware:
 
     @pytest.mark.asyncio
     async def test_middleware_missing_params(self):
-        """Missing id or url returns a JSON-RPC error."""
+        """Missing taskId or url returns a JSON-RPC error."""
         reg = TaskPushRegistry()
         status, resp = await _run_middleware(
             reg,
             {
                 "jsonrpc": "2.0",
                 "id": "req-err",
-                "method": "tasks/pushNotification/set",
-                "params": {"id": "task-1", "pushNotificationConfig": {}},
+                "method": "CreateTaskPushNotificationConfig",
+                "params": {"taskId": "task-1"},
             },
         )
         assert status == 200
@@ -213,8 +214,8 @@ class TestPushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": "req-miss",
-                "method": "tasks/pushNotification/get",
-                "params": {"id": "nonexistent"},
+                "method": "GetTaskPushNotificationConfig",
+                "params": {"taskId": "nonexistent"},
             },
         )
         assert status == 200
@@ -278,8 +279,10 @@ class TestSetTaskPushNotification:
             "jsonrpc": "2.0",
             "id": "req-1",
             "result": {
+                "taskId": "task-42",
                 "id": "task-42",
-                "pushNotificationConfig": {"url": "http://hook.test/cb", "token": None},
+                "url": "http://hook.test/cb",
+                "token": None,
             },
         }
         mock_client = _mock_httpx_response(response_data)
@@ -290,15 +293,15 @@ class TestSetTaskPushNotification:
                 "task-42",
                 "http://hook.test/cb",
             )
-            assert result["id"] == "task-42"
-            assert result["pushNotificationConfig"]["url"] == "http://hook.test/cb"
+            assert result["taskId"] == "task-42"
+            assert result["url"] == "http://hook.test/cb"
 
             # Verify the JSON-RPC body
             call_args = mock_client.post.call_args
             body = call_args[1]["json"]
-            assert body["method"] == "tasks/pushNotification/set"
-            assert body["params"]["id"] == "task-42"
-            assert body["params"]["pushNotificationConfig"]["url"] == "http://hook.test/cb"
+            assert body["method"] == "CreateTaskPushNotificationConfig"
+            assert body["params"]["taskId"] == "task-42"
+            assert body["params"]["url"] == "http://hook.test/cb"
 
 
 class TestGetTaskPushNotification:
@@ -308,20 +311,22 @@ class TestGetTaskPushNotification:
             "jsonrpc": "2.0",
             "id": "req-1",
             "result": {
+                "taskId": "task-42",
                 "id": "task-42",
-                "pushNotificationConfig": {"url": "http://hook.test/cb", "token": "secret"},
+                "url": "http://hook.test/cb",
+                "token": "secret",
             },
         }
         mock_client = _mock_httpx_response(response_data)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             result = await get_task_push_notification("http://agent:8787", "task-42")
-            assert result["id"] == "task-42"
-            assert result["pushNotificationConfig"]["url"] == "http://hook.test/cb"
+            assert result["taskId"] == "task-42"
+            assert result["url"] == "http://hook.test/cb"
 
             body = mock_client.post.call_args[1]["json"]
-            assert body["method"] == "tasks/pushNotification/get"
-            assert body["params"]["id"] == "task-42"
+            assert body["method"] == "GetTaskPushNotificationConfig"
+            assert body["params"]["taskId"] == "task-42"
 
 
 class TestDeleteTaskPushNotification:
@@ -330,17 +335,17 @@ class TestDeleteTaskPushNotification:
         response_data = {
             "jsonrpc": "2.0",
             "id": "req-1",
-            "result": {"id": "task-42"},
+            "result": {},
         }
         mock_client = _mock_httpx_response(response_data)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             result = await delete_task_push_notification("http://agent:8787", "task-42")
-            assert result["id"] == "task-42"
+            assert result == {}
 
             body = mock_client.post.call_args[1]["json"]
-            assert body["method"] == "tasks/pushNotification/delete"
-            assert body["params"]["id"] == "task-42"
+            assert body["method"] == "DeleteTaskPushNotificationConfig"
+            assert body["params"]["taskId"] == "task-42"
 
 
 # ---------------------------------------------------------------------------
@@ -357,9 +362,9 @@ class TestTaskHandleSubscribe:
             "a2a_lite.orchestration.set_task_push_notification",
             new_callable=AsyncMock,
         ) as mock:
-            mock.return_value = {"id": "task-99", "pushNotificationConfig": {"url": "http://hook/cb", "token": None}}
+            mock.return_value = {"taskId": "task-99", "url": "http://hook/cb", "token": None}
             result = await handle.subscribe("http://hook/cb")
-            assert result["id"] == "task-99"
+            assert result["taskId"] == "task-99"
             mock.assert_called_once_with("http://agent:8787", "task-99", "http://hook/cb", None, 10.0)
 
     @pytest.mark.asyncio
@@ -370,9 +375,9 @@ class TestTaskHandleSubscribe:
             "a2a_lite.orchestration.delete_task_push_notification",
             new_callable=AsyncMock,
         ) as mock:
-            mock.return_value = {"id": "task-99"}
+            mock.return_value = {}
             result = await handle.unsubscribe()
-            assert result["id"] == "task-99"
+            assert result == {}
             mock.assert_called_once_with("http://agent:8787", "task-99", 10.0)
 
     @pytest.mark.asyncio
@@ -384,9 +389,10 @@ class TestTaskHandleSubscribe:
             new_callable=AsyncMock,
         ) as mock:
             mock.return_value = {
-                "id": "task-99",
-                "pushNotificationConfig": {"url": "http://hook/cb", "token": "tok"},
+                "taskId": "task-99",
+                "url": "http://hook/cb",
+                "token": "tok",
             }
             result = await handle.get_push_config()
-            assert result["pushNotificationConfig"]["url"] == "http://hook/cb"
+            assert result["url"] == "http://hook/cb"
             mock.assert_called_once_with("http://agent:8787", "task-99", 10.0)

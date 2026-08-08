@@ -1,8 +1,8 @@
-# Calculator - Google A2A SDK (Java)
+# Calculator - A2A protocol v1.0 from scratch (Java)
 
-> **Multi-skill calculator using Google's official A2A Java SDK.**
+> **Multi-skill calculator implementing the A2A v1.0 wire protocol by hand — no SDK.**
 
-This example demonstrates a calculator agent with multiple arithmetic operations using the official Google A2A Java SDK.
+This example demonstrates a calculator agent with multiple arithmetic operations, hand-rolled against the A2A protocol v1.0 wire format using only Javalin + Jackson. For the official Java SDK approach, see `packages/java`.
 
 ---
 
@@ -15,7 +15,7 @@ src/main/java/com/example/calculator/
 └── MessageHandler.java       # A2A message handling
 ```
 
-**Total: ~180 lines across 3 Java files**
+**Total: ~190 lines across 3 Java files**
 
 ---
 
@@ -33,33 +33,47 @@ Agent starts at `http://localhost:8788`
 
 ## 🧪 Testing
 
+### Agent card (A2A v1.0 discovery)
+
 ```bash
-# Addition
+curl http://localhost:8788/.well-known/agent-card.json
+```
+
+### Addition
+
+```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"add\", \"params\": {\"a\": 10, \"b\": 5}}"}]
       }
     }
   }'
+```
 
-# Division by zero (error handling)
+### Division by zero (error handling)
+
+```bash
 curl -X POST http://localhost:8788/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 0}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m2",
+        "parts": [{"text": "{\"skill\": \"divide\", \"params\": {\"a\": 10, \"b\": 0}}"}]
       }
     }
   }'
@@ -79,10 +93,10 @@ curl -X POST http://localhost:8788/ \
 
 ## 🔍 Comparison
 
-| Metric | Google SDK | A2A Lite |
-|--------|------------|----------|
+| Metric | From scratch (this) | A2A Lite |
+|--------|---------------------|----------|
 | Files | 3 | 1 |
-| Lines | ~180 | ~50 |
+| Lines | ~190 | ~50 |
 | Schemas | Manual | Auto |
 
 See [A2A Lite version](../02_calculator_lite/) for comparison.

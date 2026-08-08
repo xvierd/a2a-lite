@@ -41,22 +41,22 @@ class PerTaskPushTest {
         app.post("/", ctx -> {
             receivedBody.set(ctx.body());
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/set");
-            assertThat(body.path("params").path("id").asText()).isEqualTo("task-push-1");
-            assertThat(body.path("params").path("pushNotificationConfig").path("url").asText())
+            assertThat(body.get("method").asText()).isEqualTo("CreateTaskPushNotificationConfig");
+            assertThat(body.path("params").path("taskId").asText()).isEqualTo("task-push-1");
+            assertThat(body.path("params").path("url").asText())
                 .isEqualTo("http://my-webhook.com/hook");
-            assertThat(body.path("params").path("pushNotificationConfig").path("token").asText())
+            assertThat(body.path("params").path("token").asText())
                 .isEqualTo("secret-token");
+            assertThat(ctx.header("A2A-Version")).isEqualTo("1.0");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
+                    "taskId", "task-push-1",
                     "id", "task-push-1",
-                    "pushNotificationConfig", Map.of(
-                        "url", "http://my-webhook.com/hook",
-                        "token", "secret-token"
-                    )
+                    "url", "http://my-webhook.com/hook",
+                    "token", "secret-token"
                 )
             ));
         });
@@ -70,7 +70,8 @@ class PerTaskPushTest {
         assertThat(result).isInstanceOf(Map.class);
         @SuppressWarnings("unchecked")
         var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("id")).isEqualTo("task-push-1");
+        assertThat(resultMap.get("taskId")).isEqualTo("task-push-1");
+        assertThat(resultMap.get("url")).isEqualTo("http://my-webhook.com/hook");
         assertThat(receivedBody.get()).isNotNull();
     }
 
@@ -78,15 +79,15 @@ class PerTaskPushTest {
     void setTaskPushNotificationWithoutToken() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            var configNode = body.path("params").path("pushNotificationConfig");
-            assertThat(configNode.has("token")).isFalse();
+            assertThat(body.path("params").has("token")).isFalse();
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
+                    "taskId", "task-push-2",
                     "id", "task-push-2",
-                    "pushNotificationConfig", Map.of("url", "http://hook.com")
+                    "url", "http://hook.com"
                 )
             ));
         });
@@ -105,17 +106,16 @@ class PerTaskPushTest {
     void getTaskPushNotificationRetrievesConfig() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/get");
-            assertThat(body.path("params").path("id").asText()).isEqualTo("task-push-3");
+            assertThat(body.get("method").asText()).isEqualTo("GetTaskPushNotificationConfig");
+            assertThat(body.path("params").path("taskId").asText()).isEqualTo("task-push-3");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
+                    "taskId", "task-push-3",
                     "id", "task-push-3",
-                    "pushNotificationConfig", Map.of(
-                        "url", "http://hook.com/callback"
-                    )
+                    "url", "http://hook.com/callback"
                 )
             ));
         });
@@ -128,7 +128,8 @@ class PerTaskPushTest {
         assertThat(result).isInstanceOf(Map.class);
         @SuppressWarnings("unchecked")
         var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("id")).isEqualTo("task-push-3");
+        assertThat(resultMap.get("taskId")).isEqualTo("task-push-3");
+        assertThat(resultMap.get("url")).isEqualTo("http://hook.com/callback");
     }
 
     // ---- AgentNetwork.deleteTaskPushNotification -----------------------------
@@ -137,16 +138,13 @@ class PerTaskPushTest {
     void deleteTaskPushNotificationSendsDelete() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/delete");
-            assertThat(body.path("params").path("id").asText()).isEqualTo("task-push-4");
+            assertThat(body.get("method").asText()).isEqualTo("DeleteTaskPushNotificationConfig");
+            assertThat(body.path("params").path("taskId").asText()).isEqualTo("task-push-4");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
-                "result", Map.of(
-                    "id", "task-push-4",
-                    "deleted", true
-                )
+                "result", Map.of()
             ));
         });
 
@@ -158,7 +156,7 @@ class PerTaskPushTest {
         assertThat(result).isInstanceOf(Map.class);
         @SuppressWarnings("unchecked")
         var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("deleted")).isEqualTo(true);
+        assertThat(resultMap).isEmpty();
     }
 
     // ---- TaskHandle.subscribe / unsubscribe ----------------------------------
@@ -167,14 +165,15 @@ class PerTaskPushTest {
     void taskHandleSubscribe() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/set");
+            assertThat(body.get("method").asText()).isEqualTo("CreateTaskPushNotificationConfig");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
+                    "taskId", "task-sub-1",
                     "id", "task-sub-1",
-                    "pushNotificationConfig", Map.of("url", "http://hook.com")
+                    "url", "http://hook.com"
                 )
             ));
         });
@@ -187,22 +186,19 @@ class PerTaskPushTest {
         assertThat(result).isInstanceOf(Map.class);
         @SuppressWarnings("unchecked")
         var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("id")).isEqualTo("task-sub-1");
+        assertThat(resultMap.get("taskId")).isEqualTo("task-sub-1");
     }
 
     @Test
     void taskHandleUnsubscribe() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/delete");
+            assertThat(body.get("method").asText()).isEqualTo("DeleteTaskPushNotificationConfig");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
-                "result", Map.of(
-                    "id", "task-unsub-1",
-                    "deleted", true
-                )
+                "result", Map.of()
             ));
         });
 
@@ -212,23 +208,21 @@ class PerTaskPushTest {
         var result = handle.unsubscribe();
 
         assertThat(result).isInstanceOf(Map.class);
-        @SuppressWarnings("unchecked")
-        var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("deleted")).isEqualTo(true);
     }
 
     @Test
     void taskHandleGetPushConfig() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/pushNotification/get");
+            assertThat(body.get("method").asText()).isEqualTo("GetTaskPushNotificationConfig");
 
             ctx.json(Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
+                    "taskId", "task-cfg-1",
                     "id", "task-cfg-1",
-                    "pushNotificationConfig", Map.of("url", "http://hook.com")
+                    "url", "http://hook.com"
                 )
             ));
         });
@@ -241,6 +235,6 @@ class PerTaskPushTest {
         assertThat(result).isInstanceOf(Map.class);
         @SuppressWarnings("unchecked")
         var resultMap = (Map<String, Object>) result;
-        assertThat(resultMap.get("id")).isEqualTo("task-cfg-1");
+        assertThat(resultMap.get("taskId")).isEqualTo("task-cfg-1");
     }
 }

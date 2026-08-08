@@ -36,19 +36,53 @@ async def collect_generator(gen: Union[Generator, AsyncGenerator]) -> list[Any]:
 async def stream_generator(
     gen: Union[Generator, AsyncGenerator],
     event_queue,
+    context=None,
+    updater=None,
 ) -> None:
     """
     Stream generator output through the A2A event queue.
 
-    Each yielded item becomes a separate event in the stream.
+    When a TaskUpdater is provided (production path), the A2A 1.x strict
+    event rules apply: status updates via TaskUpdater and task completion
+    at the end. When only a RequestContext is provided, the Task and
+    updater are created here (first event is the Task).
+
+    Without either (direct unit testing), each chunk is enqueued as a
+    single text message (legacy simple behavior).
     """
-    from a2a.utils import new_agent_text_message
+    if updater is None and context is not None:
+        from a2a.helpers import new_task_from_user_message
+        from a2a.server.tasks import TaskUpdater
+
+        task = context.current_task or new_task_from_user_message(context.message)
+        await event_queue.enqueue_event(task)
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
+        await updater.start_work()
+
+    if updater is not None:
+        from a2a.helpers import new_text_part
+        from a2a.types import TaskState
+
+        async def emit(text: str) -> None:
+            await updater.update_status(
+                TaskState.TASK_STATE_WORKING,
+                message=updater.new_agent_message([new_text_part(text)]),
+            )
+
+    else:
+        from a2a.helpers import new_text_message
+
+        async def emit(text: str) -> None:
+            await event_queue.enqueue_event(new_text_message(text))
 
     if inspect.isasyncgen(gen):
         async for chunk in gen:
             text = str(chunk) if not isinstance(chunk, str) else chunk
-            await event_queue.enqueue_event(new_agent_text_message(text))
+            await emit(text)
     else:
         for chunk in gen:
             text = str(chunk) if not isinstance(chunk, str) else chunk
-            await event_queue.enqueue_event(new_agent_text_message(text))
+            await emit(text)
+
+    if updater is not None:
+        await updater.complete()

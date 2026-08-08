@@ -30,13 +30,16 @@ export LLM_MODEL="gpt-4o-mini"  # or "claude-3-sonnet"
 ```bash
 curl -X POST http://localhost:8794/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What time is it?\", \"session_id\": \"user123\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What time is it?\", \"session_id\": \"user123\"}}"}]
       }
     }
   }'

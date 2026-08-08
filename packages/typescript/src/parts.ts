@@ -63,15 +63,15 @@ export class FilePart implements LiteFilePart {
   }
 
   /**
-   * Create from A2A format.
+   * Create from A2A v1.0 wire format.
+   * File parts arrive as `{ raw: base64, filename, mediaType }` or `{ url, filename, mediaType }`.
    */
   static fromA2A(data: Record<string, unknown>): FilePart {
-    const file = data.file as Record<string, unknown>;
     return new FilePart({
-      name: (file.name as string) ?? 'unknown',
-      mimeType: (file.mimeType as string) ?? 'application/octet-stream',
-      data: file.bytes ? Buffer.from(file.bytes as string, 'base64') : undefined,
-      uri: file.uri as string | undefined,
+      name: (data.filename as string) ?? 'unknown',
+      mimeType: (data.mediaType as string) ?? 'application/octet-stream',
+      data: data.raw ? Buffer.from(data.raw as string, 'base64') : undefined,
+      uri: data.url as string | undefined,
     });
   }
 
@@ -109,29 +109,21 @@ export class FilePart implements LiteFilePart {
   }
 
   /**
-   * Convert to A2A format.
+   * Convert to A2A v1.0 wire format.
    */
   toA2A(): Record<string, unknown> {
     if (this.uri) {
       return {
-        type: 'file',
-        kind: 'file',
-        file: {
-          name: this.name,
-          mimeType: this.mimeType,
-          uri: this.uri,
-        },
+        url: this.uri,
+        filename: this.name,
+        mediaType: this.mimeType,
       };
     }
 
     return {
-      type: 'file',
-      kind: 'file',
-      file: {
-        name: this.name,
-        mimeType: this.mimeType,
-        bytes: this.data?.toString('base64') ?? '',
-      },
+      raw: this.data?.toString('base64') ?? '',
+      filename: this.name,
+      mediaType: this.mimeType,
     };
   }
 }
@@ -153,9 +145,8 @@ export class DataPart implements LiteDataPart {
 
   toA2A(): Record<string, unknown> {
     return {
-      type: 'data',
-      kind: 'data',
       data: this.data,
+      mediaType: 'application/json',
     };
   }
 }
@@ -208,6 +199,9 @@ export class Artifact implements IArtifact {
         if ('toA2A' in p && typeof p.toA2A === 'function') {
           return p.toA2A();
         }
+        if (p.type === 'text') {
+          return { text: p.text };
+        }
         return p;
       }),
       metadata: this.metadata,
@@ -216,21 +210,22 @@ export class Artifact implements IArtifact {
 }
 
 /**
- * Parse an A2A part.
+ * Parse an A2A v1.0 wire part.
+ *
+ * Part content is detected by presence of the content key:
+ * `text` / `data` / `raw` or `url` (file parts).
  */
 export function parsePart(data: Record<string, unknown>): LitePart {
-  const partKind = (data.kind ?? data.type) as string;
-
-  switch (partKind) {
-    case 'text':
-      return { type: 'text', text: (data.text as string) ?? '' };
-    case 'file':
-      return FilePart.fromA2A(data);
-    case 'data':
-      return DataPart.fromA2A(data);
-    default:
-      return { type: 'text', text: String(data) };
+  if ('text' in data) {
+    return { type: 'text', text: (data.text as string) ?? '' };
   }
+  if ('data' in data) {
+    return DataPart.fromA2A(data);
+  }
+  if ('raw' in data || 'url' in data) {
+    return FilePart.fromA2A(data);
+  }
+  return { type: 'text', text: String(data) };
 }
 
 /**

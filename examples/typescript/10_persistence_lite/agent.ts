@@ -46,8 +46,8 @@ function buildPushNotifier(): PushNotifier {
     return new WebhookPushNotifier({
       url: webhookUrl,
       secret,
-      maxRetries: 3,
-      retryDelayMs: 500,
+      maxRetries: 3, // exponential back-off is built in
+      timeoutMs: 10_000,
     });
   }
 
@@ -83,7 +83,8 @@ const agent = new Agent({
  *
  * Call: { "skill": "echo", "params": { "message": "hello" } }
  */
-agent.skill('echo', { description: 'Echo a message back' }, async ({ message }: { message: string }) => {
+agent.skill('echo', { description: 'Echo a message back' }, async (params) => {
+  const { message } = params as { message: string };
   return { echoed: message, at: new Date().toISOString() };
 });
 
@@ -96,7 +97,8 @@ agent.skill('echo', { description: 'Echo a message back' }, async ({ message }: 
 agent.skill(
   'slowSum',
   { description: 'Add two numbers after a delay (demonstrates async push notification)' },
-  async ({ a, b, delayMs = 1000 }: { a: number; b: number; delayMs?: number }) => {
+  async (params) => {
+    const { a, b, delayMs = 1000 } = params as { a: number; b: number; delayMs?: number };
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     return { sum: Number(a) + Number(b), delayMs };
   }

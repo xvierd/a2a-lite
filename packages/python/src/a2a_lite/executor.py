@@ -83,7 +83,7 @@ class LiteAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Execute a skill based on the incoming request."""
-        from a2a.utils import new_agent_text_message
+        from a2a.helpers import new_text_message
 
         try:
             # Authenticate the request (always run to produce auth_result for injection)
@@ -115,7 +115,7 @@ class LiteAgentExecutor(AgentExecutor):
                         scheme_info = "authentication"
                     auth_err = AuthRequiredError(scheme_info=scheme_info, detail=detail)
                     error_msg = json.dumps(auth_err.to_response())
-                    await event_queue.enqueue_event(new_agent_text_message(error_msg))
+                    await event_queue.enqueue_event(new_text_message(error_msg))
                     return
 
             # Extract message and parts
@@ -135,6 +135,7 @@ class LiteAgentExecutor(AgentExecutor):
             ctx.metadata["parts"] = parts
             ctx.metadata["event_queue"] = event_queue
             ctx.metadata["auth_result"] = auth_result
+            ctx.metadata["request_context"] = context
 
             # Define final handler
             async def final_handler(ctx: MiddlewareContext) -> Any:
@@ -154,7 +155,7 @@ class LiteAgentExecutor(AgentExecutor):
                     response_text = json.dumps(result, indent=2, default=str)
                 else:
                     response_text = str(result)
-                await event_queue.enqueue_event(new_agent_text_message(response_text))
+                await event_queue.enqueue_event(new_text_message(response_text))
 
             # Call completion hooks
             for hook in self.on_complete:
@@ -244,13 +245,33 @@ class LiteAgentExecutor(AgentExecutor):
                 return param_err.to_response()
             raise
 
+        # Call the handler
+        handler = skill_def.handler
+        is_streaming_skill = skill_def.is_streaming or is_generator_function(handler)
+
+        # For streaming skills under the A2A 1.x strict event rules, create the
+        # Task + TaskUpdater up front (first event must be the Task).
+        updater = None
+        if is_streaming_skill:
+            request_context = metadata.get("request_context")
+            if request_context is not None:
+                from a2a.helpers import new_task_from_user_message
+                from a2a.server.tasks import TaskUpdater
+
+                task = request_context.current_task or new_task_from_user_message(request_context.message)
+                await event_queue.enqueue_event(task)
+                updater = TaskUpdater(event_queue, task.id, task.context_id)
+                await updater.start_work()
+                metadata["task_updater"] = updater
+
         # Inject special contexts if needed
         if skill_def.needs_task_context and self.task_store:
             from .tasks import TaskContext
 
             task = await self.task_store.create(skill_name, params)
-            # Only pass event_queue for streaming skills (status updates go via SSE)
-            eq = event_queue if skill_def.is_streaming else None
+            # Only pass an event channel for streaming skills (status updates go via SSE).
+            # Prefer the TaskUpdater so updates follow the A2A 1.x task-event rules.
+            eq = (updater or event_queue) if is_streaming_skill else None
             task_ctx = TaskContext(task, eq)
             param_name = skill_def.task_context_param or "task"
             params[param_name] = task_ctx
@@ -266,12 +287,9 @@ class LiteAgentExecutor(AgentExecutor):
             param_name = skill_def.mcp_param or "mcp"
             params[param_name] = mcp_client
 
-        # Call the handler
-        handler = skill_def.handler
-
-        if skill_def.is_streaming or is_generator_function(handler):
+        if is_streaming_skill:
             gen = handler(**params)
-            await stream_generator(gen, event_queue)
+            await stream_generator(gen, event_queue, updater=updater)
             return None
         else:
             return await self._call_handler(handler, **params)
@@ -319,8 +337,8 @@ class LiteAgentExecutor(AgentExecutor):
             # Convert FilePart
             if _is_or_subclass(param_type, FilePart):
                 if isinstance(value, dict):
-                    # Handle both A2A format and simple dict format
-                    if "file" in value:
+                    # Handle both A2A v1.0 format and simple dict format
+                    if "raw" in value or "url" in value:
                         converted[param_name] = FilePart.from_a2a(value)
                     else:
                         # Simple format: {name, data, mime_type}
@@ -340,8 +358,12 @@ class LiteAgentExecutor(AgentExecutor):
             # Convert DataPart
             if _is_or_subclass(param_type, DataPart):
                 if isinstance(value, dict):
-                    # Handle both A2A format and simple dict format
-                    if "type" in value and value.get("type") == "data":
+                    # Handle both A2A v1.0 format and simple dict format
+                    if "data" in value and isinstance(value.get("data"), dict) and set(value.keys()) <= {
+                        "data",
+                        "mediaType",
+                        "metadata",
+                    }:
                         converted[param_name] = DataPart.from_a2a(value)
                     else:
                         # Simple format: pass the dict directly as data
@@ -375,45 +397,44 @@ class LiteAgentExecutor(AgentExecutor):
         return None, {"message": message}
 
     def _extract_message_and_parts(self, context: RequestContext) -> tuple[str, list[Any]]:
-        """Extract message text and any file/data parts."""
+        """Extract message text and any file/data parts.
+
+        A2A 1.x: Message is a protobuf message. Text is read via the SDK
+        helper; file/data parts are detected by oneof presence (raw/url/data)
+        and converted to plain dicts for skill access.
+        """
         text = ""
         parts = []
 
         if hasattr(context, "message") and context.message:
             message = context.message
             if hasattr(message, "parts"):
-                raw_parts = message.parts
-            else:
-                raw_parts = message.get("parts", [])
+                from a2a.helpers import get_message_text
 
-            for part in raw_parts:
-                if hasattr(part, "root"):
-                    part = part.root
+                text = get_message_text(message)
 
-                # Get part type
-                if hasattr(part, "text"):
-                    text = part.text
-                elif isinstance(part, dict):
-                    part_type = part.get("type") or part.get("kind")
-                    if part_type == "text":
-                        text = part.get("text", "")
-                    elif part_type in ("file", "data"):
-                        parts.append(part)
+                from google.protobuf.json_format import MessageToDict
+
+                for part in message.parts:
+                    if part.HasField("text"):
+                        continue
+                    if part.HasField("raw") or part.HasField("url") or part.HasField("data"):
+                        parts.append(MessageToDict(part))
 
         return text, parts
 
     async def _handle_error(self, e: Exception, event_queue: EventQueue) -> None:
         """Handle execution errors."""
-        from a2a.utils import new_agent_text_message
+        from a2a.helpers import new_text_message
 
         if self.error_handler:
             try:
                 result = await self._call_handler(self.error_handler, e)
-                await event_queue.enqueue_event(new_agent_text_message(json.dumps(result, default=str)))
+                await event_queue.enqueue_event(new_text_message(json.dumps(result, default=str)))
                 return
             except Exception as handler_error:
                 await event_queue.enqueue_event(
-                    new_agent_text_message(
+                    new_text_message(
                         json.dumps(
                             {
                                 "error": str(e),
@@ -427,11 +448,11 @@ class LiteAgentExecutor(AgentExecutor):
 
         # Use structured response for A2ALiteError subtypes
         if isinstance(e, A2ALiteError):
-            await event_queue.enqueue_event(new_agent_text_message(json.dumps(e.to_response())))
+            await event_queue.enqueue_event(new_text_message(json.dumps(e.to_response())))
             return
 
         await event_queue.enqueue_event(
-            new_agent_text_message(
+            new_text_message(
                 json.dumps(
                     {
                         "error": str(e),
@@ -447,9 +468,9 @@ class LiteAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Handle cancellation requests."""
-        from a2a.utils import new_agent_text_message
+        from a2a.helpers import new_text_message
 
-        await event_queue.enqueue_event(new_agent_text_message(json.dumps({"status": "cancelled"})))
+        await event_queue.enqueue_event(new_text_message(json.dumps({"status": "cancelled"})))
 
     async def _call_handler(self, handler: Callable, *args, **kwargs) -> Any:
         """Call a handler, handling both sync and async functions."""

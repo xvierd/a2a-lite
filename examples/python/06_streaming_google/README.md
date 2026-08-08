@@ -2,9 +2,9 @@
 
 > **Real-time streaming responses with Server-Sent Events (SSE) using the official Google A2A Python SDK.**
 
-This example demonstrates how to implement streaming skills using the **real** Google A2A SDK with:
-- `A2ARESTFastAPIApplication` - Official FastAPI application builder
-- `AgentExecutor.execute()` with `event_queue` for streaming
+This example demonstrates how to implement streaming skills using the **real** Google A2A SDK (A2A protocol v1.0) with:
+- Starlette routes via `create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes` - Official SDK route builders
+- `AgentExecutor.execute()` with `event_queue` + `TaskUpdater` for streaming
 - `AgentCard` with streaming capabilities
 - Proper SSE (Server-Sent Events) implementation
 
@@ -26,11 +26,11 @@ This example demonstrates how to implement streaming skills using the **real** G
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `main.py` | A2ARESTFastAPIApplication with streaming | ~280 |
-| `skills.py` | Streaming async generators | ~200 |
-| `requirements.txt` | Dependencies | ~4 |
+| `main.py` | Starlette app with streaming routes | ~270 |
+| `skills.py` | Streaming async generators | ~260 |
+| `requirements.txt` | Dependencies | ~11 |
 
-**Total: ~484 lines across 3 files**
+**Total: ~541 lines across 3 files**
 
 ---
 
@@ -53,9 +53,16 @@ The server will start on `http://localhost:8791`
 ### Real SDK Components Used
 
 ```python
-# 1. Agent Card with streaming capability
+# 1. Agent Card with streaming capability (v1.0)
 AGENT_CARD = AgentCard(
     name="StreamingAgent",
+    supported_interfaces=[
+        AgentInterface(
+            url="http://localhost:8791/",
+            protocol_binding="JSONRPC",
+            protocol_version="1.0",
+        ),
+    ],
     capabilities=AgentCapabilities(
         streaming=True,  # Enable streaming
     ),
@@ -69,11 +76,17 @@ class StreamingAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,  # Key for streaming!
     ) -> None:
-        # Stream chunks via event_queue
+        # First event must be the Task itself (strict v1.0 rule)
+        task = context.current_task or new_task_from_user_message(context.message)
+        await event_queue.enqueue_event(task)
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
+        # Stream chunks as WORKING status updates
         async for chunk in skill_generator():
-            await event_queue.enqueue_event(
-                new_agent_text_message(json.dumps(chunk))
+            await updater.update_status(
+                TaskState.TASK_STATE_WORKING,
+                message=updater.new_agent_message([new_text_part(json.dumps(chunk))]),
             )
+        await updater.complete()
     
     async def cancel(
         self,
@@ -83,11 +96,17 @@ class StreamingAgentExecutor(AgentExecutor):
         # Handle cancellation
         ...
 
-# 3. FastAPI Application with streaming endpoints
-app = A2ARESTFastAPIApplication(
+# 3. Starlette Application with streaming endpoints
+handler = DefaultRequestHandler(
+    agent_executor=agent_executor,
+    task_store=InMemoryTaskStore(),
     agent_card=AGENT_CARD,
-    http_handler=handler
-).build()
+)
+app = Starlette(
+    routes=create_agent_card_routes(AGENT_CARD)
+    + create_jsonrpc_routes(handler, rpc_url="/")
+    + create_rest_routes(handler)
+)
 ```
 
 ---
@@ -99,15 +118,17 @@ app = A2ARESTFastAPIApplication(
 ```bash
 curl -N -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "Accept: text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendStreamingMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello world\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-1",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"Hello world\"}}"}]
       }
     }
   }'
@@ -115,11 +136,10 @@ curl -N -X POST http://localhost:8791/ \
 
 **Expected Output:**
 ```
-data: {"type": "token", "content": "You ", "index": 0, "is_last": false}
-data: {"type": "token", "content": "said: ", "index": 1, "is_last": false}
-data: {"type": "token", "content": "'Hello ", "index": 2, "is_last": false}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_WORKING", "message": {"role": "ROLE_AGENT", "parts": [{"text": "{\"type\": \"token\", \"content\": \"You \", \"index\": 0, \"is_last\": false}"}]}}}}}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_WORKING", "message": {"role": "ROLE_AGENT", "parts": [{"text": "{\"type\": \"token\", \"content\": \"said: \", \"index\": 1, \"is_last\": false}"}]}}}}}
 ...
-data: {"type": "done", "skill": "chat"}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_COMPLETED", "message": {...}}}}}
 ```
 
 ### Test 2: Count Stream with Progress
@@ -127,15 +147,17 @@ data: {"type": "done", "skill": "chat"}
 ```bash
 curl -N -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "Accept: text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendStreamingMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"count\", \"params\": {\"start\": 1, \"end\": 5}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-2",
+        "parts": [{"text": "{\"skill\": \"count\", \"params\": {\"start\": 1, \"end\": 5}}"}]
       }
     }
   }'
@@ -143,10 +165,10 @@ curl -N -X POST http://localhost:8791/ \
 
 **Expected Output:**
 ```
-data: {"type": "number", "value": 1, "progress": {"current": 1, "total": 5, "percentage": 20.0}}
-data: {"type": "number", "value": 2, "progress": {"current": 2, "total": 5, "percentage": 40.0}}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_WORKING", "message": {"role": "ROLE_AGENT", "parts": [{"text": "{\"type\": \"number\", \"value\": 1, \"progress\": {\"current\": 1, \"total\": 5, \"percentage\": 20.0}}"}]}}}}}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_WORKING", "message": {"role": "ROLE_AGENT", "parts": [{"text": "{\"type\": \"number\", \"value\": 2, \"progress\": {\"current\": 2, \"total\": 5, \"percentage\": 40.0}}"}]}}}}}
 ...
-data: {"type": "done", "skill": "count", "final_count": 5}
+data: {"result": {"statusUpdate": {"taskId": "...", "status": {"state": "TASK_STATE_COMPLETED", "message": {...}}}}}
 ```
 
 ### Test 3: Story Generation Stream
@@ -154,15 +176,17 @@ data: {"type": "done", "skill": "count", "final_count": 5}
 ```bash
 curl -N -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "Accept: text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendStreamingMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"story\", \"params\": {\"theme\": \"sci-fi\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-3",
+        "parts": [{"text": "{\"skill\": \"story\", \"params\": {\"theme\": \"sci-fi\"}}"}]
       }
     }
   }'
@@ -173,15 +197,17 @@ curl -N -X POST http://localhost:8791/ \
 ```bash
 curl -N -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "Accept: text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendStreamingMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"progress\", \"params\": {\"task\": \"data-processing\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-4",
+        "parts": [{"text": "{\"skill\": \"progress\", \"params\": {\"task\": \"data-processing\"}}"}]
       }
     }
   }'
@@ -196,13 +222,20 @@ curl -N -X POST http://localhost:8791/ \
 The Google A2A SDK handles streaming through the `EventQueue`:
 
 ```python
+from a2a.helpers import new_task_from_user_message, new_text_part
 from a2a.server.events.event_queue import EventQueue
-from a2a.utils import new_agent_text_message
+from a2a.server.tasks import TaskUpdater
+from a2a.types import TaskState
 
 async def execute(self, context: RequestContext, event_queue: EventQueue):
-    # Each enqueue_event sends an SSE chunk to the client
-    await event_queue.enqueue_event(
-        new_agent_text_message(json.dumps(data))
+    # First event must be the Task itself (strict v1.0 rule)
+    task = context.current_task or new_task_from_user_message(context.message)
+    await event_queue.enqueue_event(task)
+    updater = TaskUpdater(event_queue, task.id, task.context_id)
+    # Each update_status sends an SSE chunk to the client
+    await updater.update_status(
+        TaskState.TASK_STATE_WORKING,
+        message=updater.new_agent_message([new_text_part(json.dumps(data))]),
     )
 ```
 
@@ -227,10 +260,10 @@ async def chat_stream(message: str):
 
 ### 3. Client Capability Detection
 
-The SDK automatically handles streaming based on the `Accept` header:
+The SDK handles streaming based on the JSON-RPC method:
 
-- `Accept: text/event-stream` → Streaming response (SSE)
-- `Accept: application/json` → Normal response
+- `SendStreamingMessage` → Streaming response (SSE)
+- `SendMessage` → Normal (non-streaming) response
 
 ---
 
@@ -286,10 +319,10 @@ The SDK automatically handles streaming based on the `Accept` header:
 
 | Aspect | Google A2A SDK (This Example) | A2A Lite |
 |--------|------------------------------|----------|
-| **Lines** | ~484 | ~50 |
+| **Lines** | ~541 | ~50 |
 | **Setup** | `AgentExecutor` + `EventQueue` | `@agent.skill(streaming=True)` |
 | **Skill Definition** | Manual parsing | Decorator with auto-detection |
-| **Streaming** | Manual `event_queue.enqueue_event()` | Automatic `yield` handling |
+| **Streaming** | Manual `TaskUpdater.update_status()` | Automatic `yield` handling |
 | **Flexibility** | Full control | Convention over configuration |
 | **Use Case** | Complex custom logic | Quick prototyping |
 
@@ -306,10 +339,10 @@ The SDK automatically handles streaming based on the `Accept` header:
 ## 📝 Requirements
 
 ```
-a2a-sdk[http-server]>=0.1.0
-fastapi>=0.100.0
+a2a-sdk[http-server]>=1.1.2,<2.0
 uvicorn[standard]>=0.23.0
 anyio>=4.0.0
+httpx>=0.27.0
 ```
 
 Install with: `pip install -r requirements.txt`

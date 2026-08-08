@@ -92,6 +92,30 @@ class TestAgentNetwork:
             mock.assert_called_once_with("http://test:8787", "greet", {"city": "NYC"}, 30.0)
 
     @pytest.mark.asyncio
+    async def test_call_with_param_named_name_and_skill(self):
+        """A remote skill parameter named 'name' or 'skill' must not collide
+        with the routing arguments of AgentNetwork.call."""
+        net = AgentNetwork()
+        net.add("test", "http://test:8787")
+
+        with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
+            mock.return_value = ("hello Bob", "task-123")
+            result = await net.call("test", "greet", name="Bob", skill="advanced")
+            assert result == "hello Bob"
+            mock.assert_called_once_with("http://test:8787", "greet", {"name": "Bob", "skill": "advanced"}, 30.0)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_with_param_named_skill(self):
+        net = AgentNetwork()
+        net.add("a", "http://a:8787")
+
+        with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
+            mock.return_value = ("ok", "tid-a")
+            results = await net.broadcast("greet", skill="advanced")
+            assert results["a"] == "ok"
+            mock.assert_called_once_with("http://a:8787", "greet", {"skill": "advanced"}, 30.0)
+
+    @pytest.mark.asyncio
     async def test_broadcast(self):
         net = AgentNetwork()
         net.add("a", "http://a:8787")
@@ -167,6 +191,20 @@ class TestAgentDelegate:
             result = await agent.delegate("other", "skill", x=1)
             assert result == "result"
             mock.assert_called_once_with("http://other:8787", "skill", {"x": 1}, 30.0)
+
+    @pytest.mark.asyncio
+    async def test_delegate_with_param_named_target_and_skill(self):
+        """Skill params named 'target' or 'skill' must not collide with the
+        routing arguments of Agent.delegate."""
+        agent = Agent(name="Test", description="Test")
+
+        with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
+            mock.return_value = ("result", "task-123")
+            result = await agent.delegate("http://other:8787", "greet", target="Bob", skill="advanced")
+            assert result == "result"
+            mock.assert_called_once_with(
+                "http://other:8787", "greet", {"target": "Bob", "skill": "advanced"}, 30.0
+            )
 
     @pytest.mark.asyncio
     async def test_delegate_unknown_name(self):
@@ -405,7 +443,7 @@ class TestDiscover:
         card_data = {
             "name": "RemoteAgent",
             "description": "A remote agent",
-            "url": "http://remote:8787",
+            "supportedInterfaces": [{"url": "http://remote:8787", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}],
             "version": "2.0.0",
             "capabilities": {"streaming": True, "pushNotifications": False},
             "skills": [{"id": "forecast", "name": "forecast", "description": "Weather forecast"}],
@@ -430,7 +468,7 @@ class TestDiscover:
             assert card.supports_push is False
             assert len(card.skills) == 1
             assert card.raw == card_data
-            mock_client.get.assert_called_once_with("http://remote:8787/.well-known/agent.json")
+            mock_client.get.assert_called_once_with("http://remote:8787/.well-known/agent-card.json")
 
 
 class TestGetRemoteTask:
@@ -628,11 +666,11 @@ def _build_streaming_mocks(sse_lines: list[str]):
 class TestStreamRemoteSkill:
     @pytest.mark.asyncio
     async def test_yields_artifact_chunks_in_order(self):
-        """Artifact text parts are yielded in order, stops at final=True."""
+        """Artifact text parts are yielded in order, stops at terminal state."""
         sse_events = [
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "Hello "}]}, "final": False},
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "world"}]}, "final": False},
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "Hello "}]}}}},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "world"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
 
@@ -645,10 +683,10 @@ class TestStreamRemoteSkill:
 
     @pytest.mark.asyncio
     async def test_yields_from_result_artifact_pattern(self):
-        """Handles the result.artifact nested pattern."""
+        """Handles the result.artifactUpdate nested pattern."""
         sse_events = [
-            {"result": {"artifact": {"parts": [{"type": "text", "text": "chunk1"}]}}},
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "chunk1"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
 
@@ -661,12 +699,12 @@ class TestStreamRemoteSkill:
 
     @pytest.mark.asyncio
     async def test_stops_at_final_true(self):
-        """Generator stops when final=True, ignoring subsequent events."""
+        """Generator stops at a terminal state, ignoring subsequent events."""
         sse_events = [
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "A"}]}, "final": False},
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "A"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
             # This should never be reached
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "B"}]}, "final": False},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "B"}]}}}},
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
 
@@ -679,18 +717,20 @@ class TestStreamRemoteSkill:
 
     @pytest.mark.asyncio
     async def test_raises_on_failed_state(self):
-        """RemoteAgentError raised when status.state is 'failed'."""
+        """RemoteAgentError raised when status.state is TASK_STATE_FAILED."""
         from a2a_lite.errors import RemoteAgentError
 
         sse_events = [
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "partial"}]}, "final": False},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "partial"}]}}}},
             {
-                "id": "task-1",
-                "status": {
-                    "state": "failed",
-                    "message": {"parts": [{"kind": "text", "text": "Something went wrong"}]},
-                },
-                "final": True,
+                "result": {
+                    "statusUpdate": {
+                        "status": {
+                            "state": "TASK_STATE_FAILED",
+                            "message": {"parts": [{"text": "Something went wrong"}]},
+                        }
+                    }
+                }
             },
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
@@ -710,9 +750,9 @@ class TestStreamRemoteSkill:
         raw_lines = [
             ": this is a comment",
             "event: message",
-            f'data: {json.dumps({"id": "t1", "artifact": {"parts": [{"kind": "text", "text": "ok"}]}, "final": False})}',
+            f'data: {json.dumps({"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "ok"}]}}}})}',
             "",
-            f'data: {json.dumps({"id": "t1", "status": {"state": "completed"}, "final": True})}',
+            f'data: {json.dumps({"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}})}',
             "",
         ]
         client_cls, _ = _build_streaming_mocks(raw_lines)
@@ -726,9 +766,9 @@ class TestStreamRemoteSkill:
 
     @pytest.mark.asyncio
     async def test_uses_message_stream_method(self):
-        """Verify the request body uses method 'message/stream'."""
+        """Verify the request body uses method 'SendStreamingMessage'."""
         sse_events = [
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
         client_cls, mock_client = _build_streaming_mocks(_make_sse_lines(sse_events))
 
@@ -741,7 +781,7 @@ class TestStreamRemoteSkill:
         assert call_args[0][0] == "POST"
         assert call_args[0][1] == "http://test:8787"
         body = call_args[1]["json"] if "json" in call_args[1] else call_args[0][2]
-        assert body["method"] == "message/stream"
+        assert body["method"] == "SendStreamingMessage"
 
 
 class TestAgentNetworkStream:
@@ -751,9 +791,9 @@ class TestAgentNetworkStream:
         net.add("test", "http://test:8787")
 
         sse_events = [
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "chunk1"}]}, "final": False},
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "chunk2"}]}, "final": False},
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "chunk1"}]}}}},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "chunk2"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
 
@@ -780,9 +820,9 @@ class TestAgentDelegateStream:
         agent = Agent(name="Test", description="Test", network=net)
 
         sse_events = [
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "a"}]}, "final": False},
-            {"id": "task-1", "artifact": {"parts": [{"kind": "text", "text": "b"}]}, "final": False},
-            {"id": "task-1", "status": {"state": "completed"}, "final": True},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "a"}]}}}},
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "b"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
         client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
 

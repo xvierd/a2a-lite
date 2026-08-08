@@ -27,13 +27,16 @@ HITL workflow demonstration using the **real A2A Lite library**.
 ```bash
 curl -X POST http://localhost:8795/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"purchase\", \"params\": {\"item\": \"Laptop\", \"amount\": 999.99}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"purchase\", \"params\": {\"item\": \"Laptop\", \"amount\": 999.99}}"}]
       }
     }
   }'
@@ -45,13 +48,16 @@ Response includes `task_id` and asks for confirmation.
 ```bash
 curl -X POST http://localhost:8795/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "2",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"purchase\", \"params\": {\"task_id\": \"<TASK_ID>\", \"confirmation\": \"true\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"purchase\", \"params\": {\"task_id\": \"<TASK_ID>\", \"confirmation\": \"true\"}}"}]
       }
     }
   }'

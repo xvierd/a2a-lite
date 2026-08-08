@@ -67,6 +67,10 @@ WITH MULTI-AGENT (opt-in):
     network = AgentNetwork()
     network.add("weather", "http://weather:8787")
     agent = Agent(name="Planner", description="...", network=network)
+
+WITH GRPC (EXPERIMENTAL, opt-in):
+    # Requires: pip install a2a-lite[grpc]
+    agent.run_grpc()  # standalone gRPC server on 0.0.0.0:50051
 """
 
 # Core
@@ -137,7 +141,7 @@ from .router import Router
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "0.3.9"
+__version__ = "1.0.0"
 
 __all__ = [
     # Core

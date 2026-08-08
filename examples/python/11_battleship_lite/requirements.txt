@@ -1,0 +1,5 @@
+# Battleship A2A Lite example
+# Installs a2a-lite from PyPI. For local development against this repo,
+# install the package in editable mode instead:
+#   pip install -e ../../../packages/python
+a2a-lite>=1.0.0

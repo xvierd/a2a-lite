@@ -4,15 +4,20 @@
  * These types extend and simplify the official @a2a-js/sdk types.
  */
 
-// Re-export SDK types that we use directly
+// Re-export SDK types that we use directly (A2A v1.0)
 export type {
   AgentCard,
+  AgentInterface,
   AgentSkill,
+  AgentCapabilities,
   Message,
   Part,
-  TextPart,
-  FilePart as A2AFilePart,
-  DataPart as A2ADataPart,
+  Task as A2ATask,
+  TaskStatus as A2ATaskStatus,
+  TaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent,
+  SecurityScheme,
+  SecurityRequirement,
 } from '@a2a-js/sdk';
 
 export interface AgentConfig {

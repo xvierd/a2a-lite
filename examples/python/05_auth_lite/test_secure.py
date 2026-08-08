@@ -10,8 +10,12 @@ from a2a_lite import AgentTestClient
 
 
 def test_public_endpoint_no_auth():
-    """Public endpoint should work without authentication."""
-    client = AgentTestClient(agent)
+    """public_info needs no specific identity, but the agent's global auth
+    still requires valid credentials for every request."""
+    client = AgentTestClient(
+        agent,
+        headers={"X-API-Key": "secret-key-123"}
+    )
     
     result = client.call("public_info")
     assert result.data["agent_name"] == "SecureAgent"
@@ -22,11 +26,10 @@ def test_protected_endpoint_without_auth():
     """Protected endpoint should fail without auth."""
     client = AgentTestClient(agent)
     
-    # Should raise an exception (401 Unauthorized)
-    with pytest.raises(Exception) as exc_info:
-        client.call("get_secret")
-    
-    assert "unauthorized" in str(exc_info.value).lower() or "auth" in str(exc_info.value).lower()
+    # A2A Lite returns auth failures as a structured error message
+    result = client.call("get_secret")
+    assert "error" in result.data
+    assert "authentication" in result.data["error"].lower()
 
 
 def test_protected_endpoint_with_api_key():
@@ -60,22 +63,19 @@ def test_whoami_returns_auth_info():
     
     result = client.call("whoami")
     assert "identity" in result.data
-    assert result.data["scheme"] == "apiKey"
     assert result.data["authenticated"] is True
 
 
 def test_admin_only_with_regular_user():
     """Admin endpoint should fail for non-admin users."""
-    # Regular API key doesn't have admin permission
+    # Regular API key doesn't map to the admin identity
     client = AgentTestClient(
         agent,
         headers={"X-API-Key": "secret-key-123"}
     )
     
-    with pytest.raises(Exception) as exc_info:
-        client.call("admin_only")
-    
-    assert "admin" in str(exc_info.value).lower()
+    result = client.call("admin_only")
+    assert "admin" in result.data["error"].lower()
 
 
 def test_admin_only_with_admin_token():
@@ -97,8 +97,8 @@ def test_invalid_api_key():
         headers={"X-API-Key": "invalid-key"}
     )
     
-    with pytest.raises(Exception):
-        client.call("get_secret")
+    result = client.call("get_secret")
+    assert "error" in result.data
 
 
 def test_invalid_bearer_token():
@@ -108,8 +108,8 @@ def test_invalid_bearer_token():
         headers={"Authorization": "Bearer invalid-token"}
     )
     
-    with pytest.raises(Exception):
-        client.call("get_secret")
+    result = client.call("get_secret")
+    assert "error" in result.data
 
 
 if __name__ == "__main__":

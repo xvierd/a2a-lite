@@ -36,13 +36,25 @@ class AgentNetworkTaskHandleTest {
     @Test
     void callRemoteSkillWithHandleReturnsTaskHandle() throws Exception {
         app.post("/", ctx -> {
+            var body = mapper.readTree(ctx.body());
+            assertThat(body.get("method").asText()).isEqualTo("SendMessage");
+            assertThat(body.path("params").path("message").path("role").asText())
+                .isEqualTo("ROLE_USER");
+            assertThat(ctx.header("A2A-Version")).isEqualTo("1.0");
+
             var response = Map.of(
                 "jsonrpc", "2.0",
                 "id", "req-1",
                 "result", Map.of(
-                    "id", "task-abc-123",
-                    "status", Map.of("state", "completed"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"answer\":42}"))
+                    "task", Map.of(
+                        "id", "task-abc-123",
+                        "contextId", "ctx-1",
+                        "status", Map.of("state", "TASK_STATE_COMPLETED"),
+                        "artifacts", List.of(Map.of(
+                            "artifactId", "a-1",
+                            "parts", List.of(Map.of("text", "{\"answer\":42}"))
+                        ))
+                    )
                 )
             );
             ctx.json(response);
@@ -63,13 +75,44 @@ class AgentNetworkTaskHandleTest {
     }
 
     @Test
-    void callRemoteSkillWithHandleNullTaskId() throws Exception {
+    void callRemoteSkillWithHandleMessageResponse() throws Exception {
         app.post("/", ctx -> {
             var response = Map.of(
                 "jsonrpc", "2.0",
                 "id", "req-2",
                 "result", Map.of(
-                    "parts", List.of(Map.of("type", "text", "text", "\"plain result\""))
+                    "message", Map.of(
+                        "role", "ROLE_AGENT",
+                        "messageId", "m-1",
+                        "taskId", "task-from-message",
+                        "parts", List.of(Map.of("text", "\"plain result\""))
+                    )
+                )
+            );
+            ctx.json(response);
+        });
+
+        var network = new AgentNetwork();
+        var handle = network.callRemoteSkillWithHandle(
+            "http://localhost:" + port, "skill", Map.of(), 10
+        );
+
+        assertThat(handle.getTaskId()).isEqualTo("task-from-message");
+        assertThat(handle.getResult()).isEqualTo("plain result");
+    }
+
+    @Test
+    void callRemoteSkillWithHandleNullTaskId() throws Exception {
+        app.post("/", ctx -> {
+            var response = Map.of(
+                "jsonrpc", "2.0",
+                "id", "req-2b",
+                "result", Map.of(
+                    "message", Map.of(
+                        "role", "ROLE_AGENT",
+                        "messageId", "m-1",
+                        "parts", List.of(Map.of("text", "\"plain result\""))
+                    )
                 )
             );
             ctx.json(response);
@@ -93,8 +136,18 @@ class AgentNetworkTaskHandleTest {
                 "jsonrpc", "2.0",
                 "id", "req-3",
                 "result", Map.of(
-                    "id", "task-xyz",
-                    "parts", List.of(Map.of("type", "text", "text", "\"done\""))
+                    "task", Map.of(
+                        "id", "task-xyz",
+                        "contextId", "ctx-2",
+                        "status", Map.of(
+                            "state", "TASK_STATE_COMPLETED",
+                            "message", Map.of(
+                                "role", "ROLE_AGENT",
+                                "messageId", "m-2",
+                                "parts", List.of(Map.of("text", "\"done\""))
+                            )
+                        )
+                    )
                 )
             );
             ctx.json(response);
@@ -126,16 +179,21 @@ class AgentNetworkTaskHandleTest {
     void getRemoteTaskSendsCorrectRequest() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/get");
+            assertThat(body.get("method").asText()).isEqualTo("GetTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-99");
+            assertThat(ctx.header("A2A-Version")).isEqualTo("1.0");
 
             var response = Map.of(
                 "jsonrpc", "2.0",
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-99",
-                    "status", Map.of("state", "completed"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"status\":\"done\"}"))
+                    "contextId", "ctx-99",
+                    "status", Map.of("state", "TASK_STATE_COMPLETED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-99",
+                        "parts", List.of(Map.of("text", "{\"status\":\"done\"}"))
+                    ))
                 )
             );
             ctx.json(response);
@@ -156,7 +214,7 @@ class AgentNetworkTaskHandleTest {
     void cancelRemoteTaskSendsCorrectRequest() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/cancel");
+            assertThat(body.get("method").asText()).isEqualTo("CancelTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-42");
 
             var response = Map.of(
@@ -164,8 +222,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-42",
-                    "status", Map.of("state", "canceled"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"canceled\":true}"))
+                    "contextId", "ctx-42",
+                    "status", Map.of("state", "TASK_STATE_CANCELED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-42",
+                        "parts", List.of(Map.of("text", "{\"canceled\":true}"))
+                    ))
                 )
             );
             ctx.json(response);
@@ -197,13 +259,30 @@ class AgentNetworkTaskHandleTest {
         ).hasMessageContaining("HTTP 500");
     }
 
+    @Test
+    void callRemoteSkillThrowsOnJsonRpcError() {
+        app.post("/", ctx -> {
+            var body = mapper.readTree(ctx.body());
+            ctx.json(Map.of(
+                "jsonrpc", "2.0",
+                "id", body.get("id").asText(),
+                "error", Map.of("code", -32601, "message", "Method not found")
+            ));
+        });
+
+        var network = new AgentNetwork();
+        assertThatThrownBy(() ->
+            network.callRemoteSkill("http://localhost:" + port, "skill", Map.of(), 5)
+        ).hasMessageContaining("Method not found");
+    }
+
     // ---- TaskHandle.getStatus / cancel --------------------------------------
 
     @Test
     void testTaskHandle_getStatus() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/get");
+            assertThat(body.get("method").asText()).isEqualTo("GetTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-handle-1");
 
             ctx.json(Map.of(
@@ -211,8 +290,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-handle-1",
-                    "status", Map.of("state", "completed"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"progress\":100}"))
+                    "contextId", "ctx-h1",
+                    "status", Map.of("state", "TASK_STATE_COMPLETED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-h1",
+                        "parts", List.of(Map.of("text", "{\"progress\":100}"))
+                    ))
                 )
             ));
         });
@@ -232,7 +315,7 @@ class AgentNetworkTaskHandleTest {
     void testTaskHandle_cancel() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/cancel");
+            assertThat(body.get("method").asText()).isEqualTo("CancelTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-handle-2");
 
             ctx.json(Map.of(
@@ -240,8 +323,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-handle-2",
-                    "status", Map.of("state", "canceled"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"canceled\":true}"))
+                    "contextId", "ctx-h2",
+                    "status", Map.of("state", "TASK_STATE_CANCELED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-h2",
+                        "parts", List.of(Map.of("text", "{\"canceled\":true}"))
+                    ))
                 )
             ));
         });
@@ -266,7 +353,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-no-net",
-                    "parts", List.of(Map.of("type", "text", "text", "{\"fallback\":true}"))
+                    "contextId", "ctx-nn",
+                    "status", Map.of("state", "TASK_STATE_COMPLETED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-nn",
+                        "parts", List.of(Map.of("text", "{\"fallback\":true}"))
+                    ))
                 )
             ));
         });
@@ -288,7 +380,7 @@ class AgentNetworkTaskHandleTest {
     void testAgentNetwork_getTask() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/get");
+            assertThat(body.get("method").asText()).isEqualTo("GetTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-named-1");
 
             ctx.json(Map.of(
@@ -296,7 +388,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-named-1",
-                    "parts", List.of(Map.of("type", "text", "text", "{\"found\":true}"))
+                    "contextId", "ctx-n1",
+                    "status", Map.of("state", "TASK_STATE_COMPLETED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-n1",
+                        "parts", List.of(Map.of("text", "{\"found\":true}"))
+                    ))
                 )
             ));
         });
@@ -316,7 +413,7 @@ class AgentNetworkTaskHandleTest {
     void testAgentNetwork_cancelTask() throws Exception {
         app.post("/", ctx -> {
             var body = mapper.readTree(ctx.body());
-            assertThat(body.get("method").asText()).isEqualTo("tasks/cancel");
+            assertThat(body.get("method").asText()).isEqualTo("CancelTask");
             assertThat(body.path("params").path("id").asText()).isEqualTo("task-named-2");
 
             ctx.json(Map.of(
@@ -324,8 +421,12 @@ class AgentNetworkTaskHandleTest {
                 "id", body.get("id").asText(),
                 "result", Map.of(
                     "id", "task-named-2",
-                    "status", Map.of("state", "canceled"),
-                    "parts", List.of(Map.of("type", "text", "text", "{\"canceled\":true}"))
+                    "contextId", "ctx-n2",
+                    "status", Map.of("state", "TASK_STATE_CANCELED"),
+                    "artifacts", List.of(Map.of(
+                        "artifactId", "a-n2",
+                        "parts", List.of(Map.of("text", "{\"canceled\":true}"))
+                    ))
                 )
             ));
         });

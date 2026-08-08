@@ -1,14 +1,20 @@
 {
   "name": "CalculatorAgent",
   "description": "A calculator agent with arithmetic operations",
-  "url": "http://localhost:8788/",
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:8788/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
   "version": "1.0.0",
   "capabilities": {
     "streaming": true,
     "pushNotifications": false
   },
-  "defaultInputModes": ["text", "text/plain", "application/json"],
-  "defaultOutputModes": ["text", "text/plain", "application/json"],
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
   "skills": [
     {
       "id": "add",

@@ -162,8 +162,8 @@ export class WebhookPushNotifier extends PushNotifier {
  * In-memory registry for per-task push notification configurations.
  *
  * A caller registers a webhook URL (and optional bearer token) for a specific
- * task ID via the `tasks/pushNotification/set` JSON-RPC method.  When the task
- * completes, the server fires the webhook.
+ * task ID via the `CreateTaskPushNotificationConfig` JSON-RPC method.  When the
+ * task completes, the server fires the webhook.
  */
 export class TaskPushRegistry {
   private readonly configs = new Map<string, { url: string; token?: string }>();
@@ -190,8 +190,9 @@ export class TaskPushRegistry {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns Express middleware that intercepts `tasks/pushNotification/*`
- * JSON-RPC methods and manages the per-task push notification registry.
+ * Returns Express middleware that intercepts the A2A v1.0 push notification
+ * JSON-RPC methods (`CreateTaskPushNotificationConfig`, `GetTaskPushNotificationConfig`,
+ * `DeleteTaskPushNotificationConfig`) and manages the per-task registry.
  *
  * Mount this **before** the SDK's `jsonRpcHandler` so that the custom
  * methods are handled without reaching the protocol layer.
@@ -204,32 +205,34 @@ export function createPushNotificationMiddleware(registry: TaskPushRegistry) {
 
     const { method, id, params } = req.body;
 
-    if (method === 'tasks/pushNotification/set') {
-      const taskId = params?.id ?? params?.taskId;
-      const url = params?.pushNotificationConfig?.url;
+    if (method === 'CreateTaskPushNotificationConfig') {
+      const taskId = params?.taskId;
+      const configId = params?.id ?? taskId;
+      const url = params?.url;
+      const token = params?.token;
 
       if (!taskId || !url) {
         res.json({
           jsonrpc: '2.0',
           id: id ?? null,
-          error: { code: -32602, message: 'Missing taskId or pushNotificationConfig.url' },
+          error: { code: -32602, message: 'Missing required fields: taskId and url' },
         });
         return;
       }
 
-      const token = params.pushNotificationConfig.token;
       registry.set(taskId, url, token);
 
       res.json({
         jsonrpc: '2.0',
         id: id ?? null,
-        result: { taskId, pushNotificationConfig: { url, ...(token ? { token } : {}) } },
+        result: { taskId, id: configId, url, token },
       });
       return;
     }
 
-    if (method === 'tasks/pushNotification/get') {
-      const taskId = params?.id ?? params?.taskId;
+    if (method === 'GetTaskPushNotificationConfig') {
+      const taskId = params?.taskId;
+      const configId = params?.id ?? taskId;
 
       if (!taskId) {
         res.json({
@@ -253,13 +256,13 @@ export function createPushNotificationMiddleware(registry: TaskPushRegistry) {
       res.json({
         jsonrpc: '2.0',
         id: id ?? null,
-        result: { taskId, pushNotificationConfig: config },
+        result: { taskId, id: configId, url: config.url, token: config.token },
       });
       return;
     }
 
-    if (method === 'tasks/pushNotification/delete') {
-      const taskId = params?.id ?? params?.taskId;
+    if (method === 'DeleteTaskPushNotificationConfig') {
+      const taskId = params?.taskId;
 
       if (!taskId) {
         res.json({
@@ -274,7 +277,7 @@ export function createPushNotificationMiddleware(registry: TaskPushRegistry) {
       res.json({
         jsonrpc: '2.0',
         id: id ?? null,
-        result: { taskId, deleted: true },
+        result: {},
       });
       return;
     }

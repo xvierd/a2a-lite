@@ -8,6 +8,8 @@
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API. 100% protocol-compatible.
 
+> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.1.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.0.0`. See [MIGRATION.md](../../MIGRATION.md).
+
 ```java
 var agent = Agent.builder()
     .name("Bot")
@@ -27,7 +29,7 @@ agent.run();
 
 ```groovy
 dependencies {
-    implementation 'com.a2alite:a2a-lite:0.3.8'
+    implementation 'io.github.xvierd:a2a-lite:1.0.0'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -36,9 +38,9 @@ dependencies {
 
 ```xml
 <dependency>
-    <groupId>com.a2alite</groupId>
+    <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>0.3.8</version>
+    <version>1.0.0</version>
 </dependency>
 
 <dependency>
@@ -270,7 +272,7 @@ The remote agent must support streaming (declared via `SkillConfig.withStreaming
 
 ### Agent Card Discovery
 
-Fetch a remote agent's capabilities from its `/.well-known/agent.json` endpoint:
+Fetch a remote agent's capabilities from its `/.well-known/agent-card.json` endpoint:
 
 ```java
 // Fetch an agent's capabilities
@@ -305,7 +307,7 @@ Object config = handle.getPushConfig();
 handle.unsubscribe();
 ```
 
-The `TaskPushRegistry` is automatically created on every Agent and handles `tasks/pushNotification/set|get|delete` JSON-RPC methods.
+The `TaskPushRegistry` is automatically created on every Agent and handles the v1.0 `CreateTaskPushNotificationConfig` / `GetTaskPushNotificationConfig` / `DeleteTaskPushNotificationConfig` JSON-RPC methods.
 
 ---
 

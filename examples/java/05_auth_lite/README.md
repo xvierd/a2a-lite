@@ -20,15 +20,17 @@ Agent with **API Key authentication** using the real A2A Lite library.
 ```bash
 curl -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "id": "1", "method": "message/send", "params": {"message": {"parts": [{"type": "text", "text": "{\"skill\": \"get_secret\"}"}]}}}'
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc": "2.0", "id": "1", "method": "SendMessage", "params": {"message": {"role": "ROLE_USER", "messageId": "m1", "parts": [{"text": "{\"skill\": \"get_secret\"}"}]}}}'
 ```
 
 ### With authentication
 ```bash
 curl -X POST http://localhost:8791/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -H "X-API-Key: secret-key-user-12345" \
-  -d '{"jsonrpc": "2.0", "id": "1", "method": "message/send", "params": {"message": {"parts": [{"type": "text", "text": "{\"skill\": \"get_secret\"}"}]}}}'
+  -d '{"jsonrpc": "2.0", "id": "1", "method": "SendMessage", "params": {"message": {"role": "ROLE_USER", "messageId": "m1", "parts": [{"text": "{\"skill\": \"get_secret\"}"}]}}}'
 ```
 
 ## Valid API Keys

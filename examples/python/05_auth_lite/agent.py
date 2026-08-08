@@ -8,6 +8,13 @@ Compare this ~60 line implementation with the ~374 line Google SDK version.
 from a2a_lite import Agent, APIKeyAuth, BearerAuth
 from a2a_lite.auth import AuthResult, CompositeAuth
 
+# Demo bearer tokens mapped to identities
+DEMO_TOKENS = {
+    "valid-token-abc": "bearer_user_1",
+    "user-token-def": "bearer_user_2",
+    "admin-token-ghi": "admin_user",
+}
+
 # Create authentication provider
 # A2A Lite handles all the hashing, validation, and security automatically
 auth_provider = CompositeAuth([
@@ -16,7 +23,7 @@ auth_provider = CompositeAuth([
         header="X-API-Key"
     ),
     BearerAuth(
-        tokens=["valid-token-abc", "user-token-def", "admin-token-ghi"]
+        validator=lambda token: DEMO_TOKENS.get(token)
     )
 ])
 
@@ -47,10 +54,9 @@ async def whoami(auth: AuthResult) -> dict:
     The auth parameter is auto-injected by A2A Lite when type-hinted!
     """
     return {
-        "identity": auth.identity,
-        "scheme": auth.scheme,
-        "permissions": auth.permissions,
-        "authenticated": True
+        "identity": auth.user_id,
+        "scopes": sorted(auth.scopes),
+        "authenticated": auth.authenticated,
     }
 
 
@@ -59,10 +65,9 @@ async def admin_only(auth: AuthResult) -> dict:
     """
     Admin-only endpoint.
     
-    Demonstrates permission checking.
+    Demonstrates permission checking via the injected AuthResult.
     """
-    if "admin" not in auth.permissions:
-        # A2A Lite automatically converts this to 403 Forbidden
+    if auth.user_id != "admin_user":
         raise PermissionError("Admin permission required")
     
     return {

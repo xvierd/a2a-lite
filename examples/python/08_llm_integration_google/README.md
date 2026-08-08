@@ -61,14 +61,16 @@ The agent will start on `http://localhost:8792`
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"info\"}"}]
+        "messageId": "msg-1",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"info\"}"}]
       }
     }
   }'
@@ -79,15 +81,17 @@ curl -X POST http://localhost:8792/ \
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
-      "sessionId": "test-session-1",
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is the capital of France?\"}}"}]
+        "messageId": "msg-2",
+        "contextId": "test-session-1",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is the capital of France?\"}}"}]
       }
     }
   }'
@@ -98,15 +102,17 @@ curl -X POST http://localhost:8792/ \
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "3",
     "params": {
-      "sessionId": "test-session-1",
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is 25 * 47?\"}}"}]
+        "messageId": "msg-3",
+        "contextId": "test-session-1",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is 25 * 47?\"}}"}]
       }
     }
   }'
@@ -120,15 +126,17 @@ The LLM will automatically call the `calculator` tool and return the result.
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "4",
     "params": {
-      "sessionId": "memory-test",
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"My name is Alice\"}}"}]
+        "messageId": "msg-4",
+        "contextId": "memory-test",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"My name is Alice\"}}"}]
       }
     }
   }'
@@ -138,15 +146,17 @@ curl -X POST http://localhost:8792/ \
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "5",
     "params": {
-      "sessionId": "memory-test",
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is my name?\"}}"}]
+        "messageId": "msg-5",
+        "contextId": "memory-test",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"What is my name?\"}}"}]
       }
     }
   }'
@@ -159,15 +169,17 @@ The agent should remember that your name is Alice.
 ```bash
 curl -X POST http://localhost:8792/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tasks/send",
+    "method": "SendMessage",
     "id": "6",
     "params": {
-      "sessionId": "memory-test",
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"clear_memory\"}"}]
+        "messageId": "msg-6",
+        "contextId": "memory-test",
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"clear_memory\"}"}]
       }
     }
   }'

@@ -2,16 +2,26 @@
 node_modules/
 dist/
 build/
+target/
+# Eclipse/Gradle IDE output under packages (not source)
+packages/**/bin/
 *.pyc
 __pycache__/
 .gradle/
 *.class
 *.jar
+*.egg-info/
+.eggs/
+*.whl
 
 # Test / coverage
 .coverage
 htmlcov/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+*.lcov
 
 # IDE
 .idea/
@@ -20,6 +30,25 @@ htmlcov/
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Python virtual environments
+venv/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Local tooling / agent worktrees (never commit)
+.claude/
+.flow/
+**/~/**/
+**/.flow/
+flow.db
+**/flow.db
+
+# Accidental home-under-repo dumps
+~/
 
 # Lock files (optional)
 package-lock.json

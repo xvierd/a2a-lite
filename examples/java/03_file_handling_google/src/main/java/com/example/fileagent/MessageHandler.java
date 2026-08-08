@@ -35,17 +35,17 @@ public class MessageHandler {
             ObjectNode message = (ObjectNode) params.get("message");
             ArrayNode parts = (ArrayNode) message.get("parts");
             
-            // Find text part containing skill call and file parts
+            // Find text part containing skill call and file parts (v1.0 parts:
+            // text is {"text": ...}, inline base64 file is {"raw", "mediaType", "filename"})
             String skillCallJson = null;
             ObjectNode filePart = null;
-            
+
             for (int i = 0; i < parts.size(); i++) {
                 ObjectNode part = (ObjectNode) parts.get(i);
-                String partType = part.get("type").asText();
-                
-                if ("text".equals(partType)) {
+
+                if (part.has("text")) {
                     skillCallJson = part.get("text").asText();
-                } else if ("file".equals(partType)) {
+                } else if (part.has("raw")) {
                     filePart = part;
                 }
             }
@@ -79,18 +79,14 @@ public class MessageHandler {
      */
     @SuppressWarnings("unchecked")
     private Map<String, Object> executeSkill(String skillName, ObjectNode params, ObjectNode filePart) {
-        // Extract file data if present
+        // Extract file data if present (v1.0 inline file part: raw/mediaType/filename)
         Map<String, Object> fileData = null;
-        if (filePart != null && filePart.has("file")) {
-            JsonNode fileNode = filePart.get("file");
-            if (fileNode.isObject()) {
-                ObjectNode fileObj = (ObjectNode) fileNode;
-                fileData = Map.of(
-                    "name", fileObj.has("name") ? fileObj.get("name").asText() : "unknown",
-                    "mimeType", fileObj.has("mimeType") ? fileObj.get("mimeType").asText() : "text/plain",
-                    "data", fileObj.has("data") ? fileObj.get("data").asText() : ""
-                );
-            }
+        if (filePart != null && filePart.has("raw")) {
+            fileData = Map.of(
+                "name", filePart.has("filename") ? filePart.get("filename").asText() : "unknown",
+                "mimeType", filePart.has("mediaType") ? filePart.get("mediaType").asText() : "text/plain",
+                "data", filePart.get("raw").asText()
+            );
         }
         
         // Extract inline file from params if present
@@ -151,29 +147,24 @@ public class MessageHandler {
         
         ObjectNode resultObj = mapper.createObjectNode();
         ObjectNode messageObj = mapper.createObjectNode();
-        messageObj.put("role", "agent");
-        
+        messageObj.put("messageId", java.util.UUID.randomUUID().toString());
+        messageObj.put("role", "ROLE_AGENT");
+
         ArrayNode parts = mapper.createArrayNode();
-        
-        // Add text part with result summary
+
+        // Add text part with result summary (v1.0: no type/kind field)
         ObjectNode textPart = mapper.createObjectNode();
-        textPart.put("type", "text");
         textPart.put("text", convertResultToJson(result));
         parts.add(textPart);
-        
-        // Add file part if report was generated with file
+
+        // Add file part if report was generated with file (v1.0 inline base64 file part)
         if (result.containsKey("file") && result.get("file") instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> fileData = (Map<String, Object>) result.get("file");
             ObjectNode filePart = mapper.createObjectNode();
-            filePart.put("type", "file");
-            
-            ObjectNode fileObj = mapper.createObjectNode();
-            fileObj.put("name", (String) fileData.get("name"));
-            fileObj.put("mimeType", (String) fileData.get("mimeType"));
-            fileObj.put("data", (String) fileData.get("data"));
-            
-            filePart.set("file", fileObj);
+            filePart.put("raw", (String) fileData.get("data"));
+            filePart.put("mediaType", (String) fileData.get("mimeType"));
+            filePart.put("filename", (String) fileData.get("name"));
             parts.add(filePart);
         }
         

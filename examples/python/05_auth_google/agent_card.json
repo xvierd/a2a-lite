@@ -1,16 +1,20 @@
 {
   "name": "SecureAgent",
   "description": "A secure agent requiring API Key or Bearer token authentication",
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:8790/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
   "version": "1.0.0",
-  "url": "http://localhost:8790/",
-  "protocol_version": "1.0",
-  "defaultInputModes": ["text"],
-  "defaultOutputModes": ["text"],
   "capabilities": {
     "streaming": false,
-    "push_notifications": false,
-    "state_transition_history": false
+    "pushNotifications": false
   },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
   "skills": [
     {
       "id": "get_secret",
@@ -29,23 +33,31 @@
       "name": "admin_only",
       "description": "Admin-only operation (requires admin permission)",
       "tags": ["admin", "restricted"]
+    },
+    {
+      "id": "public_info",
+      "name": "public_info",
+      "description": "Public agent information (no auth required)",
+      "tags": ["public"]
     }
   ],
   "securitySchemes": {
     "apiKeyAuth": {
-      "type": "apiKey",
-      "in": "header",
-      "name": "X-API-Key",
-      "description": "API Key authentication via X-API-Key header"
+      "apiKeySecurityScheme": {
+        "description": "API Key authentication via X-API-Key header",
+        "location": "header",
+        "name": "X-API-Key"
+      }
     },
     "bearerAuth": {
-      "type": "http",
-      "scheme": "bearer",
-      "description": "Bearer token authentication"
+      "httpAuthSecurityScheme": {
+        "description": "Bearer token authentication",
+        "scheme": "bearer"
+      }
     }
   },
-  "security": [
-    {"apiKeyAuth": []},
-    {"bearerAuth": []}
+  "securityRequirements": [
+    {"schemes": {"apiKeyAuth": {}}},
+    {"schemes": {"bearerAuth": {}}}
   ]
 }

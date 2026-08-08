@@ -165,8 +165,6 @@ class TaskContext:
         if self._event_queue:
             import json
 
-            from a2a.utils import new_agent_text_message
-
             status_msg = json.dumps(
                 {
                     "_type": "status_update",
@@ -174,7 +172,21 @@ class TaskContext:
                     "status": self._task.status.to_dict(),
                 }
             )
-            await self._event_queue.enqueue_event(new_agent_text_message(status_msg))
+            if hasattr(self._event_queue, "update_status"):
+                # TaskUpdater (A2A 1.x strict streaming): status update event
+                from a2a.helpers import new_text_part
+                from a2a.types import TaskState as A2ATaskState
+
+                updater = self._event_queue
+                await updater.update_status(
+                    A2ATaskState.TASK_STATE_WORKING,
+                    message=updater.new_agent_message([new_text_part(status_msg)]),
+                )
+            else:
+                # Raw event queue (direct unit testing): single text message
+                from a2a.helpers import new_text_message
+
+                await self._event_queue.enqueue_event(new_text_message(status_msg))
 
     def on_status_change(self, callback: Callable) -> None:
         """Register callback for status changes."""

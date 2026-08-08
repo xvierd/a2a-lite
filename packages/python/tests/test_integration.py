@@ -67,7 +67,7 @@ async def test_agent_card_endpoint(calculator_agent):
     app = calculator_agent.get_app()
     client = TestClient(app)
 
-    response = client.get("/.well-known/agent.json")
+    response = client.get("/.well-known/agent-card.json")
 
     assert response.status_code == 200
     data = response.json()
@@ -87,18 +87,18 @@ async def test_skill_invocation(calculator_agent):
     message = json.dumps({"skill": "add", "params": {"a": 5, "b": 3}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
@@ -117,18 +117,18 @@ async def test_unknown_skill(calculator_agent):
     message = json.dumps({"skill": "unknown_skill", "params": {}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
     # Should still return 200 but with error in result
 
@@ -144,18 +144,18 @@ async def test_greeting_skill(greeting_agent):
     message = json.dumps({"skill": "greet", "params": {"name": "Alice"}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
 
@@ -171,18 +171,18 @@ async def test_default_parameter(greeting_agent):
     message = json.dumps({"skill": "greet", "params": {}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
 
@@ -236,22 +236,22 @@ def test_sync_skill_via_http():
     message = json.dumps({"skill": "double", "params": {"x": 21}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     assert "42" in result_text
 
 
@@ -271,22 +271,22 @@ def test_skill_returning_dict_via_http():
     message = json.dumps({"skill": "info", "params": {"name": "Alice"}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     result = json.loads(result_text)
     assert result["name"] == "Alice"
     assert result["status"] == "active"
@@ -308,22 +308,22 @@ def test_skill_returning_list_via_http():
     message = json.dumps({"skill": "numbers", "params": {"n": 5}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     result = json.loads(result_text)
     assert result == [0, 1, 2, 3, 4]
 
@@ -348,22 +348,22 @@ def test_error_handler_via_http():
     message = json.dumps({"skill": "fail", "params": {}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     result = json.loads(result_text)
     assert result["handled"] is True
 
@@ -387,22 +387,22 @@ def test_middleware_via_http():
     message = json.dumps({"skill": "hello", "params": {"name": "Test"}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     assert "Hello, Test!" in result_text
 
 
@@ -422,18 +422,18 @@ def test_plain_text_message():
     # Send plain text instead of JSON skill call
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": "Hello there"}],
+                "role": "ROLE_USER",
+                "parts": [{"text": "Hello there"}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
 
@@ -463,22 +463,22 @@ def test_pydantic_model_via_http():
     )
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     result = json.loads(result_text)
     assert result["created"] is True
     assert result["name"] == "Alice"
@@ -495,18 +495,18 @@ def test_agent_with_no_skills():
     message = json.dumps({"skill": "nonexistent", "params": {}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
 
@@ -531,18 +531,18 @@ def test_completion_hook_via_http():
     message = json.dumps({"skill": "hello", "params": {}})
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": message}],
+                "role": "ROLE_USER",
+                "parts": [{"text": message}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
     assert "hello" in completed_skills
 
@@ -563,20 +563,20 @@ def test_single_skill_auto_dispatch():
     # Send plain text — should auto-dispatch to the only skill
     request_body = {
         "jsonrpc": "2.0",
-        "method": "message/send",
+        "method": "SendMessage",
         "id": uuid4().hex,
         "params": {
             "message": {
-                "role": "user",
-                "parts": [{"type": "text", "text": "Hello there"}],
+                "role": "ROLE_USER",
+                "parts": [{"text": "Hello there"}],
                 "messageId": uuid4().hex,
             }
         },
     }
 
-    response = client.post("/", json=request_body)
+    response = client.post("/", json=request_body, headers={"A2A-Version": "1.0"})
     assert response.status_code == 200
 
     data = response.json()
-    result_text = data.get("result", {}).get("parts", [{}])[0].get("text", "")
+    result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     assert "Echo:" in result_text

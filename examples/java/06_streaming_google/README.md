@@ -1,13 +1,16 @@
-# Streaming Agent - Google A2A SDK
+# Streaming Agent - A2A v1.0 (from scratch, no SDK)
 
-This example demonstrates **Server-Sent Events (SSE) streaming** using the official Google A2A Java SDK.
+This example demonstrates **Server-Sent Events (SSE) streaming** implementing the
+**A2A protocol v1.0 wire format by hand** with Javalin + Jackson — no SDK. For the
+official Java SDK approach see `packages/java` (LiteAgentExecutor / Quarkus
+integration).
 
 ## Overview
 
-The Google SDK approach requires building all streaming infrastructure manually:
-- SSE connection management
-- Event emitters and formatters
-- Client tracking and cleanup
+The from-scratch approach requires building all streaming infrastructure manually:
+- SSE event formatting (`data: {...}` lines on the RPC HTTP response)
+- v1.0 task lifecycle (task / statusUpdate / artifactUpdate events)
+- Task and context ID management
 - Manual streaming logic per skill
 
 ## Project Structure
@@ -17,43 +20,64 @@ The Google SDK approach requires building all streaming infrastructure manually:
 ├── pom.xml                                    # Maven configuration
 ├── README.md                                  # This file
 └── src/main/java/com/example/streaming/
-    ├── StreamingAgent.java                    # Main agent (400+ lines)
+    ├── StreamingAgent.java                    # Main agent + JSON-RPC routing
     ├── sse/
-    │   └── SseEventEmitter.java              # SSE infrastructure (150+ lines)
+    │   ├── StreamEmitter.java                 # Skill output sink (interface)
+    │   ├── SseEventEmitter.java               # v1.0 SSE event emitter
+    │   └── CollectingEmitter.java             # Buffer for sync SendMessage
     └── skills/
-        ├── ChatSkill.java                    # Chat streaming
-        ├── CountSkill.java                   # Count streaming
-        ├── StorySkill.java                   # Story streaming
-        └── ProgressSkill.java                # Progress streaming
+        ├── ChatSkill.java                     # Chat streaming
+        ├── CountSkill.java                    # Count streaming
+        ├── StorySkill.java                    # Story streaming
+        └── ProgressSkill.java                 # Progress streaming
 ```
 
 ## Key Features
 
-### AgentCapabilities with streaming=true
+### Agent card with streaming=true
 
-```java
-ObjectNode capabilities = mapper.createObjectNode();
-capabilities.put("streaming", true);           // Enable streaming
-capabilities.put("pushNotifications", false);
-card.set("capabilities", capabilities);
+Served at `GET /.well-known/agent-card.json` (v1.0 shape):
+
+```json
+{
+  "name": "StreamingAgent",
+  "description": "Streaming agent demonstrating SSE (A2A v1.0 from scratch)",
+  "version": "1.0.0",
+  "supportedInterfaces": [
+    {"url": "http://localhost:8787/", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}
+  ],
+  "skills": [
+    {"id": "chat", "name": "chat", "description": "...", "tags": ["chat", "streaming"]}
+  ],
+  "capabilities": {"streaming": true, "pushNotifications": false},
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"]
+}
 ```
 
-### SSE Infrastructure
+### v1.0 SSE events
 
-The `SseEventEmitter` class handles:
-- Event formatting (`event: name\ndata: json\n\n`)
-- Connection state management
-- Error handling
-- Multiple event types (chunk, token, progress, status)
+`SendStreamingMessage` streams `data: {...}` lines directly on the POST response.
+Each line is a JSON-RPC-style envelope whose `result` has exactly one key:
 
-### Streaming Endpoints
+| Key | Payload | When |
+|-----|---------|------|
+| `task` | `{"id", "contextId", "status": {"state": "TASK_STATE_SUBMITTED", ...}, "artifacts": []}` | Always the first event |
+| `statusUpdate` | `{"taskId", "contextId", "status": {"state": "TASK_STATE_*", "timestamp", "message": {...}}}` | Working progress, completion, failure |
+| `artifactUpdate` | `{"taskId", "artifact": {"artifactId", "name", "parts": [{"text": ...}]}, "append": true, "lastChunk": false}` | Incremental result chunks |
+
+There is **no `final` field** — closing the stream signals terminality. Task
+states use the v1.0 enum form: `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`,
+`TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`.
+
+### Endpoints
 
 ```
-GET  /.well-known/agent.json    # Agent discovery with streaming=true
-POST /                         # Standard JSON-RPC messages
-POST /stream                   # Initiate streaming task
-GET  /stream/{taskId}          # SSE connection for events
+GET  /.well-known/agent-card.json   # Agent discovery (v1.0)
+POST /                               # JSON-RPC: SendMessage / SendStreamingMessage
 ```
+
+Every RPC response carries the `A2A-Version: 1.0` header.
 
 ## Building
 
@@ -69,26 +93,30 @@ mvn exec:java
 java -jar target/streaming-agent-google-1.0.0.jar
 ```
 
-## Testing Streaming
+## Testing
 
 ### Using curl
 
 **1. Check agent card:**
 ```bash
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 ```
 
-**2. Initiate streaming:**
+**2. SendMessage (synchronous):**
 ```bash
-curl -X POST http://localhost:8787/stream \
+curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "id": 1,
-    "method": "message/send",
+    "id": "1",
+    "method": "SendMessage",
     "params": {
-      "skill": "chat",
-      "message": "Hello streaming!"
+      "message": {
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"chat\", \"params\": {\"message\": \"hello\"}}"}]
+      }
     }
   }'
 ```
@@ -97,76 +125,104 @@ Response:
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 1,
+  "id": "1",
   "result": {
-    "taskId": "task-1234567890-...",
-    "streamUrl": "http://localhost:8787/stream/task-1234567890-...",
-    "status": "streaming"
+    "message": {
+      "messageId": "<uuid>",
+      "role": "ROLE_AGENT",
+      "parts": [{"text": "Hello! Welcome to the streaming chat demo..."}]
+    }
   }
 }
 ```
 
-**3. Connect to SSE stream:**
+**3. SendStreamingMessage (SSE):**
 ```bash
-curl -N http://localhost:8787/stream/task-1234567890-...
+curl -N -X POST http://localhost:8787/ \
+  -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "SendStreamingMessage",
+    "params": {
+      "message": {
+        "role": "ROLE_USER",
+        "messageId": "m2",
+        "parts": [{"text": "{\"skill\": \"count\", \"params\": {\"to\": 5}}"}]
+      }
+    }
+  }'
 ```
 
-### Using JavaScript EventSource
+Stream output (one `data:` line per event):
+```
+data: {"result":{"task":{"id":"...","contextId":"...","status":{"state":"TASK_STATE_SUBMITTED",...},"artifacts":[]}}}
+
+data: {"result":{"statusUpdate":{"taskId":"...","contextId":"...","status":{"state":"TASK_STATE_WORKING","timestamp":"...","message":{"messageId":"...","role":"ROLE_AGENT","parts":[{"text":"Starting count to 5"}]}}}}}
+
+data: {"result":{"artifactUpdate":{"taskId":"...","artifact":{"artifactId":"...","name":"response","parts":[{"text":"1 "}]},"append":true,"lastChunk":false}}}
+
+...
+
+data: {"result":{"statusUpdate":{"taskId":"...","contextId":"...","status":{"state":"TASK_STATE_COMPLETED","timestamp":"...","message":{...,"parts":[{"text":"Finished counting to 5"}]}}}}}
+```
+
+### Using JavaScript (fetch + ReadableStream)
+
+`EventSource` cannot POST, so consume the stream with `fetch`:
 
 ```javascript
-// 1. Initiate streaming
-const response = await fetch('/stream', {
+const response = await fetch('/', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', 'A2A-Version': '1.0' },
   body: JSON.stringify({
     jsonrpc: '2.0',
-    id: 1,
-    method: 'message/send',
-    params: { skill: 'chat', message: 'Hello!' }
+    id: '1',
+    method: 'SendStreamingMessage',
+    params: {
+      message: {
+        role: 'ROLE_USER',
+        messageId: 'm1',
+        parts: [{ text: JSON.stringify({ skill: 'chat', params: { message: 'hello' } }) }]
+      }
+    }
   })
 });
-const { result } = await response.json();
 
-// 2. Connect to SSE
-const evtSource = new EventSource(result.streamUrl);
-
-evtSource.addEventListener('token', (e) => {
-  const data = JSON.parse(e.data);
-  console.log('Token:', data.token);
-});
-
-evtSource.addEventListener('progress', (e) => {
-  const data = JSON.parse(e.data);
-  console.log(`Progress: ${data.percent}%`);
-});
-
-evtSource.addEventListener('complete', (e) => {
-  evtSource.close();
-});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break; // stream close = terminal
+  for (const line of decoder.decode(value).split('\n')) {
+    if (line.startsWith('data: ')) {
+      const event = JSON.parse(line.slice(6));
+      if (event.result.task) console.log('Task:', event.result.task.id);
+      if (event.result.statusUpdate) console.log('Status:', event.result.statusUpdate.status.state);
+      if (event.result.artifactUpdate) process.stdout.write(event.result.artifactUpdate.artifact.parts[0].text);
+    }
+  }
+}
 ```
 
 ## Available Skills
 
-| Skill | Description | Events |
-|-------|-------------|--------|
-| `chat` | Interactive chat | `token`, `status`, `complete` |
-| `count` | Count with progress | `progress`, `chunk`, `complete` |
-| `story` | Word-by-word story | `token`, `status`, `complete` |
-| `progress` | Multi-step progress | `progress`, `step_started`, `step_complete` |
+| Skill | Description | Streaming pattern |
+|-------|-------------|-------------------|
+| `chat` | Interactive chat | `artifactUpdate` per word, `statusUpdate` for status |
+| `count` | Count with progress | `statusUpdate` progress + `artifactUpdate` per number |
+| `story` | Word-by-word story | `artifactUpdate` per word |
+| `progress` | Multi-step progress | `statusUpdate` per step and percent |
 
-## Code Statistics
-
-- **Total Files**: 6 Java files
-- **Total Lines of Code**: ~800 lines
-- **Infrastructure Code**: ~550 lines (SseEventEmitter + StreamingAgent setup)
-- **Skill Logic**: ~250 lines
-- **Complexity**: High (manual SSE management)
+Skill calls travel inside the text part as JSON:
+`{"skill": "<name>", "params": {...}}`.
 
 ## Comparison with A2A Lite
 
-| Aspect | Google SDK | A2A Lite |
-|--------|------------|----------|
-| Lines of Code | ~800 | ~100 |
+| Aspect | From scratch (this example) | A2A Lite |
+|--------|------------------------------|----------|
+| Lines of Code | ~700 | ~100 |
 | Infrastructure | Manual | Built-in |
 | SSE Management | Hand-crafted | Automatic |
 | Skill Definition | Complex | Simple lambda |

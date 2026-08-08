@@ -17,7 +17,6 @@ public class TextPart {
 
     public Map<String, Object> toDict() {
         var map = new HashMap<String, Object>();
-        map.put("type", "text");
         map.put("text", text);
         return map;
     }

@@ -24,10 +24,10 @@ Example:
     router.mount("/hotels", hotels)
     router.run(port=8787)
 
-The merged agent card is available at /.well-known/agent.json.
+The merged agent card is available at /.well-known/agent-card.json.
 Individual agents remain accessible at:
-  - /weather/.well-known/agent.json
-  - /hotels/.well-known/agent.json
+  - /weather/.well-known/agent-card.json
+  - /hotels/.well-known/agent-card.json
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ class Router:
     Path-based router that mounts multiple A2A agents under a single server.
 
     Each agent is mounted at a URL prefix. The merged agent card combines
-    skills from all sub-agents and is served at /.well-known/agent.json.
+    skills from all sub-agents and is served at /.well-known/agent-card.json.
 
     Example:
         router = Router()
@@ -103,12 +103,15 @@ class Router:
                     }
                 )
 
+        base_url = f"http://{host}:{port}"
         return {
             "name": " + ".join(names) if names else "Router",
             "description": "; ".join(descriptions) if descriptions else "Multi-agent router",
             "version": "1.0.0",
-            "url": f"http://{host}:{port}",
-            "protocolVersion": "0.3.0",
+            "supportedInterfaces": [
+                {"url": base_url, "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
+                {"url": base_url, "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"},
+            ],
             "capabilities": {
                 "streaming": any(agent._has_streaming for _, agent in self._mounts),
                 "pushNotifications": False,
@@ -135,7 +138,7 @@ class Router:
             return JSONResponse(merged_card)
 
         routes = [
-            Route("/.well-known/agent.json", endpoint=merged_card_handler),
+            Route("/.well-known/agent-card.json", endpoint=merged_card_handler),
         ]
 
         for prefix, agent in self._mounts:

@@ -5,7 +5,7 @@
 This example demonstrates file handling using the official Google A2A SDK with:
 - **AgentCard** with file capabilities
 - **Custom AgentExecutor** for skill execution
-- **Real A2A types** (FilePart, DataPart, TextPart, Task, Message)
+- **Real A2A v1.0 types** (`Part` with text / raw / url / data, Task, Message)
 - File upload/download handling
 
 ---
@@ -41,7 +41,7 @@ The server will start on `http://localhost:8789`.
 ### 1. Get Agent Card
 
 ```bash
-curl http://localhost:8789/.well-known/agent.json | python -m json.tool
+curl http://localhost:8789/.well-known/agent-card.json | python -m json.tool
 ```
 
 ### 2. Analyze a File
@@ -49,26 +49,23 @@ curl http://localhost:8789/.well-known/agent.json | python -m json.tool
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "message_id": "msg-1",
+        "role": "ROLE_USER",
+        "messageId": "msg-1",
         "parts": [
           {
-            "kind": "text",
             "text": "{\"skill\": \"analyze\"}"
           },
           {
-            "kind": "file",
-            "file": {
-              "name": "test.txt",
-              "mimeType": "text/plain",
-              "bytes": "SGVsbG8gV29ybGQhCVRoaXMgaXMgYSB0ZXN0IGZpbGUu"
-            }
+            "raw": "SGVsbG8gV29ybGQhCVRoaXMgaXMgYSB0ZXN0IGZpbGUu",
+            "filename": "test.txt",
+            "mediaType": "text/plain"
           }
         ]
       }
@@ -81,26 +78,23 @@ curl -X POST http://localhost:8789/ \
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
       "message": {
-        "role": "user",
-        "message_id": "msg-2",
+        "role": "ROLE_USER",
+        "messageId": "msg-2",
         "parts": [
           {
-            "kind": "text",
             "text": "{\"skill\": \"convert_to_upper\"}"
           },
           {
-            "kind": "file",
-            "file": {
-              "name": "hello.txt",
-              "mimeType": "text/plain",
-              "bytes": "SGVsbG8gV29ybGQh"
-            }
+            "raw": "SGVsbG8gV29ybGQh",
+            "filename": "hello.txt",
+            "mediaType": "text/plain"
           }
         ]
       }
@@ -113,17 +107,17 @@ curl -X POST http://localhost:8789/ \
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "3",
     "params": {
       "message": {
-        "role": "user",
-        "message_id": "msg-3",
+        "role": "ROLE_USER",
+        "messageId": "msg-3",
         "parts": [
           {
-            "kind": "data",
             "data": {
               "skill": "generate_report",
               "params": {"format": "csv"}
@@ -144,19 +138,18 @@ curl -X POST http://localhost:8789/ \
 ```python
 from a2a.types import (
     AgentCard,          # Agent descriptor with capabilities
+    AgentInterface,     # URL + protocol binding exposed by the agent
     AgentSkill,         # Individual skill definition
     AgentCapabilities,  # Feature flags (streaming, push, etc.)
     Task,               # Task lifecycle management
     TaskStatus,         # Task state tracking
-    TaskState,          # Enum: submitted, working, completed, etc.
+    TaskState,          # Enum: TASK_STATE_SUBMITTED, TASK_STATE_WORKING, ...
     Message,            # A2A message container
-    Part,               # Union of TextPart | FilePart | DataPart
-    TextPart,           # Text content
-    FilePart,           # File content (bytes or URI)
-    DataPart,           # Structured data
-    Role,               # user | agent
+    Part,               # Single part type: text | raw (bytes) | url | data
     Artifact,           # Output artifacts
 )
+
+from a2a.helpers import new_task_from_user_message
 
 from a2a.server.agent_execution import (
     AgentExecutor,      # Abstract base for agent logic
@@ -165,8 +158,41 @@ from a2a.server.agent_execution import (
 
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.apps.jsonrpc import A2AFastAPIApplication
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.routes import (
+    create_agent_card_routes,
+    create_jsonrpc_routes,
+    create_rest_routes,
+)
+from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+```
+
+The server is assembled on a plain Starlette app (the old FastAPI
+application helpers from a2a-sdk 0.3 were removed in 1.x):
+
+```python
+from starlette.applications import Starlette
+
+handler = DefaultRequestHandler(agent_executor, InMemoryTaskStore(), agent_card)
+app = Starlette(
+    routes=create_agent_card_routes(agent_card)
+    + create_jsonrpc_routes(handler, rpc_url="/")
+    + create_rest_routes(handler)
+)
+```
+
+The AgentCard exposes its endpoint via `supported_interfaces` (no root `url`):
+
+```python
+AgentCard(
+    ...,
+    supported_interfaces=[
+        AgentInterface(
+            url="http://localhost:8789/",
+            protocol_binding="JSONRPC",
+            protocol_version="1.0",
+        ),
+    ],
+)
 ```
 
 ### Custom AgentExecutor
@@ -174,54 +200,62 @@ from a2a.server.tasks import InMemoryTaskStore
 ```python
 class FileAgentExecutor(AgentExecutor):
     """Custom executor for file processing skills."""
-    
+
     async def execute(self, context: RequestContext, event_queue: EventQueue):
-        # Parse message parts
+        # v1.0 task pattern: enqueue the Task first, then use TaskUpdater
+        task = context.current_task or new_task_from_user_message(context.message)
+        await event_queue.enqueue_event(task)
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
+
+        # Parse message parts (single Part type; inspect with HasField())
         skill_name, params, file_part = self._parse_message(context.message)
-        
+
         # Execute skill
         if skill_name == "analyze":
-            result = await self._execute_analyze(file_part)
+            result = self._execute_analyze(file_part)
         elif skill_name == "convert_to_upper":
-            result = await self._execute_convert_to_upper(file_part)
+            result = self._execute_convert_to_upper(file_part)
         elif skill_name == "generate_report":
-            result = await self._execute_generate_report(params)
-        
-        # Publish result via event queue
-        await self._publish_success(event_queue, task_id, context_id, result)
-    
+            result = self._execute_generate_report(params)
+
+        # Publish artifacts and complete the task
+        await updater.add_artifact([file_or_data_part], name="result")
+        await updater.complete(
+            message=updater.new_agent_message([Part(text="Done")])
+        )
+
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
         # Handle cancellation requests
-        await event_queue.enqueue_event(TaskStatusUpdateEvent(...))
+        task = context.current_task
+        if task is not None:
+            await TaskUpdater(event_queue, task.id, task.context_id).cancel()
 ```
 
-### FilePart Handling
+### File Part Handling
+
+v1.0 removed `FilePart`/`FileWithBytes`/`DataPart`: a single `Part` carries
+text / raw (bytes) / url / data plus `filename` and `media_type` metadata.
 
 ```python
-from a2a.types import FilePart, FileWithBytes
-import base64
+from a2a.types import Part
 
-def extract_file_from_part(file_part: FilePart) -> Tuple[str, str, bytes]:
-    """Extract file data from A2A FilePart."""
-    file_data = file_part.file
-    
-    if isinstance(file_data, FileWithBytes):
-        filename = file_data.name or "unknown"
-        mime_type = file_data.mime_type or "application/octet-stream"
-        content_bytes = base64.b64decode(file_data.bytes)
-        return filename, mime_type, content_bytes
-    else:
-        # FileWithUri - would need to fetch from URI
-        raise FileProcessingError("File URI not supported")
+def extract_file_from_part(part: Part) -> Tuple[str, str, bytes]:
+    """Extract file data from a v1.0 Part (raw bytes or url)."""
+    if part.HasField("raw"):
+        filename = part.filename or "unknown"
+        mime_type = part.media_type or "application/octet-stream"
+        return filename, mime_type, bytes(part.raw)
+    elif part.HasField("url"):
+        # Remote file reference - would need to fetch from URL
+        raise FileProcessingError("File URL not supported")
+    raise FileProcessingError("Part does not contain a file")
 
-def create_file_part(filename: str, mime_type: str, content: bytes) -> FilePart:
-    """Create a FilePart for response."""
-    return FilePart(
-        file=FileWithBytes(
-            name=filename,
-            mime_type=mime_type,
-            bytes=base64.b64encode(content).decode('utf-8')
-        )
+def create_file_part(filename: str, mime_type: str, content: bytes) -> Part:
+    """Create a file-carrying Part for a response or artifact."""
+    return Part(
+        raw=content,
+        filename=filename,
+        media_type=mime_type,
     )
 ```
 
@@ -231,9 +265,9 @@ def create_file_part(filename: str, mime_type: str, content: bytes) -> FilePart:
 
 | Skill | Input | Output | Description |
 |-------|-------|--------|-------------|
-| `analyze` | FilePart | DataPart | Returns file statistics (size, lines, words) |
-| `convert_to_upper` | FilePart (text) | FilePart | Returns uppercase version of file |
-| `generate_report` | DataPart (format) | FilePart | Generates sample report in txt/csv/json |
+| `analyze` | File (raw part) | Data part | Returns file statistics (size, lines, words) |
+| `convert_to_upper` | File (raw text part) | File part | Returns uppercase version of file |
+| `generate_report` | Data part (format) | File part | Generates sample report in txt/csv/json |
 
 ---
 
@@ -241,7 +275,7 @@ def create_file_part(filename: str, mime_type: str, content: bytes) -> FilePart:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    A2AFastAPIApplication                     │
+│                 Starlette (route factories)                 │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │           DefaultRequestHandler                       │   │
 │  │  ┌────────────────────────────────────────────────┐   │   │

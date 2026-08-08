@@ -75,11 +75,15 @@ class AgentCardInfoTest {
 
     @Test
     void discoverAgentParsesCardFromServer() throws Exception {
-        app.get("/.well-known/agent.json", ctx -> {
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.json(Map.of(
                 "name", "RemoteBot",
                 "description", "Remote agent",
-                "url", "http://localhost:" + port,
+                "supportedInterfaces", List.of(Map.of(
+                    "protocolBinding", "JSONRPC",
+                    "url", "http://localhost:" + port,
+                    "protocolVersion", "1.0"
+                )),
                 "version", "2.0.0",
                 "capabilities", Map.of("streaming", true, "pushNotifications", false),
                 "skills", List.of(
@@ -93,6 +97,7 @@ class AgentCardInfoTest {
 
         assertThat(card.getName()).isEqualTo("RemoteBot");
         assertThat(card.getDescription()).isEqualTo("Remote agent");
+        assertThat(card.getUrl()).isEqualTo("http://localhost:" + port);
         assertThat(card.getVersion()).isEqualTo("2.0.0");
         assertThat(card.isSupportsStreaming()).isTrue();
         assertThat(card.isSupportsPush()).isFalse();
@@ -103,7 +108,7 @@ class AgentCardInfoTest {
 
     @Test
     void discoverAgentThrowsOnHttpError() {
-        app.get("/.well-known/agent.json", ctx -> ctx.status(404));
+        app.get("/.well-known/agent-card.json", ctx -> ctx.status(404));
 
         var network = new AgentNetwork();
         assertThatThrownBy(() ->
@@ -113,11 +118,15 @@ class AgentCardInfoTest {
 
     @Test
     void discoverAgentStripsTrailingSlash() throws Exception {
-        app.get("/.well-known/agent.json", ctx -> {
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.json(Map.of(
                 "name", "Agent",
                 "description", "desc",
-                "url", "http://localhost:" + port,
+                "supportedInterfaces", List.of(Map.of(
+                    "protocolBinding", "JSONRPC",
+                    "url", "http://localhost:" + port,
+                    "protocolVersion", "1.0"
+                )),
                 "version", "1.0"
             ));
         });
@@ -131,11 +140,15 @@ class AgentCardInfoTest {
 
     @Test
     void addWithAutoDiscoverCachesCard() throws Exception {
-        app.get("/.well-known/agent.json", ctx -> {
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.json(Map.of(
                 "name", "AutoBot",
                 "description", "Auto-discovered",
-                "url", "http://localhost:" + port,
+                "supportedInterfaces", List.of(Map.of(
+                    "protocolBinding", "JSONRPC",
+                    "url", "http://localhost:" + port,
+                    "protocolVersion", "1.0"
+                )),
                 "version", "1.0"
             ));
         });
@@ -159,8 +172,8 @@ class AgentCardInfoTest {
 
     @Test
     void addWithAutoDiscoverFailureStillRegistersAgent() {
-        // No /.well-known/agent.json endpoint configured — discovery will fail
-        app.get("/.well-known/agent.json", ctx -> ctx.status(500));
+        // No /.well-known/agent-card.json endpoint configured — discovery will fail
+        app.get("/.well-known/agent-card.json", ctx -> ctx.status(500));
 
         var network = new AgentNetwork();
         network.add("failing", "http://localhost:" + port, true);
@@ -180,11 +193,15 @@ class AgentCardInfoTest {
 
     @Test
     void discoverNamedFetchesAndCaches() throws Exception {
-        app.get("/.well-known/agent.json", ctx -> {
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.json(Map.of(
                 "name", "NamedBot",
                 "description", "Named agent",
-                "url", "http://localhost:" + port,
+                "supportedInterfaces", List.of(Map.of(
+                    "protocolBinding", "JSONRPC",
+                    "url", "http://localhost:" + port,
+                    "protocolVersion", "1.0"
+                )),
                 "version", "3.0"
             ));
         });
@@ -234,5 +251,49 @@ class AgentCardInfoTest {
         assertThat(card.getSkills()).isEmpty();
         assertThat(card.isSupportsStreaming()).isFalse();
         assertThat(card.isSupportsPush()).isFalse();
+    }
+
+    @Test
+    void parseAgentCardReadsUrlFromSupportedInterfaces() {
+        var network = new AgentNetwork();
+        var card = network.parseAgentCard(Map.of(
+            "name", "Bot",
+            "supportedInterfaces", List.of(
+                Map.of("protocolBinding", "JSONRPC", "url", "http://bot:9000", "protocolVersion", "1.0"),
+                Map.of("protocolBinding", "HTTP+JSON", "url", "http://bot:9000/rest", "protocolVersion", "1.0")
+            )
+        ));
+
+        assertThat(card.getUrl()).isEqualTo("http://bot:9000");
+    }
+
+    @Test
+    void parseAgentCardRejects03Card() {
+        var network = new AgentNetwork();
+        var legacy03 = Map.<String, Object>of(
+            "name", "OldBot",
+            "url", "http://old:8787",
+            "protocolVersion", "0.3.0"
+        );
+
+        assertThatThrownBy(() -> network.parseAgentCard(legacy03))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("A2A 0.3")
+            .hasMessageContaining("not supported by a2a-lite 1.0");
+    }
+
+    @Test
+    void discoverAgentRejects03CardFromServer() {
+        app.get("/.well-known/agent-card.json", ctx -> {
+            ctx.json(Map.of(
+                "name", "OldBot",
+                "url", "http://localhost:" + port,
+                "protocolVersion", "0.3.0"
+            ));
+        });
+
+        var network = new AgentNetwork();
+        assertThatThrownBy(() -> network.discoverAgent("http://localhost:" + port, 5))
+            .hasMessageContaining("A2A 0.3");
     }
 }

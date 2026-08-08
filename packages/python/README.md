@@ -9,6 +9,8 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
 
+> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). No v0.3 compatibility. See [MIGRATION.md](../../MIGRATION.md).
+
 ```python
 from a2a_lite import Agent
 
@@ -31,7 +33,7 @@ pip install a2a-lite
 uv add a2a-lite
 ```
 
-**Requirements:** Python 3.10+
+**Requirements:** Python 3.10+ (pulls in `a2a-sdk[http-server] >= 1.1.2` automatically)
 
 ---
 
@@ -76,14 +78,15 @@ assert result == 5
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"add\", \"params\": {\"a\": 2, \"b\": 3}}"}],
+        "role": "ROLE_USER",
+        "parts": [{"text": "{\"skill\": \"add\", \"params\": {\"a\": 2, \"b\": 3}}"}],
         "messageId": "msg-1"
       }
     }
@@ -564,7 +567,7 @@ Auto-injected when detected in skill function signatures:
 | `AgentNetwork` | Registry of named remote agents |
 | `TaskHandle` | Handle to a remote task with `task_id` and `result` |
 | `AgentCardInfo` | Parsed agent card with `name`, `version`, `skills`, `supports_streaming` |
-| `discover(url)` | Fetch a remote agent's card from `/.well-known/agent.json` |
+| `discover(url)` | Fetch a remote agent's card from `/.well-known/agent-card.json` |
 | `get_remote_task(url, task_id)` | Poll the status of a remote task |
 | `cancel_remote_task(url, task_id)` | Request cancellation of a remote task |
 | `stream_remote_skill(url, skill, params)` | Stream SSE chunks from a remote agent skill |
@@ -581,12 +584,22 @@ Auto-injected when detected in skill function signatures:
 | [04_multi_agent/](examples/04_multi_agent) | Two agents communicating |
 | [05_with_llm.py](examples/05_with_llm.py) | OpenAI / Anthropic integration |
 | [06_pydantic_models.py](examples/06_pydantic_models.py) | Auto Pydantic conversion |
+| [06_task_handle_discovery.py](examples/06_task_handle_discovery.py) | TaskHandle + card discovery |
 | [07_middleware.py](examples/07_middleware.py) | Middleware pipeline |
+| [07_client_streaming.py](examples/07_client_streaming.py) | Client-side SSE streaming |
 | [08_streaming.py](examples/08_streaming.py) | Streaming responses |
 | [09_testing.py](examples/09_testing.py) | Built-in TestClient |
 | [10_file_handling.py](examples/10_file_handling.py) | File upload & processing |
 | [11_task_tracking.py](examples/11_task_tracking.py) | Progress updates |
 | [12_with_auth.py](examples/12_with_auth.py) | Authentication |
+| [13_mcp_tools.py](examples/13_mcp_tools.py) | MCP server integration |
+| [14_multi_agent_network.py](examples/14_multi_agent_network.py) | AgentNetwork + delegate() |
+| [15_llm_openai.py](examples/15_llm_openai.py) | OpenAI LLM skill |
+| [16_llm_anthropic.py](examples/16_llm_anthropic.py) | Anthropic LLM skill |
+| [17_llm_bedrock.py](examples/17_llm_bedrock.py) | AWS Bedrock LLM skill |
+| [18_per_task_push.py](examples/18_per_task_push.py) | Per-task push notifications |
+| [19_capability_negotiation.py](examples/19_capability_negotiation.py) | Capability negotiation |
+| [20_streaming_negotiation.py](examples/20_streaming_negotiation.py) | Streaming negotiation |
 
 ---
 

@@ -18,7 +18,7 @@ def test_greet_skill():
     result = client.call("greet", name="World")
     
     # Verify result
-    assert result == "Hello, World!"
+    assert result.data == "Hello, World!"
 
 
 def test_greet_with_different_names():
@@ -33,7 +33,7 @@ def test_greet_with_different_names():
     
     for name, expected in test_cases:
         result = client.call("greet", name=name)
-        assert result == expected
+        assert result.data == expected
 
 
 def test_list_skills():

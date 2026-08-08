@@ -35,20 +35,23 @@ gradle run
 
 ### Agent Card
 ```bash
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 ```
 
 ### Send Message
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "parts": [{"type": "text", "text": "{\"skill\": \"greet\", \"params\": {\"name\": \"Alice\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "m1",
+        "parts": [{"text": "{\"skill\": \"greet\", \"params\": {\"name\": \"Alice\"}}"}]
       }
     }
   }'

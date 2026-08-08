@@ -1,8 +1,10 @@
-# Hello World - Google A2A SDK (Java)
+# Hello World - A2A v1.0 From Scratch (Java)
 
-> **Official Google A2A SDK implementation in Java.**
+> **A2A protocol v1.0 implemented by hand with Javalin + Jackson — no SDK.**
 
-This example demonstrates a simple greeting agent using Google's official A2A Java SDK with Javalin as the web framework.
+This example demonstrates a simple greeting agent that speaks the A2A v1.0
+wire protocol directly (JSON-RPC over HTTP). For the official Java SDK
+approach see `packages/java` (LiteAgentExecutor / Quarkus integration).
 
 ---
 
@@ -10,13 +12,12 @@ This example demonstrates a simple greeting agent using Google's official A2A Ja
 
 ```
 src/main/java/com/example/hello/
-├── HelloAgent.java          # Main application
+├── HelloAgent.java          # Main application (server + agent card)
 ├── GreetingSkill.java       # Skill implementation
-├── AgentCardProvider.java   # Agent card definition
 └── MessageHandler.java      # A2A request handler
 ```
 
-**Total: ~120 lines across 4 Java files**
+**Total: ~300 lines across 3 Java files**
 
 ---
 
@@ -41,10 +42,10 @@ The agent starts on `http://localhost:8787`
 
 ## 🧪 Testing
 
-### Test Agent Card
+### Test Agent Card (A2A v1.0 discovery)
 
 ```bash
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 ```
 
 ### Test Greeting Skill
@@ -52,21 +53,37 @@ curl http://localhost:8787/.well-known/agent.json
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
+        "messageId": "msg-1",
         "parts": [{
-          "type": "text",
           "text": "{\"skill\": \"greet\", \"params\": {\"name\": \"World\"}}"
-        }],
-        "messageId": "msg-1"
+        }]
       }
     }
   }'
+```
+
+Response (v1.0 shape):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "result": {
+    "message": {
+      "messageId": "...",
+      "role": "ROLE_AGENT",
+      "parts": [{"text": "Hello, World!"}]
+    }
+  }
+}
 ```
 
 ---
@@ -78,31 +95,21 @@ curl -X POST http://localhost:8787/ \
 Main entry point that sets up the Javalin server and configures routes:
 
 ```java
-Javalin app = Javalin.create()
-    .get("/.well-known/agent.json", ctx -> {
-        ctx.json(agentCard);
-    })
-    .post("/", ctx -> {
-        // Handle A2A messages
-    });
+Javalin app = Javalin.create();
+app.get("/.well-known/agent-card.json", ctx -> {
+    ctx.json(agentCard);
+});
+app.post("/", ctx -> {
+    // Handle A2A SendMessage (sets A2A-Version: 1.0 response header)
+});
 ```
 
-### 2. AgentCardProvider.java
+The agent card follows the v1.0 shape: `supportedInterfaces` (with
+`protocolBinding: "JSONRPC"` and `protocolVersion: "1.0"`), skills with
+`id`/`name`/`description`/`tags`, `capabilities`, and
+`defaultInputModes`/`defaultOutputModes`.
 
-Defines agent metadata and skills:
-
-```java
-AgentCard card = AgentCard.builder()
-    .name("HelloAgent")
-    .description("A simple greeting agent")
-    .addSkill(Skill.builder()
-        .name("greet")
-        .inputSchema(schema)
-        .build())
-    .build();
-```
-
-### 3. GreetingSkill.java
+### 2. GreetingSkill.java
 
 Business logic implementation:
 
@@ -114,16 +121,16 @@ public class GreetingSkill {
 }
 ```
 
-### 4. MessageHandler.java
+### 3. MessageHandler.java
 
 A2A protocol handling:
 
 ```java
 public class MessageHandler {
-    public JsonRpcResponse handle(JsonRpcRequest request) {
-        // Parse message
+    public ObjectNode handle(ObjectNode request) {
+        // Parse v1.0 message (parts carry {"text": ...} directly)
         // Route to skill
-        // Format response
+        // Format v1.0 response (role ROLE_AGENT, messageId, parts)
     }
 }
 ```
@@ -132,10 +139,10 @@ public class MessageHandler {
 
 ## 📊 Comparison
 
-| Metric | Google SDK | A2A Lite |
-|--------|------------|----------|
-| Files | 4 | 1 |
-| Lines | ~120 | ~25 |
+| Metric | From scratch | A2A Lite |
+|--------|--------------|----------|
+| Files | 3 | 1 |
+| Lines | ~300 | ~40 |
 | Boilerplate | High | Minimal |
 
 See [A2A Lite version](../01_hello_world_lite/) for comparison.

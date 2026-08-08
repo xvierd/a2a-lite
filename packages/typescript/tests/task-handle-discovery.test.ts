@@ -27,10 +27,12 @@ function a2aResponse(text: string, taskId = 'task-abc-123'): Record<string, unkn
     jsonrpc: '2.0',
     id: '1',
     result: {
-      id: taskId,
-      status: { state: 'completed' },
-      artifacts: [],
-      parts: [{ kind: 'text', text }],
+      task: {
+        id: taskId,
+        status: { state: 'TASK_STATE_COMPLETED' },
+        artifacts: [],
+      },
+      message: { taskId, parts: [{ text }] },
     },
   };
 }
@@ -39,15 +41,17 @@ function agentCardResponse(): Record<string, unknown> {
   return {
     name: 'TestAgent',
     description: 'A test agent',
-    protocolVersion: '0.3.0',
     version: '1.2.0',
-    url: 'http://test-agent:8787/a2a/jsonrpc',
+    supportedInterfaces: [
+      { url: 'http://test-agent:8787', protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
+      { url: 'http://test-agent:8787', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
+    ],
     capabilities: {
       streaming: true,
       pushNotifications: false,
     },
-    defaultInputModes: ['text'],
-    defaultOutputModes: ['text'],
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json'],
     skills: [
       { id: 'greet', name: 'greet', description: 'Says hello' },
       { id: 'calc', name: 'calc', description: 'Does math' },
@@ -92,19 +96,19 @@ describe('TaskHandle.getStatus()', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends a tasks/get JSON-RPC request to the correct URL', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'completed' } } };
+  it('sends a GetTask JSON-RPC request to the correct URL', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const handle = new TaskHandle('task-1', 'original-result', 'http://agent:8787');
     const status = await handle.getStatus();
 
-    expect(status).toEqual({ id: 'task-1', status: { state: 'completed' } });
+    expect(status).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://agent:8787');
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/get');
+    expect(reqBody.method).toBe('GetTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 });
@@ -119,19 +123,19 @@ describe('TaskHandle.cancel()', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends a tasks/cancel JSON-RPC request to the correct URL', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'canceled' } } };
+  it('sends a CancelTask JSON-RPC request to the correct URL', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const handle = new TaskHandle('task-1', 'original-result', 'http://agent:8787');
     const result = await handle.cancel();
 
-    expect(result).toEqual({ id: 'task-1', status: { state: 'canceled' } });
+    expect(result).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://agent:8787');
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/cancel');
+    expect(reqBody.method).toBe('CancelTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 });
@@ -189,7 +193,7 @@ describe('AgentNetwork.call() with returnHandle', () => {
     const body = {
       jsonrpc: '2.0',
       id: '1',
-      result: { parts: [{ kind: 'text', text: '"ok"' }] },
+      result: { message: { parts: [{ text: '"ok"' }] } },
     };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
@@ -217,17 +221,17 @@ describe('getRemoteTask()', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends a tasks/get JSON-RPC request', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'completed' } } };
+  it('sends a GetTask JSON-RPC request', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const result = await getRemoteTask('http://agent:8787', 'task-1');
 
-    expect(result).toEqual({ id: 'task-1', status: { state: 'completed' } });
+    expect(result).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } });
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/get');
+    expect(reqBody.method).toBe('GetTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 
@@ -255,17 +259,17 @@ describe('cancelRemoteTask()', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends a tasks/cancel JSON-RPC request', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'canceled' } } };
+  it('sends a CancelTask JSON-RPC request', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const result = await cancelRemoteTask('http://agent:8787', 'task-1');
 
-    expect(result).toEqual({ id: 'task-1', status: { state: 'canceled' } });
+    expect(result).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } });
 
     const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/cancel');
+    expect(reqBody.method).toBe('CancelTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 });
@@ -284,7 +288,7 @@ describe('discoverAgent()', () => {
     vi.restoreAllMocks();
   });
 
-  it('fetches /.well-known/agent.json and returns AgentCardInfo', async () => {
+  it('fetches /.well-known/agent-card.json and returns AgentCardInfo', async () => {
     const cardBody = agentCardResponse();
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(cardBody));
 
@@ -292,12 +296,12 @@ describe('discoverAgent()', () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
-    expect(url).toBe('http://test-agent:8787/.well-known/agent.json');
+    expect(url).toBe('http://test-agent:8787/.well-known/agent-card.json');
 
     expect(card.name).toBe('TestAgent');
     expect(card.description).toBe('A test agent');
     expect(card.version).toBe('1.2.0');
-    expect(card.url).toBe('http://test-agent:8787/a2a/jsonrpc');
+    expect(card.url).toBe('http://test-agent:8787');
     expect(card.supportsStreaming).toBe(true);
     expect(card.supportsPush).toBe(false);
     expect(card.skills).toHaveLength(2);
@@ -311,13 +315,27 @@ describe('discoverAgent()', () => {
     await discoverAgent('http://test-agent:8787/');
 
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
-    expect(url).toBe('http://test-agent:8787/.well-known/agent.json');
+    expect(url).toBe('http://test-agent:8787/.well-known/agent-card.json');
   });
 
   it('throws RemoteAgentError on non-ok response', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse({}, 404));
 
     await expect(discoverAgent('http://agent')).rejects.toThrow(RemoteAgentError);
+  });
+
+  it('rejects A2A 0.3 cards with a clear error', async () => {
+    const legacyCard = {
+      name: 'LegacyAgent',
+      protocolVersion: '0.3.0',
+      url: 'http://legacy:8787/a2a/jsonrpc',
+      skills: [],
+    };
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(legacyCard));
+
+    await expect(discoverAgent('http://legacy:8787')).rejects.toThrow(
+      'speaks A2A 0.3, not supported by a2a-lite 1.0'
+    );
   });
 
   it('returns correct shape (AgentCardInfo)', async () => {
@@ -362,7 +380,7 @@ describe('AgentNetwork.add() with autoDiscover', () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
-    expect(url).toBe('http://test-agent:8787/.well-known/agent.json');
+    expect(url).toBe('http://test-agent:8787/.well-known/agent-card.json');
 
     const card = net.getCard('test');
     expect(card).toBeDefined();
@@ -493,19 +511,19 @@ describe('AgentNetwork.getTask()', () => {
     vi.restoreAllMocks();
   });
 
-  it('resolves agent URL from name and sends tasks/get', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'completed' } } };
+  it('resolves agent URL from name and sends GetTask', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.getTask('bot', 'task-1');
 
-    expect(result).toEqual({ id: 'task-1', status: { state: 'completed' } });
+    expect(result).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://bot:3000');
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/get');
+    expect(reqBody.method).toBe('GetTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 
@@ -525,19 +543,19 @@ describe('AgentNetwork.cancelTask()', () => {
     vi.restoreAllMocks();
   });
 
-  it('resolves agent URL from name and sends tasks/cancel', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'canceled' } } };
+  it('resolves agent URL from name and sends CancelTask', async () => {
+    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.cancelTask('bot', 'task-1');
 
-    expect(result).toEqual({ id: 'task-1', status: { state: 'canceled' } });
+    expect(result).toEqual({ id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://bot:3000');
     const reqBody = JSON.parse(init.body as string);
-    expect(reqBody.method).toBe('tasks/cancel');
+    expect(reqBody.method).toBe('CancelTask');
     expect(reqBody.params.id).toBe('task-1');
   });
 

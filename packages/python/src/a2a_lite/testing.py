@@ -75,14 +75,17 @@ class AgentTestClient:
         assert client.call("add", a=2, b=3) == 5
     """
 
-    def __init__(self, agent):
+    def __init__(self, agent, headers: dict[str, str] | None = None):
         """
         Create a test client for an agent.
 
         Args:
             agent: The A2A Lite Agent instance to test
+            headers: Optional HTTP headers sent with every request
+                (e.g. auth headers for authenticated agents)
         """
         self.agent = agent
+        self.headers = dict(headers or {})
         self._app = None
         self._client = None
 
@@ -114,18 +117,19 @@ class AgentTestClient:
         message = json.dumps({"skill": skill, "params": params})
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": message}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": message}],
                     "messageId": uuid4().hex,
                 }
             },
         }
 
-        response = client.post("/", json=request_body)
+        request_headers = {"A2A-Version": "1.0", **self.headers}
+        response = client.post("/", json=request_body, headers=request_headers)
         response.raise_for_status()
         data = response.json()
 
@@ -139,17 +143,23 @@ class AgentTestClient:
 
         result = response.get("result", {})
 
-        # Get text from message parts
-        parts = result.get("parts", [])
-        for part in parts:
-            if part.get("kind") == "text" or part.get("type") == "text":
-                text = part.get("text", "")
-                # Try to parse as JSON
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    data = text
-                return TestResult(_data=data, _text=text, raw_response=response)
+        # A2A v1.0: result.message.parts (tolerate bare result.parts too)
+        candidates = []
+        if isinstance(result.get("message"), dict):
+            candidates.append(result["message"])
+        if "parts" in result:
+            candidates.append(result)
+
+        for candidate in candidates:
+            for part in candidate.get("parts", []):
+                if "text" in part:
+                    text = part.get("text", "")
+                    # Try to parse as JSON
+                    try:
+                        data = json.loads(text)
+                    except json.JSONDecodeError:
+                        data = text
+                    return TestResult(_data=data, _text=text, raw_response=response)
 
         return TestResult(_data=result, _text=json.dumps(result), raw_response=response)
 
@@ -161,7 +171,7 @@ class AgentTestClient:
             The agent card as a dictionary
         """
         client = self._get_client()
-        response = client.get("/.well-known/agent.json")
+        response = client.get("/.well-known/agent-card.json")
         response.raise_for_status()
         return response.json()
 
@@ -255,8 +265,9 @@ class AsyncAgentTestClient:
             assert result == "Hello, World!"
     """
 
-    def __init__(self, agent):
+    def __init__(self, agent, headers: dict[str, str] | None = None):
         self.agent = agent
+        self.headers = dict(headers or {})
         self._app = None
         self._client = None
 
@@ -288,18 +299,19 @@ class AsyncAgentTestClient:
         message = json.dumps({"skill": skill, "params": params})
         request_body = {
             "jsonrpc": "2.0",
-            "method": "message/send",
+            "method": "SendMessage",
             "id": uuid4().hex,
             "params": {
                 "message": {
-                    "role": "user",
-                    "parts": [{"type": "text", "text": message}],
+                    "role": "ROLE_USER",
+                    "parts": [{"text": message}],
                     "messageId": uuid4().hex,
                 }
             },
         }
 
-        response = await client.post("/", json=request_body)
+        request_headers = {"A2A-Version": "1.0", **self.headers}
+        response = await client.post("/", json=request_body, headers=request_headers)
         response.raise_for_status()
         data = response.json()
 
@@ -311,16 +323,23 @@ class AsyncAgentTestClient:
             raise TestClientError(response["error"])
 
         result = response.get("result", {})
-        parts = result.get("parts", [])
 
-        for part in parts:
-            if part.get("kind") == "text" or part.get("type") == "text":
-                text = part.get("text", "")
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    data = text
-                return TestResult(_data=data, _text=text, raw_response=response)
+        # A2A v1.0: result.message.parts (tolerate bare result.parts too)
+        candidates = []
+        if isinstance(result.get("message"), dict):
+            candidates.append(result["message"])
+        if "parts" in result:
+            candidates.append(result)
+
+        for candidate in candidates:
+            for part in candidate.get("parts", []):
+                if "text" in part:
+                    text = part.get("text", "")
+                    try:
+                        data = json.loads(text)
+                    except json.JSONDecodeError:
+                        data = text
+                    return TestResult(_data=data, _text=text, raw_response=response)
 
         return TestResult(_data=result, _text=json.dumps(result), raw_response=response)
 

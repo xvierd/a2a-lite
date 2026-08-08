@@ -1,19 +1,18 @@
 # Human-in-the-Loop - A2A Lite (Python)
 
-> **Agents that pause for human input and confirmation.**
+> **Agents that pause for human confirmation before sensitive operations.**
 
-This example demonstrates how A2A Lite simplifies building agents that can pause execution to ask for human input, confirmations, or decisions - essential for sensitive operations.
+This example demonstrates the two-phase confirmation pattern over the A2A protocol: a skill first returns a `confirmation_required` summary, and only executes when called again with `confirmed=true` - essential for sensitive operations.
 
 ---
 
 ## 📋 Complexity Level: **ADVANCED**
 
 **Concepts Covered:**
-- Pausing tasks for human input
-- Asking questions mid-execution
-- Confirmation dialogs
-- Multiple choice selection
-- State persistence during wait
+- Two-phase confirmation (validate → confirm → execute)
+- Cost breakdowns before execution
+- Multiple-choice approval flows
+- Irreversibility warnings
 
 ---
 
@@ -21,11 +20,10 @@ This example demonstrates how A2A Lite simplifies building agents that can pause
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `agent.py` | Human-in-the-loop agent | ~100 |
+| `agent.py` | Human-in-the-loop agent | ~185 |
 | `requirements.txt` | Dependencies | ~2 |
-| `test_human_loop.py` | Tests | ~40 |
 
-**Total: ~142 lines across 3 files**
+**Total: ~187 lines across 2 files**
 
 ---
 
@@ -46,76 +44,91 @@ python agent.py
 ### Test 1: Purchase with Confirmation
 
 ```bash
-# Step 1: Initiate purchase (returns question)
+# Step 1: Initiate purchase (returns confirmation_required)
 curl -X POST http://localhost:8793/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"purchase\", \"params\": {\"item\": \"Laptop\", \"price\": 999.99}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-1",
+        "parts": [{"text": "{\"skill\": \"purchase\", \"params\": {\"item\": \"Laptop\", \"price\": 999.99}}"}]
       }
     }
   }'
 
-# Response: {"status": "waiting", "question": "Confirm purchase of Laptop for $999.99?"}
+# Response: {"status": "confirmation_required", "action": "purchase",
+#            "details": {"item": "Laptop", "price": 999.99}, ...}
 
-# Step 2: Confirm (resume task)
+# Step 2: Human confirms -> execute
 curl -X POST http://localhost:8793/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "2",
     "params": {
       "message": {
-        "role": "user",
-        "parts": [{"type": "text", "text": "{\"skill\": \"respond\", \"params\": {\"task_id\": \"<task-id>\", \"response\": \"yes\"}}"}]
+        "role": "ROLE_USER",
+        "messageId": "msg-2",
+        "parts": [{"text": "{\"skill\": \"purchase\", \"params\": {\"item\": \"Laptop\", \"price\": 999.99, \"confirmed\": true}}"}]
       }
     }
   }'
+
+# Response: {"status": "completed", "order_id": "...", ...}
+```
+
+### Test 2: Document Approval (multiple choice)
+
+```bash
+# Step 1: no decision -> returns the available options
+# {"skill": "approve_document", "params": {"doc_id": "doc-42"}}
+
+# Step 2: apply a decision
+# {"skill": "approve_document", "params": {"doc_id": "doc-42",
+#   "decision": "revise", "feedback": "Needs a better abstract"}}
 ```
 
 ---
 
 ## 📖 Key Concepts
 
-### 1. Using InteractionContext
+### 1. The Two-Phase Pattern
 
 ```python
-from a2a_lite import InteractionContext
+@agent.skill("purchase")
+async def purchase(item: str, price: float, confirmed: bool = False) -> dict:
+    if not confirmed:
+        # Phase 1: present the details for human review
+        return {
+            "status": "confirmation_required",
+            "details": {"item": item, "price": price},
+        }
 
-@agent.skill("sensitive_operation")
-async def sensitive_operation(confirm: bool = False, ctx: InteractionContext = None):
-    if not confirm:
-        # Ask for confirmation
-        response = await ctx.ask(
-            question="Are you sure?",
-            options=["yes", "no"]
-        )
-        confirm = response == "yes"
-    
-    if confirm:
-        return execute_operation()
+    # Phase 2: the human confirmed - execute
+    return {"status": "completed", "order_id": "...", "item": item}
 ```
 
-### 2. Task State Persistence
+### 2. Why Not Mid-Execution Questions?
 
-A2A Lite automatically:
-- Saves task state when waiting
-- Resumes from same point
-- Maintains context across requests
+A2A Lite has no mid-execution question API. The two-phase pattern is
+stateless and works over plain `SendMessage`: every decision point is a
+new call carrying the confirmation as a parameter. The client (or an
+orchestrating agent) owns the review step.
 
 ---
 
 ## 📊 Comparison
 
-| Aspect | Manual Implementation | A2A Lite |
-|--------|----------------------|----------|
-| **State Management** | Custom DB/code | Automatic |
-| **Task Resumption** | Complex routing | `await ctx.ask()` |
-| **Context Preservation** | Manual | Built-in |
-| **Lines of Code** | ~400+ | ~100 |
+| Aspect | Manual Implementation | A2A Lite (two-phase) |
+|--------|----------------------|----------------------|
+| **Validation** | Custom code | Skill params + defaults |
+| **Confirmation Flow** | Custom state machine | `confirmed` parameter |
+| **Protocol** | Custom endpoints | Standard `SendMessage` |
+| **Lines of Code** | ~400+ | ~185 |

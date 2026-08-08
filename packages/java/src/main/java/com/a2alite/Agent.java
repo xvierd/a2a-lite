@@ -12,10 +12,11 @@ import com.a2alite.streaming.StreamingHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.a2a.server.agentexecution.AgentExecutor;
-import io.a2a.spec.AgentCapabilities;
-import io.a2a.spec.AgentCard;
-import io.a2a.spec.AgentSkill;
+import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
+import org.a2aproject.sdk.spec.AgentCapabilities;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.AgentSkill;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -48,7 +49,7 @@ import java.util.logging.Logger;
  */
 public class Agent {
     private static final Logger LOGGER = Logger.getLogger(Agent.class.getName());
-    private static final String PROTOCOL_VERSION = "0.3.0";
+    private static final String PROTOCOL_VERSION = "1.0";
 
     private final String name;
     private final String description;
@@ -224,11 +225,11 @@ public class Agent {
     }
 
     /**
-     * Build the A2A-compliant Agent Card.
+     * Build the A2A-compliant Agent Card (protocol v1.0).
      */
     public AgentCard buildAgentCard(String host, int port) {
         var skillList = skills.values().stream()
-            .map(s -> new AgentSkill.Builder()
+            .map(s -> AgentSkill.builder()
                 .id(s.name())
                 .name(s.name())
                 .description(s.description())
@@ -238,16 +239,16 @@ public class Agent {
 
         var agentUrl = url != null ? url : "http://" + host + ":" + port;
 
-        return new AgentCard.Builder()
+        return AgentCard.builder()
             .name(name)
             .description(description)
             .version(version)
-            .url(agentUrl)
-            .protocolVersion(PROTOCOL_VERSION)
-            .capabilities(new AgentCapabilities.Builder()
+            .supportedInterfaces(List.of(
+                new AgentInterface("JSONRPC", agentUrl, null, PROTOCOL_VERSION),
+                new AgentInterface("HTTP+JSON", agentUrl, null, PROTOCOL_VERSION)))
+            .capabilities(AgentCapabilities.builder()
                 .streaming(hasStreaming)
                 .pushNotifications(!completeHooks.isEmpty())
-                .stateTransitionHistory(false)
                 .build())
             .defaultInputModes(List.of("application/json"))
             .defaultOutputModes(List.of("application/json"))
@@ -263,20 +264,36 @@ public class Agent {
     }
 
     /**
-     * Build a JSON representation of the agent card.
+     * Build a JSON representation of the agent card (A2A protocol v1.0).
      * Useful for standalone mode without the full SDK.
      */
     public ObjectNode buildAgentCardJson(String host, int port) {
+        var agentUrl = url != null ? url : "http://" + host + ":" + port;
+
         var card = mapper.createObjectNode();
         card.put("name", name);
         card.put("description", description);
         card.put("version", version);
-        card.put("protocolVersion", PROTOCOL_VERSION);
-        card.put("url", url != null ? url : "http://" + host + ":" + port);
+
+        var interfaces = card.putArray("supportedInterfaces");
+        for (var binding : List.of("JSONRPC", "HTTP+JSON")) {
+            var iface = interfaces.addObject();
+            iface.put("protocolBinding", binding);
+            iface.put("url", agentUrl);
+            iface.put("protocolVersion", PROTOCOL_VERSION);
+        }
 
         var capabilities = card.putObject("capabilities");
         capabilities.put("streaming", hasStreaming);
         capabilities.put("pushNotifications", !completeHooks.isEmpty());
+
+        // Advertise the security scheme when an auth provider is configured
+        var scheme = auth != null ? auth.getScheme() : Map.<String, Object>of();
+        if (scheme != null && !scheme.isEmpty()) {
+            var securitySchemes = card.putObject("securitySchemes");
+            var securityRequirements = card.putArray("securityRequirements");
+            addSecurityScheme(securitySchemes, securityRequirements, scheme);
+        }
 
         card.putArray("defaultInputModes").add("application/json");
         card.putArray("defaultOutputModes").add("application/json");
@@ -295,6 +312,59 @@ public class Agent {
         }
 
         return card;
+    }
+
+    /**
+     * Adds the auth provider's scheme to the card's {@code securitySchemes} map
+     * using the A2A v1.0 (proto3 JSON) oneof-keyed shape, plus a matching entry
+     * in {@code securityRequirements}. Unknown scheme types are skipped.
+     */
+    @SuppressWarnings("unchecked")
+    private void addSecurityScheme(ObjectNode securitySchemes,
+                                   com.fasterxml.jackson.databind.node.ArrayNode securityRequirements,
+                                   Map<String, Object> scheme) {
+        var schemeType = Objects.toString(scheme.get("type"), "");
+        String name;
+        ObjectNode schemeNode = mapper.createObjectNode();
+
+        switch (schemeType) {
+            case "apiKey" -> {
+                name = "apiKey";
+                var apiKey = schemeNode.putObject("apiKeySecurityScheme");
+                apiKey.put("name", Objects.toString(scheme.get("name"), "X-API-Key"));
+                apiKey.put("location", Objects.toString(scheme.get("in"), "header"));
+            }
+            case "http" -> {
+                var httpScheme = Objects.toString(scheme.get("scheme"), "bearer");
+                name = httpScheme;
+                var http = schemeNode.putObject("httpAuthSecurityScheme");
+                http.put("scheme", httpScheme);
+            }
+            case "oauth2" -> {
+                name = "oauth2";
+                var oauth2 = schemeNode.putObject("oauth2SecurityScheme");
+                var flows = oauth2.putObject("flows");
+                var flowsMap = scheme.get("flows") instanceof Map<?, ?> f ? (Map<String, Object>) f : Map.<String, Object>of();
+                var authCodeMap = flowsMap.get("authorizationCode") instanceof Map<?, ?> a ? (Map<String, Object>) a : Map.<String, Object>of();
+                var authCode = flows.putObject("authorizationCode");
+                authCode.put("authorizationUrl", Objects.toString(authCodeMap.get("authorizationUrl"), ""));
+                authCode.put("tokenUrl", Objects.toString(authCodeMap.get("tokenUrl"), ""));
+                authCode.put("refreshUrl", Objects.toString(authCodeMap.get("refreshUrl"), ""));
+                var scopes = authCode.putObject("scopes");
+                if (authCodeMap.get("scopes") instanceof Map<?, ?> scopesMap) {
+                    scopesMap.forEach((k, v) -> scopes.put(Objects.toString(k), Objects.toString(v)));
+                }
+            }
+            default -> {
+                LOGGER.warning("Unknown auth scheme type '" + schemeType + "'; skipping agent card security schemes");
+                return;
+            }
+        }
+
+        securitySchemes.set(name, schemeNode);
+        var requirement = securityRequirements.addObject();
+        var requirementSchemes = requirement.putObject("schemes");
+        requirementSchemes.putObject(name).putArray("list");
     }
 
     /**
@@ -319,13 +389,12 @@ public class Agent {
     }
 
     private Object handleMessageInternal(JsonNode message) throws Exception {
-        // Extract text from message
+        // Extract text from message (A2A v1.0: text parts are {"text": ...})
         String text = "";
         var parts = message.path("parts");
         if (parts.isArray()) {
             for (var part : parts) {
-                if ("text".equals(part.path("type").asText()) ||
-                    "text".equals(part.path("kind").asText())) {
+                if (part.has("text")) {
                     text = part.path("text").asText("");
                     break;
                 }

@@ -18,7 +18,7 @@
  *   router.mount("/hotels", hotels);
  *   router.run();
  *
- * The merged agent card is at /.well-known/agent.json.
+ * The merged agent card is at /.well-known/agent-card.json.
  */
 
 import express, { Express } from 'express';
@@ -41,7 +41,7 @@ export class Router {
   }
 
   /**
-   * Build the merged agent card combining skills from all mounted agents.
+   * Build the merged A2A v1.0 agent card combining skills from all mounted agents.
    */
   buildMergedCard(host = 'localhost', port = 8787): Record<string, unknown> {
     const allSkills: Array<Record<string, unknown>> = [];
@@ -60,20 +60,31 @@ export class Router {
           name: skill.name,
           description: `[${agent.name}] ${skill.description ?? ''}`,
           tags: skill.tags ?? [],
+          examples: [],
+          inputModes: ['application/json'],
+          outputModes: ['application/json'],
+          securityRequirements: [],
         });
       }
     }
+
+    const url = `http://${host}:${port}`;
 
     return {
       name: names.join(' + ') || 'Router',
       description: descriptions.join('; ') || 'Multi-agent router',
       version: '1.0.0',
-      url: `http://${host}:${port}`,
-      protocolVersion: '0.3.0',
-      capabilities: { streaming: hasStreaming, pushNotifications: false },
-      defaultInputModes: ['text'],
-      defaultOutputModes: ['text'],
+      supportedInterfaces: [
+        { url, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+        { url, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0', tenant: '' },
+      ],
+      capabilities: { streaming: hasStreaming, pushNotifications: false, extensions: [] },
+      securitySchemes: {},
+      securityRequirements: [],
+      defaultInputModes: ['application/json'],
+      defaultOutputModes: ['application/json'],
       skills: allSkills,
+      signatures: [],
     };
   }
 
@@ -85,7 +96,7 @@ export class Router {
     const mergedCard = this.buildMergedCard(host, port);
 
     // Merged agent card at root
-    app.get('/.well-known/agent.json', (_req, res) => {
+    app.get('/.well-known/agent-card.json', (_req, res) => {
       res.json(mergedCard);
     });
 

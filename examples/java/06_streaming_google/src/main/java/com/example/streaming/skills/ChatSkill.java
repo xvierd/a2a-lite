@@ -1,6 +1,6 @@
 package com.example.streaming.skills;
 
-import com.example.streaming.sse.SseEventEmitter;
+import com.example.streaming.sse.StreamEmitter;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
@@ -10,13 +10,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public class ChatSkill {
     
-    public void stream(ObjectNode params, SseEventEmitter emitter) {
+    public void stream(ObjectNode params, StreamEmitter emitter) {
         try {
             String message = params.has("message") ? 
                 params.get("message").asText() : "Hello";
             
             // Simulate processing time
-            emitter.sendEvent("status", createStatus("processing", "Analyzing message..."));
+            emitter.sendStatus("Analyzing message...");
             Thread.sleep(500);
             
             // Generate response
@@ -25,18 +25,16 @@ public class ChatSkill {
             
             // Stream word by word
             StringBuilder built = new StringBuilder();
-            for (int i = 0; i < words.length; i++) {
-                String word = words[i];
+            for (String word : words) {
                 built.append(word).append(" ");
                 
-                emitter.sendToken(word, i, i == words.length - 1);
+                emitter.sendText(word + " ");
                 
                 // Simulate typing delay
                 Thread.sleep(100);
             }
             
-            emitter.sendEvent("status", createStatus("completed", 
-                "Response: " + built.toString().trim()));
+            emitter.complete(built.toString().trim());
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -58,14 +56,5 @@ public class ChatSkill {
         } else {
             return "You said: " + message + ". This is a streaming response where each word arrives progressively through the SSE connection.";
         }
-    }
-    
-    private ObjectNode createStatus(String status, String message) {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = 
-            new com.fasterxml.jackson.databind.ObjectMapper();
-        ObjectNode node = mapper.createObjectNode();
-        node.put("status", status);
-        node.put("message", message);
-        return node;
     }
 }

@@ -1,7 +1,6 @@
 package com.example.streaming.skills;
 
-import com.example.streaming.sse.SseEventEmitter;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.streaming.sse.StreamEmitter;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
@@ -11,27 +10,23 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public class StorySkill {
     
-    private static final ObjectMapper mapper = new ObjectMapper();
-    
-    public void stream(ObjectNode params, SseEventEmitter emitter) {
+    public void stream(ObjectNode params, StreamEmitter emitter) {
         try {
             String theme = params.has("theme") ? 
                 params.get("theme").asText() : "adventure";
             
-            emitter.sendEvent("status", createStatus("generating", 
-                "Creating a story about: " + theme));
+            emitter.sendStatus("Creating a story about: " + theme);
             
             String story = generateStory(theme);
             String[] sentences = story.split("(?<=[.!?])\\s+");
             
-            int wordIndex = 0;
             for (String sentence : sentences) {
                 String[] words = sentence.split(" ");
                 
                 for (String word : words) {
                     word = word.trim();
                     if (!word.isEmpty()) {
-                        emitter.sendToken(word + " ", wordIndex++, false);
+                        emitter.sendText(word + " ");
                         Thread.sleep(80);
                     }
                 }
@@ -40,9 +35,7 @@ public class StorySkill {
                 Thread.sleep(300);
             }
             
-            // Mark as complete
-            emitter.sendToken("", wordIndex, true);
-            emitter.sendEvent("status", createStatus("completed", "Story complete!"));
+            emitter.complete(story);
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -68,12 +61,5 @@ public class StorySkill {
                    "speak in real-time. They crafted messages that flowed like rivers, connecting minds " +
                    "across the digital realm. And so the adventure of A2A streaming began.";
         }
-    }
-    
-    private ObjectNode createStatus(String status, String message) {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("status", status);
-        node.put("message", message);
-        return node;
     }
 }

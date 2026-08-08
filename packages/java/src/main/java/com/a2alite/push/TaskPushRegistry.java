@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Server-side registry mapping task IDs to per-task webhook configurations.
  *
- * <p>When a caller sends a {@code tasks/pushNotification/set} JSON-RPC request,
+ * <p>When a caller sends a {@code CreateTaskPushNotificationConfig} JSON-RPC request,
  * the server stores the webhook URL (and optional bearer token) here. On task
  * completion the executor consults this registry and fires the webhook if one
  * is registered for the finishing task.

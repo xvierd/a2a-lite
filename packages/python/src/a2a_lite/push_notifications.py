@@ -61,7 +61,9 @@ class TaskPushRegistry:
 
 class PushNotificationMiddleware:
     """
-    Starlette ASGI middleware that handles tasks/pushNotification/* JSON-RPC methods.
+    Starlette ASGI middleware that handles the A2A v1.0 push notification
+    JSON-RPC methods (CreateTaskPushNotificationConfig, GetTaskPushNotificationConfig,
+    DeleteTaskPushNotificationConfig).
     Wraps the underlying A2A SDK app and intercepts these specific methods.
     """
 
@@ -94,11 +96,11 @@ class PushNotificationMiddleware:
         except (json.JSONDecodeError, AttributeError):
             method = ""
 
-        if method == "tasks/pushNotification/set":
+        if method == "CreateTaskPushNotificationConfig":
             await self._handle_set(data, send)
-        elif method == "tasks/pushNotification/get":
+        elif method == "GetTaskPushNotificationConfig":
             await self._handle_get(data, send)
-        elif method == "tasks/pushNotification/delete":
+        elif method == "DeleteTaskPushNotificationConfig":
             await self._handle_delete(data, send)
         else:
             # Not a push notification method -- replay body to original app
@@ -109,7 +111,8 @@ class PushNotificationMiddleware:
                 if not replayed:
                     replayed = True
                     return {"type": "http.request", "body": body, "more_body": False}
-                return {"type": "http.disconnect"}
+                # Pass through so SSE responses can still detect real disconnects
+                return await receive()
 
             await self.app(scope, replay_receive, send)
 
@@ -129,17 +132,17 @@ class PushNotificationMiddleware:
 
     async def _handle_set(self, data: dict, send: Any) -> None:
         params = data.get("params", {})
-        task_id = params.get("id") or params.get("taskId", "")
-        config = params.get("pushNotificationConfig") or params.get("config") or {}
-        url = config.get("url", "")
-        token = config.get("token")
+        task_id = params.get("taskId", "")
+        config_id = params.get("id") or task_id
+        url = params.get("url", "")
+        token = params.get("token")
         if not task_id or not url:
             await self._send_json(
                 send,
                 {
                     "jsonrpc": "2.0",
                     "id": data.get("id"),
-                    "error": {"code": -32602, "message": "Missing required fields: id and config.url"},
+                    "error": {"code": -32602, "message": "Missing required fields: taskId and url"},
                 },
             )
             return
@@ -149,13 +152,14 @@ class PushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": data.get("id"),
-                "result": {"id": task_id, "pushNotificationConfig": {"url": url, "token": token}},
+                "result": {"taskId": task_id, "id": config_id, "url": url, "token": token},
             },
         )
 
     async def _handle_get(self, data: dict, send: Any) -> None:
         params = data.get("params", {})
-        task_id = params.get("id") or params.get("taskId", "")
+        task_id = params.get("taskId", "")
+        config_id = params.get("id") or task_id
         config = self.registry.get(task_id)
         if config is None:
             await self._send_json(
@@ -172,20 +176,20 @@ class PushNotificationMiddleware:
             {
                 "jsonrpc": "2.0",
                 "id": data.get("id"),
-                "result": {"id": task_id, "pushNotificationConfig": config},
+                "result": {"taskId": task_id, "id": config_id, "url": config["url"], "token": config["token"]},
             },
         )
 
     async def _handle_delete(self, data: dict, send: Any) -> None:
         params = data.get("params", {})
-        task_id = params.get("id") or params.get("taskId", "")
+        task_id = params.get("taskId", "")
         self.registry.delete(task_id)
         await self._send_json(
             send,
             {
                 "jsonrpc": "2.0",
                 "id": data.get("id"),
-                "result": {"id": task_id},
+                "result": {},
             },
         )
 

@@ -34,7 +34,16 @@ describe('Agent', () => {
 
     expect(card.name).toBe('TestBot');
     expect(card.version).toBe('2.0.0');
-    expect(card.url).toBe('http://localhost:9000/a2a/jsonrpc');
+    expect(card.supportedInterfaces).toHaveLength(2);
+    expect(card.supportedInterfaces[0]).toMatchObject({
+      url: 'http://localhost:9000',
+      protocolBinding: 'JSONRPC',
+      protocolVersion: '1.0',
+    });
+    expect(card.supportedInterfaces[1].protocolBinding).toBe('HTTP+JSON');
+    // A2A v1.0: no root url / protocolVersion
+    expect(card).not.toHaveProperty('url');
+    expect(card).not.toHaveProperty('protocolVersion');
     expect(card.skills).toHaveLength(2);
   });
 });

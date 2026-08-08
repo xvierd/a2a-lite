@@ -1,6 +1,6 @@
-# File Agent - Google A2A SDK (Java)
+# File Agent - A2A v1.0 from scratch (Java)
 
-Multi-skill file handling agent demonstrating the official Google A2A SDK approach with Javalin web framework.
+Multi-skill file handling agent implementing the A2A protocol v1.0 wire format by hand with Javalin + Jackson — **no SDK**. For the official Java SDK approach see `packages/java`.
 
 ## Overview
 
@@ -58,8 +58,10 @@ The agent will start on `http://localhost:8789`
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Health check |
-| `/.well-known/agent.json` | GET | Agent card (A2A discovery) |
-| `/` | POST | A2A message endpoint |
+| `/.well-known/agent-card.json` | GET | Agent card (A2A v1.0 discovery) |
+| `/` | POST | A2A JSON-RPC endpoint (`SendMessage`) |
+
+All JSON-RPC responses include the `A2A-Version: 1.0` header.
 
 ## Usage Examples
 
@@ -68,16 +70,17 @@ The agent will start on `http://localhost:8789`
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
+        "messageId": "m1",
         "parts": [
           {
-            "type": "text",
             "text": "{\"skill\": \"analyze\", \"params\": {\"content\": \"Hello world! This is a test.\"}}"
           }
         ]
@@ -86,7 +89,7 @@ curl -X POST http://localhost:8789/ \
   }'
 ```
 
-Response:
+Response (`result.message.parts[0].text` carries the JSON result):
 ```json
 {
   "word_count": 6,
@@ -99,31 +102,31 @@ Response:
 
 ### 2. Analyze File Upload
 
+In A2A v1.0 an inline base64 file is a part with `raw` / `mediaType` / `filename` (no `kind` or `type` field):
+
 ```bash
 # First, base64 encode your file
 FILE_CONTENT=$(base64 -i sample.txt)
 
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d "{
     \"jsonrpc\": \"2.0\",
     \"id\": \"1\",
-    \"method\": \"message/send\",
+    \"method\": \"SendMessage\",
     \"params\": {
       \"message\": {
-        \"role\": \"user\",
+        \"role\": \"ROLE_USER\",
+        \"messageId\": \"m2\",
         \"parts\": [
           {
-            \"type\": \"text\",
             \"text\": \"{\\\"skill\\\": \\\"analyze\\\", \\\"params\\\": {}}\"
           },
           {
-            \"type\": \"file\",
-            \"file\": {
-              \"name\": \"sample.txt\",
-              \"mimeType\": \"text/plain\",
-              \"data\": \"$FILE_CONTENT\"
-            }
+            \"raw\": \"$FILE_CONTENT\",
+            \"mediaType\": \"text/plain\",
+            \"filename\": \"sample.txt\"
           }
         ]
       }
@@ -136,16 +139,17 @@ curl -X POST http://localhost:8789/ \
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
+        "messageId": "m3",
         "parts": [
           {
-            "type": "text",
             "text": "{\"skill\": \"convert_to_upper\", \"params\": {\"content\": \"hello world\"}}"
           }
         ]
@@ -169,16 +173,17 @@ Response:
 ```bash
 curl -X POST http://localhost:8789/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "message/send",
+    "method": "SendMessage",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
+        "messageId": "m4",
         "parts": [
           {
-            "type": "text",
             "text": "{\"skill\": \"generate_report\", \"params\": {\"title\": \"Sales Report\", \"format\": \"markdown\", \"data\": {\"total_sales\": 15000, \"orders\": 230, \"avg_order\": 65.22}}}"
           }
         ]
@@ -187,36 +192,32 @@ curl -X POST http://localhost:8789/ \
   }'
 ```
 
-Response:
+Response (summary in the text part; the generated file comes back as a second part with `raw`/`mediaType`/`filename`):
 ```json
 {
   "filename": "sales_report_20240115_103000.md",
   "title": "Sales Report",
   "format": "markdown",
   "size_bytes": 245,
-  "data_points": 3,
-  "file": {
-    "name": "sales_report_20240115_103000.md",
-    "mimeType": "text/markdown",
-    "data": "..."
-  }
+  "data_points": 3
 }
 ```
 
 ## Agent Card
 
-Access the agent card at: `http://localhost:8789/.well-known/agent.json`
+Access the agent card at: `http://localhost:8789/.well-known/agent-card.json`
 
-The agent card includes:
+The v1.0 agent card includes:
 - Agent metadata (name, description, version)
+- `supportedInterfaces` with the endpoint URL, `protocolBinding: JSONRPC` and `protocolVersion: 1.0`
 - Capabilities including file handling support
-- Skill definitions with input/output schemas
+- Skill definitions with `id`, `name`, `description`, `tags` and input schemas
 - Supported MIME types and max file size
 
 ## Comparison with A2A Lite
 
-| Aspect | Google A2A SDK | A2A Lite |
-|--------|---------------|----------|
+| Aspect | From scratch (this example) | A2A Lite |
+|--------|----------------------------|----------|
 | Lines of Code | ~780 | ~150 |
 | Files | 3 | 1 |
 | Manual JSON-RPC handling | Yes | No |

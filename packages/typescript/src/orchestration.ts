@@ -6,6 +6,24 @@
 import { v4 as uuidv4 } from 'uuid';
 import { RemoteAgentError } from './errors.js';
 
+/** A2A v1.0 version header — required: without it 1.x servers assume 0.3 and reject. */
+const A2A_VERSION_HEADERS = { 'A2A-Version': '1.0' } as const;
+
+/** Terminal task states in the A2A v1.0 wire format. */
+const TERMINAL_STATES = new Set([
+  'TASK_STATE_COMPLETED',
+  'TASK_STATE_FAILED',
+  'TASK_STATE_CANCELED',
+  'TASK_STATE_REJECTED',
+  'TASK_STATE_INPUT_REQUIRED',
+  'TASK_STATE_AUTH_REQUIRED',
+]);
+
+/** Extract text from a v1.0 wire part (`{ "text": ... }`). */
+function partText(part: Record<string, unknown>): string {
+  return typeof part.text === 'string' ? part.text : '';
+}
+
 // ---------------------------------------------------------------------------
 // TaskHandle — wraps a remote task result with its task ID
 // ---------------------------------------------------------------------------
@@ -58,12 +76,12 @@ export interface AgentCardInfo {
 }
 
 // ---------------------------------------------------------------------------
-// discoverAgent — fetch /.well-known/agent.json from a remote agent
+// discoverAgent — fetch /.well-known/agent-card.json from a remote agent
 // ---------------------------------------------------------------------------
 
 export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<AgentCardInfo> {
   const base = agentUrl.replace(/\/$/, '');
-  const url = `${base}/.well-known/agent.json`;
+  const url = `${base}/.well-known/agent-card.json`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -83,13 +101,27 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
     }
 
     const raw = await response.json() as Record<string, unknown>;
+
+    // Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
+    if (!('supportedInterfaces' in raw) && ('url' in raw || 'protocolVersion' in raw)) {
+      throw new RemoteAgentError(
+        `Agent at ${agentUrl} speaks A2A 0.3, not supported by a2a-lite 1.0`,
+        raw,
+      );
+    }
+
+    const interfaces = (raw.supportedInterfaces ?? []) as Array<Record<string, unknown>>;
+    const interfaceUrl = interfaces.length > 0
+      ? (interfaces[0].url as string) ?? agentUrl
+      : agentUrl;
+
     const capabilities = (raw.capabilities ?? {}) as Record<string, unknown>;
     const skills = (raw.skills ?? []) as Array<Record<string, unknown>>;
 
     return {
       name: (raw.name as string) ?? 'unknown',
       description: (raw.description as string) ?? '',
-      url: (raw.url as string) ?? agentUrl,
+      url: interfaceUrl,
       version: (raw.version as string) ?? '0.0.0',
       skills: skills.map((s) => ({
         id: (s.id as string) ?? (s.name as string) ?? '',
@@ -110,11 +142,11 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
 // ---------------------------------------------------------------------------
 
 export async function getRemoteTask(agentUrl: string, taskId: string, timeout = 30000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'tasks/get', { id: taskId }, timeout);
+  return sendJsonRpc(agentUrl, 'GetTask', { id: taskId }, timeout);
 }
 
 export async function cancelRemoteTask(agentUrl: string, taskId: string, timeout = 30000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'tasks/cancel', { id: taskId }, timeout);
+  return sendJsonRpc(agentUrl, 'CancelTask', { id: taskId }, timeout);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +162,8 @@ export async function setTaskPushNotification(
 ): Promise<unknown> {
   return sendJsonRpc(
     agentUrl,
-    'tasks/pushNotification/set',
-    { id: taskId, pushNotificationConfig: { url: webhookUrl, ...(token ? { token } : {}) } },
+    'CreateTaskPushNotificationConfig',
+    { taskId, url: webhookUrl, ...(token ? { token } : {}) },
     timeout,
   );
 }
@@ -141,7 +173,7 @@ export async function getTaskPushNotification(
   taskId: string,
   timeout = 10000,
 ): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'tasks/pushNotification/get', { id: taskId }, timeout);
+  return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId }, timeout);
 }
 
 export async function deleteTaskPushNotification(
@@ -149,7 +181,7 @@ export async function deleteTaskPushNotification(
   taskId: string,
   timeout = 10000,
 ): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'tasks/pushNotification/delete', { id: taskId }, timeout);
+  return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId }, timeout);
 }
 
 async function sendJsonRpc(
@@ -171,7 +203,7 @@ async function sendJsonRpc(
   try {
     const response = await fetch(agentUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -347,12 +379,12 @@ async function callRemoteSkillInternal(
   const message = JSON.stringify({ skill, params });
   const requestBody = {
     jsonrpc: '2.0',
-    method: 'message/send',
+    method: 'SendMessage',
     id: uuidv4().replace(/-/g, ''),
     params: {
       message: {
-        role: 'user',
-        parts: [{ type: 'text', text: message }],
+        role: 'ROLE_USER',
+        parts: [{ text: message }],
         messageId: uuidv4().replace(/-/g, ''),
       },
     },
@@ -364,7 +396,7 @@ async function callRemoteSkillInternal(
   try {
     const response = await fetch(agentUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -376,9 +408,16 @@ async function callRemoteSkillInternal(
     const data = await response.json() as Record<string, unknown>;
     const result = extractResult(data);
 
-    // Extract task ID from the A2A response envelope
+    // Extract task ID from the A2A v1.0 response envelope:
+    // result.task.id or result.message.taskId (fallback: random UUID)
     const resultObj = (data.result ?? {}) as Record<string, unknown>;
-    const taskId = typeof resultObj.id === 'string' ? resultObj.id : uuidv4();
+    const taskObj = (resultObj.task ?? {}) as Record<string, unknown>;
+    const messageObj = (resultObj.message ?? {}) as Record<string, unknown>;
+    const taskId =
+      (typeof taskObj.id === 'string' && taskObj.id) ||
+      (typeof messageObj.taskId === 'string' && messageObj.taskId) ||
+      (typeof resultObj.id === 'string' && resultObj.id) ||
+      uuidv4();
 
     return { result, taskId };
   } finally {
@@ -399,12 +438,12 @@ export async function* streamRemoteSkill(
   const message = JSON.stringify({ skill, params });
   const requestBody = {
     jsonrpc: '2.0',
-    method: 'message/stream',
+    method: 'SendStreamingMessage',
     id: uuidv4().replace(/-/g, ''),
     params: {
       message: {
-        role: 'user',
-        parts: [{ type: 'text', text: message }],
+        role: 'ROLE_USER',
+        parts: [{ text: message }],
         messageId: uuidv4().replace(/-/g, ''),
       },
     },
@@ -416,7 +455,7 @@ export async function* streamRemoteSkill(
   try {
     const response = await fetch(agentUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -452,42 +491,74 @@ export async function* streamRemoteSkill(
           const jsonStr = trimmed.slice(5).trim();
           if (!jsonStr || jsonStr === '[DONE]') continue;
 
-          let event: Record<string, unknown>;
+          let data: Record<string, unknown>;
           try {
-            event = JSON.parse(jsonStr) as Record<string, unknown>;
+            data = JSON.parse(jsonStr) as Record<string, unknown>;
           } catch {
             continue;
           }
 
+          // A2A v1.0 SSE events: {"result": {"task"|"statusUpdate"|"artifactUpdate"|"message": ...}}
+          // No `final` field: a terminal status state (or the stream closing) marks the end.
+          const event = (data.result ?? data) as Record<string, unknown>;
+          if (typeof event !== 'object' || event === null) continue;
+
+          let status: Record<string, unknown> | undefined;
+          if (event.statusUpdate) {
+            status = ((event.statusUpdate as Record<string, unknown>).status ?? undefined) as
+              | Record<string, unknown>
+              | undefined;
+          } else if (event.task) {
+            status = ((event.task as Record<string, unknown>).status ?? undefined) as
+              | Record<string, unknown>
+              | undefined;
+          }
+
+          const state = (status?.state as string) ?? '';
+
           // Check for failed status
-          const status = event.status as Record<string, unknown> | undefined;
-          if (status) {
-            const state = status.state as string | undefined;
-            if (state === 'failed') {
-              const statusMessage = (status.message as Record<string, unknown> | undefined);
-              const errorText = statusMessage
-                ? String((statusMessage.parts as Array<Record<string, unknown>>)?.[0]?.text ?? 'Remote task failed')
-                : 'Remote task failed';
-              throw new RemoteAgentError(errorText, event);
+          if (state === 'TASK_STATE_FAILED') {
+            const statusMessage = status?.message as Record<string, unknown> | undefined;
+            let errorText = '';
+            for (const part of (statusMessage?.parts ?? []) as Array<Record<string, unknown>>) {
+              errorText = partText(part);
+              if (errorText) break;
             }
-            if (state === 'completed' || state === 'canceled' || state === 'rejected') {
-              return;
+            throw new RemoteAgentError(errorText || 'Remote task failed', data);
+          }
+
+          // Extract text from artifact update parts
+          const artifact = ((event.artifactUpdate as Record<string, unknown> | undefined)?.artifact ??
+            undefined) as Record<string, unknown> | undefined;
+          if (artifact) {
+            for (const part of (artifact.parts ?? []) as Array<Record<string, unknown>>) {
+              const text = partText(part);
+              if (text) yield text;
             }
           }
 
-          // Extract text from artifact parts
-          const artifact = event.artifact as Record<string, unknown> | undefined;
-          if (artifact) {
-            const parts = (artifact.parts ?? []) as Array<Record<string, unknown>>;
-            for (const part of parts) {
-              if ((part.kind === 'text' || part.type === 'text') && typeof part.text === 'string') {
-                yield part.text;
+          // Extract text from status message parts
+          if (status) {
+            const statusMessage = status.message as Record<string, unknown> | undefined;
+            if (statusMessage) {
+              for (const part of (statusMessage.parts ?? []) as Array<Record<string, unknown>>) {
+                const text = partText(part);
+                if (text) yield text;
               }
             }
           }
 
-          // Stop if this is a final event
-          if (event.final === true) {
+          // Extract text from a direct message event
+          const messageEvent = event.message as Record<string, unknown> | undefined;
+          if (messageEvent) {
+            for (const part of (messageEvent.parts ?? []) as Array<Record<string, unknown>>) {
+              const text = partText(part);
+              if (text) yield text;
+            }
+          }
+
+          // Stop on terminal state (stream end also terminates the generator)
+          if (TERMINAL_STATES.has(state)) {
             return;
           }
         }
@@ -507,16 +578,47 @@ function extractResult(response: Record<string, unknown>): unknown {
     throw new RemoteAgentError(message, response);
   }
 
-  const result = (response.result ?? {}) as Record<string, unknown>;
-  const parts = (result.parts ?? []) as Array<Record<string, unknown>>;
+  // A2A v1.0: result is { message: {...} } or { task: {...} }
+  const envelope = (response.result ?? {}) as Record<string, unknown>;
+  const result = (envelope.message ?? envelope.task ?? envelope) as Record<string, unknown>;
 
+  // Text parts on the message itself
+  const parts = (result.parts ?? []) as Array<Record<string, unknown>>;
   for (const part of parts) {
-    if (part.kind === 'text' || part.type === 'text') {
-      const text = part.text as string;
+    const text = partText(part);
+    if (text) {
       try {
         return JSON.parse(text);
       } catch {
         return text;
+      }
+    }
+  }
+
+  // Task results: status message, then artifact parts
+  const statusMessage = ((result.status as Record<string, unknown> | undefined)?.message ??
+    undefined) as Record<string, unknown> | undefined;
+  for (const part of (statusMessage?.parts ?? []) as Array<Record<string, unknown>>) {
+    const text = partText(part);
+    if (text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return text;
+      }
+    }
+  }
+
+  const artifacts = (result.artifacts ?? []) as Array<Record<string, unknown>>;
+  for (const artifact of artifacts) {
+    for (const part of (artifact.parts ?? []) as Array<Record<string, unknown>>) {
+      const text = partText(part);
+      if (text) {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
       }
     }
   }

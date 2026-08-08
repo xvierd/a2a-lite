@@ -32,6 +32,11 @@ import java.util.stream.Stream;
  */
 public class AgentNetwork {
     private static final Logger LOGGER = Logger.getLogger(AgentNetwork.class.getName());
+    /** A2A protocol version header sent on every JSON-RPC POST (required by A2A v1.0 servers). */
+    private static final String A2A_VERSION_HEADER = "A2A-Version";
+    private static final String A2A_VERSION = "1.0";
+    private static final Set<String> TERMINAL_STATES = Set.of(
+        "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED");
     private final Map<String, String> agents = new ConcurrentHashMap<>();
     private final Map<String, AgentCardInfo> cards = new ConcurrentHashMap<>();
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -55,7 +60,7 @@ public class AgentNetwork {
      * Register a named agent with optional auto-discovery.
      *
      * <p>When {@code autoDiscover} is {@code true}, the agent's card is
-     * fetched from {@code url/.well-known/agent.json} and cached.
+     * fetched from {@code url/.well-known/agent-card.json} and cached.
      */
     public AgentNetwork add(String name, String url, boolean autoDiscover) {
         agents.put(name, url.replaceAll("/$", ""));
@@ -143,12 +148,12 @@ public class AgentNetwork {
     /**
      * Fetch the current state of a remote task by ID.
      *
-     * <p>Sends a {@code tasks/get} JSON-RPC request to the given agent URL.
+     * <p>Sends a {@code GetTask} JSON-RPC request to the given agent URL.
      */
     public Object getRemoteTask(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "tasks/get",
+            "method", "GetTask",
             "id", UUID.randomUUID().toString().replace("-", ""),
             "params", Map.of("id", taskId)
         ));
@@ -156,6 +161,7 @@ public class AgentNetwork {
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -173,12 +179,12 @@ public class AgentNetwork {
     /**
      * Cancel a remote task by ID.
      *
-     * <p>Sends a {@code tasks/cancel} JSON-RPC request to the given agent URL.
+     * <p>Sends a {@code CancelTask} JSON-RPC request to the given agent URL.
      */
     public Object cancelRemoteTask(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "tasks/cancel",
+            "method", "CancelTask",
             "id", UUID.randomUUID().toString().replace("-", ""),
             "params", Map.of("id", taskId)
         ));
@@ -186,6 +192,7 @@ public class AgentNetwork {
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -256,7 +263,7 @@ public class AgentNetwork {
 
     /**
      * Discover a remote agent by fetching its card from
-     * {@code agentUrl/.well-known/agent.json}.
+     * {@code agentUrl/.well-known/agent-card.json}.
      */
     public AgentCardInfo discoverAgent(String agentUrl) throws Exception {
         return discoverAgent(agentUrl, 10);
@@ -269,7 +276,7 @@ public class AgentNetwork {
     public AgentCardInfo discoverAgent(String agentUrl, int timeoutSeconds) throws Exception {
         var cleanUrl = agentUrl.replaceAll("/$", "");
         var request = HttpRequest.newBuilder()
-            .uri(URI.create(cleanUrl + "/.well-known/agent.json"))
+            .uri(URI.create(cleanUrl + "/.well-known/agent-card.json"))
             .header("Accept", "application/json")
             .GET()
             .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -334,12 +341,12 @@ public class AgentNetwork {
                 var message = mapper.writeValueAsString(Map.of("skill", skill, "params", params));
                 var requestBody = mapper.writeValueAsString(Map.of(
                     "jsonrpc", "2.0",
-                    "method", "message/stream",
+                    "method", "SendStreamingMessage",
                     "id", UUID.randomUUID().toString().replace("-", ""),
                     "params", Map.of(
                         "message", Map.of(
-                            "role", "user",
-                            "parts", List.of(Map.of("type", "text", "text", message)),
+                            "role", "ROLE_USER",
+                            "parts", List.of(Map.of("text", message)),
                             "messageId", UUID.randomUUID().toString().replace("-", "")
                         )
                     )
@@ -349,6 +356,7 @@ public class AgentNetwork {
                     .uri(URI.create(agentUrl))
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
+                    .header(A2A_VERSION_HEADER, A2A_VERSION)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .build();
@@ -370,36 +378,57 @@ public class AgentNetwork {
                         if (json.isEmpty()) continue;
 
                         @SuppressWarnings("unchecked")
-                        var event = (Map<String, Object>) mapper.readValue(json, Map.class);
+                        var data = (Map<String, Object>) mapper.readValue(json, Map.class);
+
+                        // A2A v1.0 SSE events: {"result": {"task"|"statusUpdate"|"artifactUpdate"|"message": ...}}
+                        @SuppressWarnings("unchecked")
+                        var event = (Map<String, Object>) data.getOrDefault("result", data);
+
+                        // Task status, from a statusUpdate event or the initial task event
+                        Map<String, Object> status = null;
+                        if (event.get("statusUpdate") instanceof Map<?, ?> su) {
+                            @SuppressWarnings("unchecked")
+                            var s = (Map<String, Object>) ((Map<String, Object>) su).get("status");
+                            status = s;
+                        } else if (event.get("task") instanceof Map<?, ?> t) {
+                            @SuppressWarnings("unchecked")
+                            var s = (Map<String, Object>) ((Map<String, Object>) t).get("status");
+                            status = s;
+                        }
+
+                        var state = status != null ? (String) status.get("state") : null;
 
                         // Check for failed status
-                        @SuppressWarnings("unchecked")
-                        var status = (Map<String, Object>) event.get("status");
-                        if (status != null) {
-                            var state = (String) status.get("state");
-                            if ("failed".equals(state)) {
-                                throw new RemoteAgentException(
-                                    "Remote agent task failed", event);
-                            }
+                        if ("TASK_STATE_FAILED".equals(state)) {
+                            throw new RemoteAgentException(
+                                "Remote agent task failed", event);
                         }
 
-                        // Extract artifact text chunks
-                        @SuppressWarnings("unchecked")
-                        var artifact = (Map<String, Object>) event.get("artifact");
-                        if (artifact != null) {
+                        // Extract text chunks from artifact updates
+                        if (event.get("artifactUpdate") instanceof Map<?, ?> au) {
                             @SuppressWarnings("unchecked")
-                            var parts = (List<Map<String, Object>>) artifact.get("parts");
-                            if (parts != null) {
-                                for (var part : parts) {
-                                    if ("text".equals(part.get("kind")) || "text".equals(part.get("type"))) {
-                                        queue.put(part.get("text"));
-                                    }
-                                }
+                            var artifact = (Map<String, Object>) ((Map<String, Object>) au).get("artifact");
+                            if (artifact != null) {
+                                putTextParts(artifact, queue);
                             }
                         }
 
-                        // Stop on final event
-                        if (Boolean.TRUE.equals(event.get("final"))) {
+                        // Extract text chunks from status update messages
+                        if (status != null && status.get("message") instanceof Map<?, ?> sm) {
+                            @SuppressWarnings("unchecked")
+                            var statusMessage = (Map<String, Object>) sm;
+                            putTextParts(statusMessage, queue);
+                        }
+
+                        // Extract text chunks from a direct message event
+                        if (event.get("message") instanceof Map<?, ?> m) {
+                            @SuppressWarnings("unchecked")
+                            var messageEvent = (Map<String, Object>) m;
+                            putTextParts(messageEvent, queue);
+                        }
+
+                        // Stop on terminal state (stream end also terminates the loop)
+                        if (state != null && TERMINAL_STATES.contains(state)) {
                             break;
                         }
                     }
@@ -503,25 +532,24 @@ public class AgentNetwork {
      * @return the JSON-RPC result
      */
     public Object setTaskPushNotification(String agentUrl, String taskId, String webhookUrl, String token, int timeoutSeconds) throws Exception {
-        var pushConfig = new HashMap<String, Object>();
-        pushConfig.put("url", webhookUrl);
+        var params = new HashMap<String, Object>();
+        params.put("taskId", taskId);
+        params.put("url", webhookUrl);
         if (token != null) {
-            pushConfig.put("token", token);
+            params.put("token", token);
         }
 
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "tasks/pushNotification/set",
+            "method", "CreateTaskPushNotificationConfig",
             "id", UUID.randomUUID().toString().replace("-", ""),
-            "params", Map.of(
-                "id", taskId,
-                "pushNotificationConfig", pushConfig
-            )
+            "params", params
         ));
 
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -557,14 +585,15 @@ public class AgentNetwork {
     public Object getTaskPushNotification(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "tasks/pushNotification/get",
+            "method", "GetTaskPushNotificationConfig",
             "id", UUID.randomUUID().toString().replace("-", ""),
-            "params", Map.of("id", taskId)
+            "params", Map.of("taskId", taskId)
         ));
 
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -600,14 +629,15 @@ public class AgentNetwork {
     public Object deleteTaskPushNotification(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "tasks/pushNotification/delete",
+            "method", "DeleteTaskPushNotificationConfig",
             "id", UUID.randomUUID().toString().replace("-", ""),
-            "params", Map.of("id", taskId)
+            "params", Map.of("taskId", taskId)
         ));
 
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -652,12 +682,12 @@ public class AgentNetwork {
         var message = mapper.writeValueAsString(Map.of("skill", skill, "params", params));
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
-            "method", "message/send",
+            "method", "SendMessage",
             "id", UUID.randomUUID().toString().replace("-", ""),
             "params", Map.of(
                 "message", Map.of(
-                    "role", "user",
-                    "parts", List.of(Map.of("type", "text", "text", message)),
+                    "role", "ROLE_USER",
+                    "parts", List.of(Map.of("text", message)),
                     "messageId", UUID.randomUUID().toString().replace("-", "")
                 )
             )
@@ -666,6 +696,7 @@ public class AgentNetwork {
         var request = HttpRequest.newBuilder()
             .uri(URI.create(agentUrl))
             .header("Content-Type", "application/json")
+            .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .build();
@@ -688,19 +719,44 @@ public class AgentNetwork {
             throw new RemoteAgentException(message, response);
         }
 
-        var result = (Map<String, Object>) response.getOrDefault("result", Map.of());
-        var taskId = result.containsKey("id") ? String.valueOf(result.get("id")) : null;
+        // A2A v1.0: result is { message: {...} } or { task: {...} }
+        var envelope = (Map<String, Object>) response.getOrDefault("result", Map.of());
+        var result = envelope.get("message") instanceof Map<?, ?> m ? (Map<String, Object>) m
+            : envelope.get("task") instanceof Map<?, ?> t ? (Map<String, Object>) t
+            : envelope;
 
-        // A2A responses may nest parts inside artifacts or at the top-level result
-        var parts = (List<Map<String, Object>>) result.getOrDefault("parts", List.of());
+        // Task ID from the v1.0 response envelope:
+        // result.task.id, result.message.taskId, or result.id (bare Task)
+        String taskId = null;
+        if (envelope.get("task") instanceof Map<?, ?> taskObj && ((Map<String, Object>) taskObj).get("id") != null) {
+            taskId = String.valueOf(((Map<String, Object>) taskObj).get("id"));
+        } else if (envelope.get("message") instanceof Map<?, ?> msgObj && ((Map<String, Object>) msgObj).get("taskId") != null) {
+            taskId = String.valueOf(((Map<String, Object>) msgObj).get("taskId"));
+        } else if (envelope.get("id") != null) {
+            taskId = String.valueOf(envelope.get("id"));
+        }
 
-        for (var part : parts) {
-            if ("text".equals(part.get("kind")) || "text".equals(part.get("type"))) {
-                var text = (String) part.get("text");
-                try {
-                    return new InternalResult(taskId, mapper.readValue(text, Object.class));
-                } catch (Exception e) {
-                    return new InternalResult(taskId, text);
+        // Text parts on the message/task itself
+        var text = firstText(result);
+        if (text != null) {
+            return new InternalResult(taskId, parseJsonOrText(text));
+        }
+
+        // Task results: status message, then artifact parts
+        if (result.get("status") instanceof Map<?, ?> status && ((Map<String, Object>) status).get("message") instanceof Map<?, ?> sm) {
+            text = firstText((Map<String, Object>) sm);
+            if (text != null) {
+                return new InternalResult(taskId, parseJsonOrText(text));
+            }
+        }
+
+        if (result.get("artifacts") instanceof List<?> artifacts) {
+            for (var artifact : artifacts) {
+                if (artifact instanceof Map<?, ?> artifactMap) {
+                    text = firstText((Map<String, Object>) artifactMap);
+                    if (text != null) {
+                        return new InternalResult(taskId, parseJsonOrText(text));
+                    }
                 }
             }
         }
@@ -708,12 +764,65 @@ public class AgentNetwork {
         return new InternalResult(taskId, result);
     }
 
+    /**
+     * Returns the text of the first text part in a message/artifact-like map,
+     * or {@code null} if there is none (A2A v1.0: text parts are {@code {"text": ...}}).
+     */
+    @SuppressWarnings("unchecked")
+    private static String firstText(Map<String, Object> container) {
+        if (container.get("parts") instanceof List<?> parts) {
+            for (var part : parts) {
+                if (part instanceof Map<?, ?> partMap && ((Map<String, Object>) partMap).get("text") instanceof String text) {
+                    return text;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Pushes the text of every text part of a message/artifact-like map onto the queue.
+     */
+    @SuppressWarnings("unchecked")
+    private static void putTextParts(Map<String, Object> container, java.util.concurrent.BlockingQueue<Object> queue) throws InterruptedException {
+        if (container.get("parts") instanceof List<?> parts) {
+            for (var part : parts) {
+                if (part instanceof Map<?, ?> partMap && ((Map<String, Object>) partMap).get("text") instanceof String text) {
+                    queue.put(text);
+                }
+            }
+        }
+    }
+
+    private Object parseJsonOrText(String text) {
+        try {
+            return mapper.readValue(text, Object.class);
+        } catch (Exception e) {
+            return text;
+        }
+    }
+
     @SuppressWarnings("unchecked")
     AgentCardInfo parseAgentCard(Map<String, Object> raw) {
+        // Detect A2A 0.3 cards: root `url`/`protocolVersion` without `supportedInterfaces`
+        if (!raw.containsKey("supportedInterfaces")
+                && (raw.containsKey("url") || raw.containsKey("protocolVersion"))) {
+            throw new IllegalArgumentException(
+                "Remote agent speaks A2A 0.3, not supported by a2a-lite 1.0");
+        }
+
         var name = (String) raw.getOrDefault("name", "");
         var description = (String) raw.getOrDefault("description", "");
-        var url = (String) raw.getOrDefault("url", "");
         var version = (String) raw.getOrDefault("version", "");
+
+        // A2A v1.0: the endpoint URL lives in supportedInterfaces[0].url
+        var url = "";
+        if (raw.get("supportedInterfaces") instanceof List<?> interfaces && !interfaces.isEmpty()) {
+            var first = interfaces.get(0);
+            if (first instanceof Map<?, ?> iface) {
+                url = (String) ((Map<String, Object>) iface).getOrDefault("url", "");
+            }
+        }
 
         var skillsList = new ArrayList<Map<String, Object>>();
         var skillsRaw = raw.get("skills");

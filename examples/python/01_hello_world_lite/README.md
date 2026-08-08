@@ -68,7 +68,7 @@ The agent will start on `http://localhost:8787`
 ### Test 1: Get Agent Card (Discovery)
 
 ```bash
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 ```
 
 **Expected Response:**
@@ -77,7 +77,13 @@ curl http://localhost:8787/.well-known/agent.json
   "name": "HelloAgent",
   "description": "A simple greeting agent using A2A Lite",
   "version": "1.0.0",
-  "url": "http://localhost:8787/",
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:8787/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
   "skills": [
     {
       "name": "greet",
@@ -104,16 +110,16 @@ curl http://localhost:8787/.well-known/agent.json
 ```bash
 curl -X POST http://localhost:8787/ \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "message/send",
+    "method": "SendMessage",
     "id": "1",
     "params": {
       "message": {
-        "role": "user",
+        "role": "ROLE_USER",
         "parts": [
           {
-            "type": "text",
             "text": "{\"skill\": \"greet\", \"params\": {\"name\": \"World\"}}"
           }
         ],
@@ -130,13 +136,13 @@ curl -X POST http://localhost:8787/ \
   "id": "1",
   "result": {
     "message": {
-      "role": "agent",
+      "role": "ROLE_AGENT",
       "parts": [
         {
-          "type": "text",
           "text": "Hello, World!"
         }
-      ]
+      ],
+      "messageId": "msg-resp-1"
     }
   }
 }
@@ -210,7 +216,7 @@ agent.run()
 ```
 
 - Starts the HTTP server on port 8787
-- Serves agent card at `/.well-known/agent.json`
+- Serves agent card at `/.well-known/agent-card.json`
 - Handles all A2A protocol messages
 
 ---
@@ -360,4 +366,4 @@ agent.run(log_level="debug")
 1. **Use async functions**: All skills should be `async def`
 2. **Type hints matter**: They're used for validation and documentation
 3. **Test early**: Use `AgentTestClient` for rapid iteration
-4. **Read the agent card**: Visit `/.well-known/agent.json` to see auto-generated schemas
+4. **Read the agent card**: Visit `/.well-known/agent-card.json` to see auto-generated schemas

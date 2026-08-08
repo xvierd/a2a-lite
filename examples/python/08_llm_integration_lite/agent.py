@@ -1,68 +1,73 @@
 """
 LLM Agent - A2A Lite Implementation
 
-Advanced LLM-powered agent with minimal boilerplate.
-Compare this ~90 line implementation with the ~686 line Google SDK version.
+LLM-powered agent with minimal boilerplate using A2A Lite's LLM decorators.
+Compare this ~60 line implementation with the ~350 line Google SDK version.
+
+Requires (only at call time, not import time):
+    pip install a2a-lite[openai]     # if LLM_PROVIDER=openai (default)
+    pip install a2a-lite[anthropic]  # if LLM_PROVIDER=anthropic
+
+Environment:
+    LLM_PROVIDER   openai (default) | anthropic
+    LLM_MODEL      e.g. gpt-4o-mini (default) or claude-3-haiku-20240307
+    OPENAI_API_KEY / ANTHROPIC_API_KEY  (read by the provider SDK itself)
 """
 
 import os
 from a2a_lite import Agent
-from a2a_lite.llm import OpenAIClient, AnthropicClient
-from a2a_lite.tools import tool_registry
-
-# Import tools (they auto-register via @tool decorator)
-import tools  # noqa: F401
+from a2a_lite.llm import openai_skill, anthropic_skill
 
 # Choose LLM provider
 PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini" if PROVIDER == "openai" else "claude-3-haiku-20240307")
 
-if PROVIDER == "openai":
-    llm_client = OpenAIClient(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        model=os.getenv("LLM_MODEL", "gpt-4")
-    )
-else:
-    llm_client = AnthropicClient(
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        model=os.getenv("LLM_MODEL", "claude-3-sonnet-20240229")
-    )
-
-# Create LLM agent
-# A2A Lite handles: memory, tool calling, context management
+# Create the agent - no llm/memory/tool plumbing needed
 agent = Agent(
     name="LLMAgent",
-    description="AI assistant with memory and tools",
-    llm=llm_client,
-    conversation_memory=True,  # Enable session memory
-    tools=tool_registry.get_tools()  # Auto-registered tools
+    description="AI assistant powered by an LLM",
+    version="1.0.0",
 )
+
+# Pick the decorator for the configured provider.
+# The provider package (openai/anthropic) is imported lazily on first call.
+if PROVIDER == "openai":
+    llm = openai_skill(
+        model=MODEL,
+        system_prompt="You are a helpful AI assistant exposed via the A2A protocol.",
+    )
+else:
+    llm = anthropic_skill(
+        model=MODEL,
+        system_prompt="You are a helpful AI assistant exposed via the A2A protocol.",
+    )
 
 
 @agent.skill("chat")
-async def chat(message: str, session_id: str = "default") -> dict:
+@llm
+async def chat(message: str) -> str:
     """
     Chat with the AI assistant.
-    
-    A2A Lite automatically:
-    - Maintains conversation history per session_id
-    - Calls tools when needed
-    - Manages LLM context window
+
+    The decorator handles the whole LLM call: the `message` parameter is
+    sent as the user message and the LLM's text is returned as the result.
     """
-    # Just return the user message - LLM handling is automatic!
-    # The actual LLM response is handled by A2A Lite's LLM integration
-    return {
-        "message": message,
-        "session_id": session_id,
-        "note": "LLM response handled automatically by A2A Lite"
-    }
+    ...  # handled by the llm decorator
 
 
-@agent.skill("clear_memory")
-async def clear_memory(session_id: str = "default") -> dict:
-    """Clear conversation memory for a session."""
-    # A2A Lite provides memory management
-    agent.clear_conversation(session_id)
-    return {"message": "Memory cleared", "session_id": session_id}
+@agent.skill("chat_stream", streaming=True)
+@openai_skill(
+    model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+    system_prompt="You are a helpful AI assistant exposed via the A2A protocol.",
+    streaming=True,
+)
+async def chat_stream(message: str) -> str:
+    """
+    Streaming chat (OpenAI only): yields tokens as they arrive.
+
+    Just add streaming=True to both decorators - A2A Lite handles SSE.
+    """
+    ...  # handled by the llm decorator
 
 
 @agent.skill("info")
@@ -71,9 +76,10 @@ async def info() -> dict:
     return {
         "name": "LLMAgent",
         "provider": PROVIDER,
-        "model": llm_client.model,
-        "tools_available": [t.name for t in tool_registry.get_tools()],
-        "features": ["memory", "tool_calling", "multi_turn"]
+        "model": MODEL,
+        "skills": ["chat", "chat_stream", "info"],
+        "features": ["llm_decorator", "streaming"],
+        "note": "Set OPENAI_API_KEY or ANTHROPIC_API_KEY to enable chat.",
     }
 
 
@@ -82,19 +88,18 @@ if __name__ == "__main__":
     print("LLM Agent - A2A Lite (Advanced)")
     print("=" * 70)
     print(f"Provider: {PROVIDER}")
-    print(f"Model: {llm_client.model}")
+    print(f"Model: {MODEL}")
     print(f"Port: 8792")
     print("-" * 70)
-    print("A2A Lite automatically handles:")
-    print("  ✓ Conversation memory (per session)")
-    print("  ✓ Tool registration (@tool decorator)")
-    print("  ✓ LLM context management")
-    print("  ✓ Multi-turn conversations")
-    print("  ✓ Tool calling loop")
+    print("A2A Lite handles:")
+    print("  ✓ LLM call via @openai_skill / @anthropic_skill decorators")
+    print("  ✓ Token streaming (streaming=True)")
+    print("  ✓ SSE protocol formatting")
     print("-" * 70)
-    print("Available tools:")
-    for tool in tool_registry.get_tools():
-        print(f"  - {tool.name}: {tool.description}")
+    print("Skills:")
+    print("  - chat:        Single-shot LLM chat (configured provider)")
+    print("  - chat_stream: Token-by-token streaming chat (OpenAI)")
+    print("  - info:        Agent configuration")
     print("=" * 70)
-    
+
     agent.run(port=8792)

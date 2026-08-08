@@ -4,12 +4,17 @@ import com.a2alite.auth.AuthProvider;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
 import com.a2alite.push.TaskPushRegistry;
+import com.a2alite.streaming.StreamingHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.a2a.server.agentexecution.AgentExecutor;
-import io.a2a.server.agentexecution.RequestContext;
-import io.a2a.server.events.EventQueue;
-import io.a2a.server.tasks.TaskUpdater;
-import io.a2a.spec.*;
+import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
+import org.a2aproject.sdk.server.agentexecution.RequestContext;
+import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.spec.A2AError;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TaskNotCancelableError;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TextPart;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,7 +33,15 @@ import java.util.logging.Logger;
 /**
  * Lite executor that wraps skill handlers into the A2A SDK's AgentExecutor interface.
  *
- * <p>This bridges a2a-lite's simple skill registration with the official A2A Java SDK.
+ * <p>This bridges a2a-lite's simple skill registration with the official A2A Java SDK
+ * (protocol v1.0, {@code org.a2aproject.sdk}).
+ *
+ * <p>Event rules (enforced by the SDK's event queue):
+ * <ul>
+ *   <li>Non-streaming skills: a single agent {@link Message} is sent.</li>
+ *   <li>Streaming skills: {@code submit()} (for new tasks) → {@code startWork()} →
+ *       one {@code updateStatus(TASK_STATE_WORKING, message)} per chunk → {@code complete()}.</li>
+ * </ul>
  */
 public class LiteAgentExecutor implements AgentExecutor {
     private static final Logger LOGGER = Logger.getLogger(LiteAgentExecutor.class.getName());
@@ -67,12 +80,9 @@ public class LiteAgentExecutor implements AgentExecutor {
     }
 
     @Override
-    public void execute(RequestContext context, EventQueue eventQueue) throws JSONRPCError {
-        TaskUpdater updater = new TaskUpdater(context, eventQueue);
-
+    public void execute(RequestContext context, AgentEmitter emitter) throws A2AError {
+        String finalSkillName = null;
         try {
-            initializeTaskState(context, updater);
-
             // Extract message text
             String text = extractTextFromMessage(context.getMessage());
 
@@ -102,8 +112,9 @@ public class LiteAgentExecutor implements AgentExecutor {
             );
 
             // Execute through middleware chain
-            final String finalSkillName = skillName;
-            MiddlewareNext finalHandler = () -> executeSkill(finalSkillName, ctx.params());
+            finalSkillName = skillName;
+            final String hookedSkillName = finalSkillName;
+            MiddlewareNext finalHandler = () -> executeSkill(hookedSkillName, ctx.params());
 
             MiddlewareNext handler = finalHandler;
             for (int i = middlewares.size() - 1; i >= 0; i--) {
@@ -114,80 +125,73 @@ public class LiteAgentExecutor implements AgentExecutor {
 
             Object result = handler.call();
 
-            // Convert result to text
-            String responseText;
-            if (result instanceof String) {
-                responseText = (String) result;
+            if (result instanceof StreamingHandler.StreamResult streamResult) {
+                // Streaming skill: task first, then one status update per chunk
+                if (context.getTask() == null) {
+                    emitter.submit();
+                }
+                emitter.startWork();
+                for (var chunk : streamResult) {
+                    String chunkText = chunk instanceof String s ? s : String.valueOf(chunk);
+                    emitter.updateStatus(TaskState.TASK_STATE_WORKING,
+                        emitter.newAgentMessage(List.of(new TextPart(chunkText)), null));
+                }
+                emitter.complete();
             } else {
-                responseText = mapper.writeValueAsString(result);
+                // Non-streaming skill: a single agent message
+                String responseText;
+                if (result instanceof String) {
+                    responseText = (String) result;
+                } else {
+                    responseText = mapper.writeValueAsString(result);
+                }
+                emitter.sendMessage(responseText);
             }
-
-            // Send response as artifact
-            TextPart responsePart = new TextPart(responseText, null);
-            updater.addArtifact(List.of(responsePart), null, null, null);
 
             // Call completion hooks
             for (var hook : completeHooks) {
                 try {
-                    hook.accept(finalSkillName, result);
+                    hook.accept(hookedSkillName, result);
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Completion hook error for skill '" + finalSkillName + "'", e);
+                    LOGGER.log(Level.WARNING, "Completion hook error for skill '" + hookedSkillName + "'", e);
                 }
             }
 
             // Fire per-task push notification if registered
             if (pushRegistry != null && context.getTask() != null) {
-                String taskId = context.getTask().getId();
+                String taskId = context.getTask().id();
                 if (taskId != null) {
                     pushRegistry.get(taskId).ifPresent(config ->
-                        fireTaskWebhook(config, taskId, finalSkillName, result)
+                        fireTaskWebhook(config, taskId, hookedSkillName, result)
                     );
                 }
             }
 
-            updater.complete();
-
         } catch (Exception e) {
-            handleExecutionError(updater, e);
+            handleExecutionError(emitter, e);
         }
     }
 
     @Override
-    public void cancel(RequestContext context, EventQueue eventQueue) throws JSONRPCError {
-        io.a2a.spec.Task task = context.getTask();
+    public void cancel(RequestContext context, AgentEmitter emitter) throws A2AError {
+        org.a2aproject.sdk.spec.Task task = context.getTask();
 
-        if (task != null && (task.getStatus().state() == io.a2a.spec.TaskState.CANCELED ||
-                           task.getStatus().state() == io.a2a.spec.TaskState.COMPLETED)) {
+        if (task != null && (task.status().state() == TaskState.TASK_STATE_CANCELED ||
+                           task.status().state() == TaskState.TASK_STATE_COMPLETED)) {
             throw new TaskNotCancelableError();
         }
 
-        TaskUpdater updater = new TaskUpdater(context, eventQueue);
-        updater.cancel();
+        emitter.cancel();
     }
 
     /**
-     * Transitions the task to its initial working state. For new tasks (no prior
-     * state recorded in the context) the task is first submitted, then started.
-     * For resumed tasks it is started directly.
+     * Serializes the error and fails the task (or the request) with an agent
+     * message carrying the error details.
      *
-     * @param context the request context
-     * @param updater the task updater used to emit state transitions
-     */
-    private void initializeTaskState(RequestContext context, TaskUpdater updater) {
-        if (context.getTask() == null) {
-            updater.submit();
-        }
-        updater.startWork();
-    }
-
-    /**
-     * Serializes and delivers an error result artifact, then marks the task as
-     * failed. Wraps serialization failures in a {@link RuntimeException}.
-     *
-     * @param updater the task updater
+     * @param emitter the agent emitter
      * @param e       the exception that caused the failure
      */
-    private void handleExecutionError(TaskUpdater updater, Exception e) {
+    private void handleExecutionError(AgentEmitter emitter, Exception e) {
         try {
             Map<String, Object> errorResult;
             if (e instanceof A2ALiteException a2aErr) {
@@ -196,9 +200,8 @@ public class LiteAgentExecutor implements AgentExecutor {
                 errorResult = Map.of("error", e.getMessage(), "type", e.getClass().getSimpleName());
             }
             String errorJson = mapper.writeValueAsString(errorResult);
-            TextPart errorPart = new TextPart(errorJson, null);
-            updater.addArtifact(List.of(errorPart), null, null, null);
-            updater.fail();
+            Message errorMessage = emitter.newAgentMessage(List.of(new TextPart(errorJson)), null);
+            emitter.fail(errorMessage);
         } catch (Exception ex) {
             throw new RuntimeException("Failed to serialize error: " + ex.getMessage(), ex);
         }
@@ -254,10 +257,10 @@ public class LiteAgentExecutor implements AgentExecutor {
 
     private String extractTextFromMessage(Message message) {
         StringBuilder textBuilder = new StringBuilder();
-        if (message.getParts() != null) {
-            for (Part<?> part : message.getParts()) {
+        if (message != null && message.parts() != null) {
+            for (Part<?> part : message.parts()) {
                 if (part instanceof TextPart textPart) {
-                    textBuilder.append(textPart.getText());
+                    textBuilder.append(textPart.text());
                 }
             }
         }

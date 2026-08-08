@@ -63,7 +63,7 @@ if __name__ == "__main__":
     print("Skills: add, subtract, multiply, divide, power")
     print("-" * 60)
     print("Starting server on http://localhost:8788")
-    print("Agent card: http://localhost:8788/.well-known/agent.json")
+    print("Agent card: http://localhost:8788/.well-known/agent-card.json")
     print("=" * 60)
     
     agent.run(port=8788)

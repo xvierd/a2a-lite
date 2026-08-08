@@ -42,10 +42,13 @@ def test_divide(client):
 
 
 def test_divide_by_zero(client):
-    """Test division by zero error handling."""
-    with pytest.raises(Exception) as exc_info:
-        client.call("divide", a=10, b=0)
-    assert "Division by zero" in str(exc_info.value)
+    """Test division by zero error handling.
+
+    A2A Lite returns skill errors as a structured message instead of
+    raising on the client side.
+    """
+    result = client.call("divide", a=10, b=0)
+    assert "Division by zero" in result.data["error"]
 
 
 def test_power(client):
@@ -73,10 +76,9 @@ def test_agent_card(client):
 
 
 def test_unknown_skill(client):
-    """Test calling unknown skill."""
-    with pytest.raises(Exception) as exc_info:
-        client.call("unknown", a=1, b=2)
-    assert "not found" in str(exc_info.value).lower()
+    """Test calling unknown skill returns a structured error."""
+    result = client.call("unknown", a=1, b=2)
+    assert "unknown skill" in result.data["error"].lower()
 
 
 if __name__ == "__main__":

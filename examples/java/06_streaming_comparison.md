@@ -1,171 +1,161 @@
-# Java Streaming Comparison: Google A2A SDK vs A2A Lite
+# Java Streaming Comparison: A2A v1.0 From Scratch vs A2A Lite
 
-This document compares the streaming implementations between the official Google A2A Java SDK and the simplified A2A Lite approach.
+This document compares the streaming implementations between a hand-rolled
+A2A v1.0 protocol server (Javalin + Jackson, no SDK) and the simplified
+A2A Lite approach. Both speak the **A2A protocol v1.0** wire format.
 
 ## Quick Stats
 
-| Metric | Google SDK | A2A Lite | Improvement |
+| Metric | From scratch | A2A Lite | Improvement |
 |--------|------------|----------|-------------|
-| **Lines of Code** | 908 | 182 | **80% reduction** |
-| **Java Files** | 6 + 1 test | 1 + 1 test | **71% fewer files** |
-| **Infrastructure Code** | 595 lines | 0 lines | **100% eliminated** |
-| **Skill Logic** | 313 lines | 145 lines | **54% reduction** |
+| **Lines of Code** | 826 | 97 | **88% reduction** |
+| **Java Files** | 8 + 1 test | 1 | **89% fewer files** |
+| **Infrastructure Code** | ~595 lines | 0 lines | **100% eliminated** |
+| **Skill Logic** | ~230 lines | 97 lines | **58% reduction** |
 | **Setup Complexity** | High | Low | **Minimal boilerplate** |
 
 ## File Structure Comparison
 
-### Google A2A SDK
+### From scratch (`06_streaming_google`, Maven, no SDK)
 ```
 06_streaming_google/
 ├── pom.xml                                    # Maven config
 ├── README.md                                  # Documentation
 ├── src/main/java/com/example/streaming/
-│   ├── StreamingAgent.java                    # 412 lines (main)
+│   ├── StreamingAgent.java                    # 331 lines (main)
 │   ├── sse/
-│   │   └── SseEventEmitter.java              # 183 lines (infrastructure)
+│   │   ├── SseEventEmitter.java              # 163 lines (SSE wire v1.0)
+│   │   ├── StreamEmitter.java                # 44 lines (sink interface)
+│   │   └── CollectingEmitter.java            # 57 lines (SendMessage buffer)
 │   └── skills/
-│       ├── ChatSkill.java                    # 71 lines
-│       ├── CountSkill.java                   # 50 lines
-│       ├── StorySkill.java                   # 79 lines
-│       └── ProgressSkill.java                # 88 lines
+│       ├── ChatSkill.java                    # 60 lines
+│       ├── CountSkill.java                   # 40 lines
+│       ├── StorySkill.java                   # 65 lines
+│       └── ProgressSkill.java                # 66 lines
 └── src/test/java/com/example/streaming/
     └── StreamingAgentTest.java               # 25 lines
 ```
 
-### A2A Lite
+### A2A Lite (`06_streaming_lite`, Gradle)
 ```
 06_streaming_lite/
-├── pom.xml                                    # Maven config
+├── build.gradle                               # Gradle build file
 ├── README.md                                  # Documentation
-├── src/main/java/com/example/streaming/
-│   └── StreamingAgent.java                    # 145 lines (everything!)
-└── src/test/java/com/example/streaming/
-    └── StreamingAgentTest.java               # 37 lines
+└── src/main/java/com/example/streaming/
+    └── StreamingAgent.java                    # 97 lines (everything!)
 ```
 
 ## Code Comparison
 
 ### Agent Setup
 
-#### Google SDK (412 lines)
+#### From scratch (331 lines)
 ```java
 public class StreamingAgent {
-    private static final Map<String, SseEventEmitter> activeStreams = new ConcurrentHashMap<>();
-    
     public static void main(String[] args) {
-        // Create agent card manually
+        // Create v1.0 agent card manually (supportedInterfaces, ...)
         ObjectNode agentCard = createAgentCard();
-        
+
         // Setup Javalin server manually
         Javalin app = Javalin.create(config -> {
             config.showJavalinBanner = false;
         });
-        
+
         // Define all routes manually
-        app.get("/.well-known/agent.json", ctx -> { ... });
-        app.get("/", ctx -> { ... });
-        app.get("/stream/{taskId}", ctx -> { ... });
-        app.post("/", ctx -> { ... });
-        app.post("/stream", ctx -> { ... });
-        
-        // Create capabilities with streaming=true
-        ObjectNode capabilities = mapper.createObjectNode();
-        capabilities.put("streaming", true);
-        
+        app.get("/.well-known/agent-card.json", ctx -> { ... });
+        app.post("/", ctx -> {
+            // Dispatch SendMessage / SendStreamingMessage manually,
+            // set A2A-Version: 1.0 header, validate JSON-RPC
+        });
+
         app.start(PORT);
     }
-    
-    // Manual SSE connection handling
-    private static void handleSseConnection(Context ctx) { ... }
-    
+
     // Manual message handling
     private static void handleMessage(Context ctx) { ... }
-    
-    // Manual streaming request handling
-    private static void handleStreamingRequest(Context ctx) { ... }
+
+    // Manual SSE-over-POST streaming
+    private static void handleStreamingMessage(Context ctx) { ... }
 }
 ```
 
-#### A2A Lite (145 lines total)
+#### A2A Lite (97 lines total)
 ```java
 public class StreamingAgent {
     public static void main(String[] args) {
         // Builder pattern - everything automatic
         var agent = Agent.builder()
             .name("StreamingAgent")
-            .description("Streaming agent with A2A Lite")
+            .description("Agent with simulated streaming capabilities")
             .version("1.0.0")
-            .streaming(true)  // One line!
             .build();
-        
-        // Just define streaming skills
-        agent.stream("chat", (params, stream) -> {
-            // Streaming logic only
+
+        // Just define skills
+        agent.skill("chat", SkillConfig.of("Chat with the agent"), params -> {
+            // Skill logic only
         });
-        
-        agent.run(8787);  // Server starts automatically
+
+        agent.run(8792);  // Server starts automatically (v1.0 wire built-in)
     }
 }
 ```
 
-### SSE Infrastructure
+### SSE Infrastructure (v1.0 wire)
 
-#### Google SDK (183 lines - manual)
+#### From scratch (264 lines - manual)
 ```java
-public class SseEventEmitter {
+public class SseEventEmitter implements StreamEmitter {
     private final Context ctx;
     private final PrintWriter writer;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
-    
-    public void sendEvent(String eventName, Object data) {
-        // Manual event formatting
-        String jsonData = mapper.writeValueAsString(data);
-        writer.write("event: " + eventName + "\n");
-        writer.write("data: " + jsonData + "\n\n");
-        writer.flush();
+
+    public void sendTask(ObjectNode task) {
+        // First event: {"result":{"task":{...,"status":{"state":"TASK_STATE_SUBMITTED"}}}}
+        writeSse(task);
     }
-    
-    public void sendToken(String token, int index, boolean isLast) { ... }
-    public void sendProgress(int current, int total, String message) { ... }
-    public void sendChunk(String chunk) { ... }
+
+    public void sendStatus(String state, String message) {
+        // {"result":{"statusUpdate":{"taskId","contextId","status":{
+        //   "state":"TASK_STATE_WORKING","timestamp","message":{...}}}}}
+        // NOTE: no "final" field — stream close marks terminality
+    }
+
+    public void sendText(String chunk, boolean last) {
+        // {"result":{"artifactUpdate":{"taskId","artifact":{"artifactId",
+        //   "parts":[{"text":...}]},"append":true,"lastChunk":false}}}
+    }
     // ... more manual implementations
 }
 ```
 
 #### A2A Lite (0 lines - built-in)
 ```java
-// All SSE infrastructure is built into the framework!
-// Just use the StreamContext methods:
-stream.token(token, index, isLast);
-stream.progress(current, total, message);
-stream.chunk(data);
-stream.status(status, message);
-stream.event(name, data);
+// All SSE/JSON-RPC infrastructure is built into the library.
+// Streaming skills use SkillConfig.withStreaming():
+agent.skill("stream_chat", SkillConfig.withStreaming(), params -> { ... });
+// This enables streaming=true in the agent card capabilities and
+// SendStreamingMessage support on the wire.
 ```
 
 ### Skill Definition
 
-#### Google SDK (per skill)
+#### From scratch (per skill)
 ```java
 public class ChatSkill {
-    public void stream(ObjectNode params, SseEventEmitter emitter) {
+    public void stream(ObjectNode params, StreamEmitter emitter) {
         try {
-            String message = params.has("message") ? 
+            String message = params.has("message") ?
                 params.get("message").asText() : "Hello";
-            
-            emitter.sendEvent("status", createStatus("processing", "..."));
+
+            emitter.sendStatus("TASK_STATE_WORKING", "Processing...");
             Thread.sleep(500);
-            
-            String response = generateResponse(message);
-            String[] words = response.split(" ");
-            
+
+            String[] words = generateResponse(message).split(" ");
             for (int i = 0; i < words.length; i++) {
-                emitter.sendToken(words[i], i, i == words.length - 1);
+                emitter.sendText(words[i] + " ", i == words.length - 1);
                 Thread.sleep(100);
             }
-            
-            emitter.sendEvent("status", createStatus("completed", "..."));
-            
+
+            emitter.complete("Done");
         } catch (Exception e) {
             emitter.sendError("Error: " + e.getMessage());
         }
@@ -175,77 +165,79 @@ public class ChatSkill {
 
 #### A2A Lite (per skill)
 ```java
-agent.stream("chat", (params, stream) -> {
-    String message = params.has("message") ? 
-        params.get("message").asText() : "Hello";
-    
-    stream.status("processing", "...");
-    Thread.sleep(500);
-    
-    for (String word : generateResponse(message).split(" ")) {
-        stream.token(word, index++, isLast);
-        Thread.sleep(100);
-    }
-    
-    stream.status("completed", "...");
+agent.skill("chat", SkillConfig.of("Chat with the agent"), params -> {
+    String message = (String) params.getOrDefault("message", "Hello");
+    return Map.of(
+        "message", message,
+        "response", generateResponse(message)
+    );
 });
 ```
 
 ## Feature Comparison
 
-| Feature | Google SDK | A2A Lite |
+| Feature | From scratch | A2A Lite |
 |---------|------------|----------|
-| Agent Card Generation | Manual | Automatic |
-| SSE Infrastructure | Hand-coded | Built-in |
-| Event Formatting | Manual | Automatic |
-| Client Tracking | Manual map | Framework-managed |
+| Agent Card Generation (v1.0 shape) | Manual | Automatic |
+| SSE Infrastructure (`task`/`statusUpdate`/`artifactUpdate`) | Hand-coded | Built-in |
+| Event Formatting (`TASK_STATE_*`, timestamps) | Manual | Automatic |
 | Connection Cleanup | Manual | Automatic |
-| JSON-RPC Handling | Manual | Automatic |
+| JSON-RPC Handling (`SendMessage`/`SendStreamingMessage`) | Manual | Automatic |
+| `A2A-Version: 1.0` header | Manual | Automatic |
 | Error Handling | Manual per skill | Framework-level |
-| Progress Events | Custom implementation | `stream.progress()` |
-| Token Events | Custom implementation | `stream.token()` |
-| Status Events | Custom implementation | `stream.status()` |
-| Custom Events | Manual formatting | `stream.event()` |
+| Well-known `/.well-known/agent-card.json` | Manual route | Automatic |
 
 ## When to Use Each
 
-### Use Google A2A SDK When:
+### Use the from-scratch approach when:
 - You need full control over every aspect
 - Custom SSE event formats required
-- Integration with existing infrastructure
-- Learning the A2A protocol internals
+- Learning the A2A v1.0 protocol internals
 
-### Use A2A Lite When:
+### Use A2A Lite when:
 - Rapid development is priority
-- Standard SSE patterns are sufficient
+- Standard A2A v1.0 patterns are sufficient
 - Reducing boilerplate is important
 - Multiple streaming skills needed
 
 ## Testing
 
-Both implementations provide the same endpoints:
+Both implementations expose the same v1.0 endpoints:
 
 ```bash
 # Check agent capabilities
-curl http://localhost:8787/.well-known/agent.json
+curl http://localhost:8787/.well-known/agent-card.json
 
-# Google SDK: Two-step streaming
-curl -X POST http://localhost:8787/stream -d '{...}'  # Get stream URL
-curl -N http://localhost:8787/stream/{taskId}         # Connect to SSE
+# Non-streaming call
+curl -X POST http://localhost:8787/ \
+  -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"message":
+       {"role":"ROLE_USER","messageId":"m1",
+        "parts":[{"text":"{\"skill\":\"chat\",\"params\":{\"message\":\"Hello\"}}"}]}}}'
 
-# A2A Lite: Direct streaming
-curl -N "http://localhost:8787/stream?skill=chat&message=Hello"
+# Streaming call (SSE directly on the POST response)
+curl -N -X POST http://localhost:8787/ \
+  -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"SendStreamingMessage","params":{"message":
+       {"role":"ROLE_USER","messageId":"m2",
+        "parts":[{"text":"{\"skill\":\"count\",\"params\":{\"to\":3}}"}]}}}'
 ```
+
+SSE events arrive as `data: {"result":{...}}` lines with keys `task`
+(first event), `statusUpdate` (`TASK_STATE_WORKING` → `TASK_STATE_COMPLETED`)
+and `artifactUpdate` — no `final` field; stream close marks terminality.
 
 ## Conclusion
 
-**A2A Lite reduces streaming implementation from 908 to 182 lines (80% reduction)** while providing the same functionality:
+**A2A Lite reduces the streaming implementation from 826 to 97 lines (88% reduction)**
+while speaking the same A2A v1.0 wire protocol:
 
-- ✅ Same SSE protocol compliance
-- ✅ Same streaming capabilities
-- ✅ Same event types (token, progress, status, chunk)
+- ✅ Same SSE protocol compliance (v1.0 event keys, `TASK_STATE_*` states)
+- ✅ Same streaming capabilities (`SendStreamingMessage`)
 - ✅ Same agent card with streaming=true
 - ✅ Same client experience
-- ⚡ 80% less code to maintain
-- ⚡ 71% fewer files
+- ⚡ 88% less code to maintain
+- ⚡ 89% fewer files
 - ⚡ Zero infrastructure code

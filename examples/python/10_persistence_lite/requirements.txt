@@ -1,0 +1,5 @@
+# A2A Lite - Simplified wrapper around the official A2A SDK
+a2a-lite>=1.0.0
+
+# In development, install the local package instead:
+#   pip install -e ../../packages/python

@@ -21,9 +21,17 @@ import {
 import {
   agentCardHandler,
   jsonRpcHandler,
+  restHandler,
   UserBuilder,
 } from '@a2a-js/sdk/server/express';
-import type { AgentCard, AgentSkill, AgentCapabilities } from '@a2a-js/sdk';
+import type {
+  AgentCard,
+  AgentSkill,
+  AgentCapabilities,
+  AgentInterface,
+  SecurityScheme,
+  SecurityRequirement,
+} from '@a2a-js/sdk';
 
 import { LiteAgentExecutor } from './executor.js';
 import type {
@@ -339,7 +347,7 @@ export class Agent {
   }
 
   /**
-   * Build the A2A-compliant Agent Card.
+   * Build the A2A v1.0-compliant Agent Card.
    */
   buildAgentCard(host = 'localhost', port = 8787): AgentCard {
     const skills: AgentSkill[] = Array.from(this.skills.values()).map((s) => ({
@@ -347,32 +355,132 @@ export class Agent {
       name: s.name,
       description: s.description,
       tags: s.tags,
+      examples: [],
+      inputModes: ['application/json'],
+      outputModes: ['application/json'],
+      securityRequirements: [],
     }));
 
     const url = this.url ?? `http://${host}:${port}`;
 
+    const supportedInterfaces: AgentInterface[] = [
+      { url, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+      { url, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0', tenant: '' },
+    ];
+
     const capabilities: AgentCapabilities = {
       streaming: this.hasStreaming,
       pushNotifications: true,
+      extensions: [],
     };
+
+    const { securitySchemes, securityRequirements } = this.buildSecuritySchemes();
 
     return {
       name: this.name,
       description: this.description,
-      protocolVersion: '0.3.0',
+      supportedInterfaces,
+      provider: undefined,
       version: this.version,
-      url: `${url}/a2a/jsonrpc`,
       capabilities,
-      defaultInputModes: ['text'],
-      defaultOutputModes: ['text'],
+      securitySchemes,
+      securityRequirements,
+      defaultInputModes: ['application/json'],
+      defaultOutputModes: ['application/json'],
       skills,
+      signatures: [],
+    };
+  }
+
+  /**
+   * Convert the auth provider's scheme to A2A v1.0 security scheme types.
+   * Returns empty map/list when no auth provider (or NoAuth) is configured.
+   */
+  private buildSecuritySchemes(): {
+    securitySchemes: { [key: string]: SecurityScheme };
+    securityRequirements: SecurityRequirement[];
+  } {
+    const empty = { securitySchemes: {}, securityRequirements: [] };
+    if (!this.auth || this.auth instanceof NoAuth) {
+      return empty;
+    }
+
+    const scheme = this.auth.getScheme();
+    if (!scheme || Object.keys(scheme).length === 0) {
+      return empty;
+    }
+
+    const schemeType = scheme.type as string | undefined;
+    let name: string;
+    let securityScheme: SecurityScheme;
+
+    if (schemeType === 'apiKey') {
+      name = 'apiKey';
+      securityScheme = {
+        scheme: {
+          $case: 'apiKeySecurityScheme',
+          value: {
+            description: '',
+            name: (scheme.name as string) ?? 'X-API-Key',
+            location: (scheme.in as string) ?? 'header',
+          },
+        },
+      };
+    } else if (schemeType === 'http') {
+      name = (scheme.scheme as string) ?? 'http';
+      securityScheme = {
+        scheme: {
+          $case: 'httpAuthSecurityScheme',
+          value: {
+            description: '',
+            scheme: (scheme.scheme as string) ?? 'bearer',
+            bearerFormat: 'JWT',
+          },
+        },
+      };
+    } else if (schemeType === 'oauth2') {
+      name = 'oauth2';
+      const flows = (scheme.flows ?? {}) as Record<string, Record<string, unknown>>;
+      const authCode = flows.authorizationCode ?? {};
+      securityScheme = {
+        scheme: {
+          $case: 'oauth2SecurityScheme',
+          value: {
+            description: '',
+            flows: {
+              flow: {
+                $case: 'authorizationCode',
+                value: {
+                  authorizationUrl: (authCode.authorizationUrl as string) ?? '',
+                  tokenUrl: (authCode.tokenUrl as string) ?? '',
+                  refreshUrl: '',
+                  scopes: (authCode.scopes as Record<string, string>) ?? {},
+                  pkceRequired: false,
+                },
+              },
+            },
+            oauth2MetadataUrl: '',
+          },
+        },
+      };
+    } else {
+      console.warn(`[A2A] Unknown auth scheme type '${schemeType}'; skipping agent card security schemes`);
+      return empty;
+    }
+
+    return {
+      securitySchemes: { [name]: securityScheme },
+      securityRequirements: [{ schemes: { [name]: { list: [] } } }],
     };
   }
 
   /**
    * Build the Express app using the official SDK handlers.
+   *
+   * @param host - Host used for the agent card's advertised URL (default: 'localhost')
+   * @param port - Port used for the agent card's advertised URL (default: 8787)
    */
-  buildApp(): Express {
+  buildApp(host = 'localhost', port = 8787): Express {
     const app = express();
 
     // Auto-register push notifier as an onComplete hook
@@ -407,16 +515,16 @@ export class Agent {
     });
 
     // Create the SDK's request handler
-    const agentCard = this.buildAgentCard();
+    const agentCard = this.buildAgentCard(host, port);
     const requestHandler = new DefaultRequestHandler(
       agentCard,
       this.protocolTaskStore ?? new InMemoryTaskStore(),
       executor
     );
 
-    // Mount SDK handlers
+    // Mount SDK handlers — agent card at the A2A v1.0 well-known path
     app.use(
-      '/.well-known/agent.json',
+      '/.well-known/agent-card.json',
       agentCardHandler({ agentCardProvider: requestHandler })
     );
 
@@ -447,26 +555,25 @@ export class Agent {
         }
         next();
       };
-      app.use('/a2a/jsonrpc', authMiddleware);
       app.use('/', authMiddleware);
     }
 
     // Per-task push notification middleware (must come before SDK JSON-RPC handler)
-    app.use('/a2a/jsonrpc', express.json(), createPushNotificationMiddleware(this.pushRegistry));
     app.use('/', express.json(), createPushNotificationMiddleware(this.pushRegistry));
 
+    // JSON-RPC transport at the base URL (A2A v1.0 methods: SendMessage, ...)
     app.use(
-      '/a2a/jsonrpc',
+      '/',
       jsonRpcHandler({
         requestHandler,
         userBuilder: UserBuilder.noAuthentication,
       })
     );
 
-    // Also support direct POST to root for backwards compatibility
+    // HTTP+JSON (REST) transport — out of the box in SDK 1.x
     app.use(
       '/',
-      jsonRpcHandler({
+      restHandler({
         requestHandler,
         userBuilder: UserBuilder.noAuthentication,
       })
@@ -515,8 +622,8 @@ export class Agent {
       }
     }
 
-    const app = this.buildApp();
     const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+    const app = this.buildApp(displayHost, port);
 
     const server = app.listen(port, host, () => {
       console.log(`
@@ -532,9 +639,9 @@ ${Array.from(this.skills.values())
   .join('\n')}
 │
 │  Endpoints:
-│    • Agent Card: http://${displayHost}:${port}/.well-known/agent.json
-│    • JSON-RPC:   http://${displayHost}:${port}/a2a/jsonrpc
-│    • API:        http://${displayHost}:${port}/
+│    • Agent Card: http://${displayHost}:${port}/.well-known/agent-card.json
+│    • JSON-RPC:   http://${displayHost}:${port}/
+│    • REST:       http://${displayHost}:${port}/message:send
 └─────────────────────────────────────────────────┘
       `);
     });

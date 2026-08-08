@@ -5,7 +5,7 @@ import java.util.Map;
 
 /**
  * Cached representation of a remote agent's card fetched from
- * {@code /.well-known/agent.json}.
+ * {@code /.well-known/agent-card.json}.
  *
  * <p>The {@link #raw} map holds the full JSON payload so callers can
  * access any vendor-specific fields not surfaced by the typed getters.

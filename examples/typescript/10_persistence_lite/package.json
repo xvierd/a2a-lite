@@ -1,0 +1,25 @@
+{
+  "name": "a2a-lite-example-10-persistence",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A2A Lite example: pluggable TaskStore + PushNotifier (A2A protocol v1.0)",
+  "type": "module",
+  "scripts": {
+    "start": "tsx agent.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "a2a-lite": "file:../../../packages/typescript",
+    "@a2a-js/sdk": "^1.0.1",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

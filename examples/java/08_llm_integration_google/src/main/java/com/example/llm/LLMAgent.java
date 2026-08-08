@@ -10,17 +10,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.*;
 
 /**
- * LLM Agent - Google A2A SDK Implementation (Java)
- * 
+ * LLM Agent - A2A protocol v1.0 from scratch (Javalin + Jackson, no SDK)
+ *
  * Advanced LLM-powered agent with OpenAI/Anthropic integration,
  * conversation memory, and tool calling capabilities.
- * 
+ * Implements the A2A v1.0 wire protocol by hand — for the official
+ * Java SDK approach see packages/java.
+ *
  * COMPLEXITY: ~220 lines (compare with A2A Lite: ~50 lines)
  */
 public class LLMAgent {
-    
+
     private static final int PORT = 8793;
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final String A2A_VERSION = "1.0";
     
     private final LLMClient llmClient;
     private final ConversationManager conversationMgr;
@@ -42,7 +45,7 @@ public class LLMAgent {
     
     public static void main(String[] args) {
         System.out.println("=".repeat(70));
-        System.out.println("LLM Agent - Google A2A SDK (Java)");
+        System.out.println("LLM Agent - A2A v1.0 from scratch (Java)");
         System.out.println("=".repeat(70));
         
         LLMAgent agent = new LLMAgent();
@@ -56,8 +59,8 @@ public class LLMAgent {
             config.showJavalinBanner = false;
         });
         
-        // Agent card endpoint
-        app.get("/.well-known/agent.json", ctx -> {
+        // Agent card endpoint (A2A v1.0 discovery)
+        app.get("/.well-known/agent-card.json", ctx -> {
             ctx.contentType("application/json");
             ctx.result(mapper.writeValueAsString(agentCard));
         });
@@ -76,7 +79,7 @@ public class LLMAgent {
         
         System.out.println("-".repeat(70));
         System.out.println("Starting server on http://localhost:" + PORT);
-        System.out.println("Agent card: http://localhost:" + PORT + "/.well-known/agent.json");
+        System.out.println("Agent card: http://localhost:" + PORT + "/.well-known/agent-card.json");
         System.out.println("Skills: chat, clear_memory, info");
         System.out.println("=".repeat(70));
         
@@ -85,49 +88,56 @@ public class LLMAgent {
     
     private void handleRequest(Context ctx) {
         try {
+            // A2A v1.0: echo the protocol version on every response
+            ctx.header("A2A-Version", A2A_VERSION);
+
             String body = ctx.body();
             ObjectNode request = (ObjectNode) mapper.readTree(body);
-            
+
             // Validate JSON-RPC
             if (!request.has("jsonrpc") || !"2.0".equals(request.get("jsonrpc").asText())) {
                 sendError(ctx, request.get("id"), -32600, "Invalid JSON-RPC request");
                 return;
             }
-            
+
             String method = request.has("method") ? request.get("method").asText() : "";
-            if (!"message/send".equals(method)) {
+            if (!"SendMessage".equals(method)) {
                 sendError(ctx, request.get("id"), -32601, "Method not found: " + method);
                 return;
             }
-            
+
             // Extract message
             JsonNode params = request.path("params");
             JsonNode message = params.path("message");
             String sessionId = params.path("sessionId").asText("default");
-            
+
             // Extract skill call from message
             SkillCall skillCall = extractSkillCall(message);
             if (skillCall == null) {
                 sendError(ctx, request.get("id"), -32602, "No skill call found in message");
                 return;
             }
-            
+
             // Execute skill
             Object result = executeSkill(skillCall, sessionId);
-            
-            // Build response
+
+            // Build v1.0 response: {"result":{"message":{...}}}
             ObjectNode response = mapper.createObjectNode();
             response.put("jsonrpc", "2.0");
-            response.put("id", request.get("id").asText());
-            
-            ObjectNode resultNode = response.putObject("result");
-            resultNode.putArray("parts").addObject()
-                .put("type", "text")
+            response.set("id", request.get("id"));
+
+            ObjectNode messageNode = mapper.createObjectNode();
+            messageNode.put("messageId", java.util.UUID.randomUUID().toString());
+            messageNode.put("role", "ROLE_AGENT");
+            messageNode.putArray("parts").addObject()
                 .put("text", mapper.writeValueAsString(result));
-            
+
+            ObjectNode resultNode = response.putObject("result");
+            resultNode.set("message", messageNode);
+
             ctx.contentType("application/json");
             ctx.result(mapper.writeValueAsString(response));
-            
+
         } catch (Exception e) {
             sendError(ctx, null, -32603, "Internal error: " + e.getMessage());
         }
@@ -140,8 +150,12 @@ public class LLMAgent {
         }
         
         for (JsonNode part : parts) {
-            String text = part.path("text").asText();
-            if (text == null || text.isEmpty()) {
+            // v1.0 parts: text parts are detected by the "text" field
+            if (!part.has("text")) {
+                continue;
+            }
+            String text = part.get("text").asText();
+            if (text.isEmpty()) {
                 continue;
             }
             
@@ -246,41 +260,46 @@ public class LLMAgent {
         card.put("name", "LLMAgent");
         card.put("description", "AI agent powered by OpenAI/Anthropic with memory and tools");
         card.put("version", "1.0.0");
-        card.put("url", "http://localhost:" + PORT + "/");
-        card.put("protocolVersion", "0.3.0");
-        
+
+        // v1.0: interfaces replace the root "url" field
+        ArrayNode interfaces = card.putArray("supportedInterfaces");
+        interfaces.addObject()
+            .put("url", "http://localhost:" + PORT + "/")
+            .put("protocolBinding", "JSONRPC")
+            .put("protocolVersion", "1.0");
+
         // Capabilities
         ObjectNode capabilities = card.putObject("capabilities");
         capabilities.put("streaming", false);
         capabilities.put("pushNotifications", false);
-        
+
         // Skills
         ArrayNode skills = card.putArray("skills");
-        
+
         // Chat skill
         ObjectNode chatSkill = skills.addObject();
         chatSkill.put("id", "chat");
         chatSkill.put("name", "chat");
         chatSkill.put("description", "Chat with AI assistant with memory");
         chatSkill.putArray("tags").add("conversation").add("llm");
-        
+
         // Clear memory skill
         ObjectNode clearSkill = skills.addObject();
         clearSkill.put("id", "clear_memory");
         clearSkill.put("name", "clear_memory");
         clearSkill.put("description", "Clear conversation memory");
         clearSkill.putArray("tags").add("memory").add("reset");
-        
+
         // Info skill
         ObjectNode infoSkill = skills.addObject();
         infoSkill.put("id", "info");
         infoSkill.put("name", "info");
         infoSkill.put("description", "Get agent information");
         infoSkill.putArray("tags").add("info").add("metadata");
-        
-        card.putArray("defaultInputModes").add("text");
-        card.putArray("defaultOutputModes").add("text");
-        
+
+        card.putArray("defaultInputModes").add("text/plain");
+        card.putArray("defaultOutputModes").add("text/plain");
+
         return card;
     }
     
