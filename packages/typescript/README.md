@@ -9,7 +9,12 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple, intuitive API. 100% protocol-compatible.
 
-> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). Requires **Node.js >= 20**. No v0.3 compatibility. Experimental signed Agent Cards via `signAgentCard` / `verifyAgentCard`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1`.
+> - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
+> - **gRPC:** not implemented in TypeScript yet (Python has experimental `run_grpc`; see root Feature Matrix).
+> - Requires **Node.js >= 20**. No v0.3 compatibility.
+> - Experimental **signed Agent Cards** via `signAgentCard` / `verifyAgentCard`.
+> - See [MIGRATION.md](../../MIGRATION.md).
 
 ```typescript
 import { Agent } from 'a2a-lite';
@@ -357,18 +362,24 @@ Everything maps directly to the underlying protocol — no magic, no lock-in.
 | A2A Lite | A2A Protocol |
 |----------|--------------|
 | `agent.skill()` | Agent Skills |
-| `{ streaming: true }` | SSE Streaming |
+| `agent.run()` | JSON-RPC + REST (HTTP+JSON) server |
+| `{ streaming: true }` | SSE / `SendStreamingMessage` |
 | `FilePart` | A2A File parts |
 | `DataPart` | A2A Data parts |
 | `Artifact` | A2A Artifacts |
-| `APIKeyAuth` / `BearerAuth` | Security schemes |
-| `AgentNetwork` | Multi-agent orchestration |
+| `APIKeyAuth` / `BearerAuth` / `OAuth2Auth` | `securitySchemes` on the agent card |
+| `signAgentCard` / `verifyAgentCard` | Signed Agent Cards (**experimental**) |
+| `AgentNetwork` / `delegate()` | Remote `SendMessage` |
 | `TaskHandle` | Task ID + result wrapper |
 | `AgentCardInfo` | Agent card metadata |
-| `discoverAgent()` | `/.well-known/agent-card.json` |
+| `discoverAgent()` | `GET /.well-known/agent-card.json` |
 | `getRemoteTask()` | `GetTask` JSON-RPC |
 | `cancelRemoteTask()` | `CancelTask` JSON-RPC |
-| `streamRemoteSkill()` | SSE streaming consumer |
+| `streamRemoteSkill()` | Client-side SSE consumer |
+
+Wire methods use **A2A v1.0** names (`SendMessage`, not `message/send`) and the `A2A-Version: 1.0` header.
+
+Full multi-language API: [AGENT.md](../../AGENT.md). CLI deep dive (Python has `create` / `serve`): [packages/python/docs/cli.md](../python/docs/cli.md).
 
 ---
 

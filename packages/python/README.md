@@ -9,7 +9,10 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
 
-> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). No v0.3 compatibility. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2`.
+> - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
+> - **gRPC (experimental, opt-in):** `pip install a2a-lite[grpc]` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
+> - **No v0.3 compatibility.** See [MIGRATION.md](../../MIGRATION.md).
 
 ```python
 from a2a_lite import Agent
@@ -34,6 +37,17 @@ uv add a2a-lite
 ```
 
 **Requirements:** Python 3.10+ (pulls in `a2a-sdk[http-server] >= 1.1.2` automatically)
+
+### Optional extras
+
+```bash
+pip install a2a-lite[grpc]       # experimental gRPC transport
+pip install a2a-lite[oauth]      # OAuth2 / JWT (PyJWT)
+pip install a2a-lite[mcp]        # MCP tool client
+pip install a2a-lite[openai]     # OpenAI skill helper
+pip install a2a-lite[anthropic]  # Anthropic skill helper
+pip install a2a-lite[bedrock]    # AWS Bedrock skill helper
+```
 
 ---
 
@@ -530,8 +544,12 @@ Agent(
 | `@agent.on_startup` | Register startup hook |
 | `@agent.on_shutdown` | Register shutdown hook |
 | `@agent.on_error` | Register error handler |
-| `agent.run(port=8787)` | Start the server |
+| `agent.run(port=8787)` | Start HTTP server (JSON-RPC + REST + agent card) |
 | `agent.get_app()` | Get the ASGI app (for custom deployment) |
+| `agent.build_agent_card(...)` | Build the v1.0 agent card (`grpc_url=` adds a GRPC interface) |
+| `agent.build_grpc_server(...)` | **Experimental** — build a `grpc.aio` server (`a2a-lite[grpc]`) |
+| `agent.run_grpc(port=50051)` | **Experimental** — run gRPC only (standalone; pair with `run()` for HTTP) |
+| `agent.delegate(...)` / `AgentNetwork` | Call remote agents over A2A |
 
 ### Skill Decorator
 
@@ -614,12 +632,21 @@ Everything maps directly to the underlying protocol — no magic, no lock-in.
 | A2A Lite | A2A Protocol |
 |----------|--------------|
 | `@agent.skill()` | Agent Skills |
-| `streaming=True` | SSE Streaming |
+| `agent.run()` | JSON-RPC + REST (HTTP+JSON) server |
+| `agent.run_grpc()` | gRPC transport (**experimental**, extra `[grpc]`) |
+| `streaming=True` | SSE / `SendStreamingMessage` |
 | `TaskContext.update()` | Task lifecycle states |
 | `FilePart` | A2A File parts |
 | `DataPart` | A2A Data parts |
 | `Artifact` | A2A Artifacts |
-| `APIKeyAuth` / `BearerAuth` | Security schemes |
+| `APIKeyAuth` / `BearerAuth` / `OAuth2Auth` | `securitySchemes` on the agent card |
+| `AgentNetwork` / `delegate()` | Remote `SendMessage` |
+| `TaskHandle` | Remote task id + result |
+| `discover(url)` | `GET /.well-known/agent-card.json` |
+| `get_remote_task` / `cancel_remote_task` | `GetTask` / `CancelTask` |
+| `stream_remote_skill` | Client-side SSE consumer |
+
+Wire methods use **A2A v1.0** names (`SendMessage`, not `message/send`) and the `A2A-Version: 1.0` header.
 
 ---
 
