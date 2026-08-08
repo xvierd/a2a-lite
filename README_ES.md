@@ -25,7 +25,7 @@ A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproj
 | Hello World | ~80 lineas, 3 archivos | **8 lineas, 1 archivo** |
 | Esquemas JSON | Manual | **Auto-generados desde tipos** |
 | Curva de aprendizaje | Empinada | **Progresiva** |
-| Herramientas CLI | — | **init, inspect, test, discover** |
+| Herramientas CLI | — | **init · create · serve · inspect · info · test · discover · doctor** |
 | Testing | Configuracion manual | **TestClient incluido** |
 
 ## Inicio Rapido
@@ -282,14 +282,22 @@ assertThat(client.call("saludar", Map.of("nombre", "Mundo")))
 
 ## CLI (Python)
 
+Referencia completa: [`packages/python/docs/cli.md`](packages/python/docs/cli.md).
+
 ```bash
-a2a-lite init mi-agente          # Crear un nuevo proyecto
-a2a-lite serve agente.py         # Ejecutar un agente desde archivo
-a2a-lite inspect http://...      # Ver agent card y habilidades
-a2a-lite test http://... skill   # Probar una habilidad
-a2a-lite discover                # Encontrar agentes en la red local (mDNS)
+a2a-lite init mi-agente                         # Scaffold básico
+a2a-lite create mi-agente                       # Proyecto + tests + Docker
+a2a-lite serve agente.py                        # Ejecutar un agente desde archivo
+a2a-lite inspect http://localhost:8787          # Agent card y habilidades
+a2a-lite info http://localhost:8787             # Info compacta
+a2a-lite test http://localhost:8787 greet -p name=Mundo
+a2a-lite discover http://localhost:8787 http://localhost:8788
+a2a-lite doctor                                 # Entorno local
+a2a-lite doctor http://localhost:8787           # + verificar A2A v1.0 remoto
+a2a-lite version
 ```
 
+TypeScript (`npx a2a-lite`): `init`, `inspect`, `info`, `test`, `discover`, `doctor`.
 ---
 
 ## A2A v1.0

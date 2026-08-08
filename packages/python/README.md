@@ -486,16 +486,20 @@ def test_streaming():
 
 ## CLI
 
-```bash
-a2a-lite init my-agent          # Scaffold a new project
-a2a-lite serve agent.py         # Run an agent from file
-a2a-lite inspect http://...     # View agent card & skills
-a2a-lite test http://... skill  # Smoke-test a skill
-a2a-lite discover               # Find agents on the local network (mDNS)
-a2a-lite info <url>             # Show agent info in compact plain-text format
-a2a-lite version                # Show version
-```
+Full reference: [docs/cli.md](docs/cli.md).
 
+```bash
+a2a-lite init my-agent                          # Scaffold a basic project
+a2a-lite create my-agent                        # Full project + tests + Docker
+a2a-lite serve agent.py                         # Run an agent from a .py file
+a2a-lite inspect http://localhost:8787          # Rich agent card & skills
+a2a-lite info http://localhost:8787             # Compact plain-text info
+a2a-lite test http://localhost:8787 greet -p name=World
+a2a-lite discover http://localhost:8787 http://localhost:8788
+a2a-lite doctor                                 # Local env (SDK, extras)
+a2a-lite doctor http://localhost:8787           # + verify remote A2A v1.0
+a2a-lite version
+```
 ---
 
 ## API Reference

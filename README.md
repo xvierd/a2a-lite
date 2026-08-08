@@ -37,7 +37,7 @@ A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a
 | LLM integration | You wire it | **Built-in OpenAI / Anthropic / Ollama / Bedrock** |
 | Multi-agent | Manual HTTP + JSON-RPC | **`AgentNetwork` + `delegate()`** |
 | Testing | Spin up a real HTTP server | **In-process `AgentTestClient`** |
-| CLI tools | — | **init · inspect · test · discover** |
+| CLI tools | — | **init · create · serve · inspect · info · test · discover · doctor** |
 
 ---
 
@@ -539,28 +539,22 @@ List<String> skills = client.listSkills();
 
 ## CLI
 
-The Python package ships a full CLI:
+The Python package ships a full CLI. Full reference: [`packages/python/docs/cli.md`](packages/python/docs/cli.md).
 
 ```bash
-# Scaffold a new project
-a2a-lite init my-agent
-
-# Run an agent file
-a2a-lite serve agent.py
-
-# Inspect a running agent's card and skills
-a2a-lite inspect http://localhost:8787
-
-# Smoke-test a skill with JSON params
-a2a-lite test http://localhost:8787 greet '{"name": "World"}'
-
-# Discover A2A agents on the local network (mDNS)
-a2a-lite discover
-
-# Show agent info in compact plain-text format
-a2a-lite info <url>
+a2a-lite init my-agent                          # Scaffold a basic project
+a2a-lite create my-agent                        # Full project + tests + Docker
+a2a-lite serve agent.py                         # Run an agent from a .py file
+a2a-lite inspect http://localhost:8787          # Rich agent card + skills
+a2a-lite info http://localhost:8787             # Compact plain-text info
+a2a-lite test http://localhost:8787 greet -p name=World
+a2a-lite discover http://localhost:8787 http://localhost:8788
+a2a-lite doctor                                 # Local env (SDK, extras)
+a2a-lite doctor http://localhost:8787           # + verify remote speaks A2A v1.0
+a2a-lite version
 ```
 
+TypeScript (`npx a2a-lite`): `init`, `inspect`, `info`, `test`, `discover`, `doctor`.
 ---
 
 ## A2A v1.0

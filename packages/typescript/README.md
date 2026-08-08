@@ -327,10 +327,27 @@ await handle.unsubscribe();
 
 ## CLI
 
-```
-a2a-lite info <url>    Show agent info in compact plain-text format
+```bash
+npx a2a-lite --help
+npx a2a-lite init my-agent
+npx a2a-lite inspect http://localhost:8787
+npx a2a-lite info http://localhost:8787
+npx a2a-lite test http://localhost:8787 greet --param name=World
+npx a2a-lite discover http://localhost:8787 http://localhost:8788
+npx a2a-lite doctor
+npx a2a-lite doctor http://localhost:8787
 ```
 
+| Command | Purpose |
+|---------|---------|
+| `init <name>` | Scaffold a TypeScript agent project |
+| `inspect <url>` | Agent card and skills |
+| `info <url>` | Compact plain-text info |
+| `test <url> <skill> [--param k=v]` | Call a skill over A2A v1.0 |
+| `discover <url...>` | Compare several agents |
+| `doctor [url]` | Local env + optional remote v1.0 check |
+
+Python has additional commands (`create`, `serve`); see [packages/python/docs/cli.md](../python/docs/cli.md).
 ---
 
 ## A2A Protocol Mapping

@@ -38,18 +38,19 @@ assert client.call("greet", name="World") == "Hello, World!"
 ### Call It
 
 ```bash
-# Using the CLI
+# Using the CLI (see CLI Reference for all commands)
+a2a-lite doctor http://localhost:8787
+a2a-lite inspect http://localhost:8787
 a2a-lite test http://localhost:8787 greet -p name=World
 
-# Using curl
-curl -X POST http://localhost:8787 \
+# Using curl (A2A v1.0 wire)
+curl -sS -X POST http://localhost:8787 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"message/send","id":"1",
-       "params":{"message":{"role":"user",
-       "parts":[{"type":"text","text":"{\"skill\":\"greet\",\"params\":{\"name\":\"World\"}}"}],
-       "messageId":"msg1"}}}'
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc":"2.0","method":"SendMessage","id":"1",
+       "params":{"message":{"role":"ROLE_USER","messageId":"msg1",
+       "parts":[{"text":"{\"skill\":\"greet\",\"params\":{\"name\":\"World\"}}"}]}}}'
 ```
-
 ## Features
 
 | Feature | Opt-in? | Extra Dep? |
