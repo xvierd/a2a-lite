@@ -50,7 +50,9 @@
 ## 🚧 Coming Next
 
 ### gRPC Transport
-Third A2A v1.0 binding alongside JSON-RPC and REST (all languages).
+Third A2A v1.0 binding alongside JSON-RPC and REST.
+- **Python:** experimental today (`a2a-lite[grpc]`, `agent.run_grpc()` / `build_grpc_server()`).
+- **TypeScript / Java:** still planned.
 
 ### ListTasks
 Expose the v1.0 `ListTasks` method for task discovery and history (all languages).

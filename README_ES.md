@@ -305,7 +305,8 @@ TypeScript (`npx a2a-lite`): `init`, `inspect`, `info`, `test`, `discover`, `doc
 Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre los SDKs oficiales 1.x:
 
 - **Transporte JSON-RPC** — Python, TypeScript, Java.
-- **Transporte REST (HTTP+JSON)** — Python y TypeScript (Java: planeado). gRPC: planeado en los tres.
+- **Transporte REST (HTTP+JSON)** — Python y TypeScript (servido); Java anuncia el binding en la card pero hoy solo sirve JSON-RPC.
+- **Transporte gRPC** — Python **experimental** (`pip install a2a-lite[grpc]`, `agent.run_grpc()`); TypeScript/Java planeado.
 - **Streaming SSE**, **push notifications por tarea** (`TaskPushNotificationConfig`) y **`securitySchemes` en la agent card** — en los tres lenguajes.
 - **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planeado.
 - Agent card servida en **`/.well-known/agent-card.json`** (la ruta antigua `agent.json` ya no existe).
@@ -322,8 +323,8 @@ Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes 
 | **Protocolo (A2A v1.0)** | | | |
 | Protocolo A2A v1.0 | ✅ | ✅ | ✅ |
 | Transporte JSON-RPC | ✅ | ✅ | ✅ |
-| Transporte REST (HTTP+JSON) | ✅ | ✅ | 🔜 planeado |
-| Transporte gRPC | 🔜 planeado | 🔜 planeado | 🔜 planeado |
+| Transporte REST (HTTP+JSON) | ✅ | ✅ | 🔜 planeado¹ |
+| Transporte gRPC | ✅ experimental² | 🔜 planeado | 🔜 planeado |
 | `securitySchemes` en la agent card | ✅ | ✅ | ✅ |
 | Signed Agent Cards | 🔜 planeado | ✅ experimental | 🔜 planeado |
 | `ListTasks` | 🔜 planeado | 🔜 planeado | 🔜 planeado |
@@ -349,16 +350,20 @@ Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes 
 | `get_tool_schemas()` | ✅ | ✅ | ✅ |
 | Errores estructurados | ✅ | ✅ | ✅ |
 | Testing | `AgentTestClient` | `AgentTestClient` | `AgentTestClient` |
-| CLI | `a2a-lite` | completo | sin create/serve | — |
-| Descubrimiento mDNS | `a2a-lite discover` | — | — |
-| Control de CORS | ✅ | ✅ | — |
+| CLI | ✅ completo | ✅ (sin create/serve) | — |
+| Descubrimiento multi-agente (`discover`) | ✅ CLI (URLs explícitas) | ✅ CLI (URLs explícitas) | — |
+| Control de CORS | ✅ | ✅ | ✅ (Javalin) |
 | TaskHandle (seguimiento de tareas remotas) | ✅ | ✅ | ✅ |
 | Descubrimiento de agent card | ✅ | ✅ | ✅ |
 | `get/cancel` de tareas remotas | ✅ | ✅ | ✅ |
 | Streaming SSE del lado cliente | ✅ | ✅ | ✅ |
 | Push notifications por tarea | ✅ | ✅ | ✅ |
 
-> **Nota sobre v0.3:** a2a-lite 1.0.0 no interopera con agentes A2A 0.3 (decision explicita — sin modo compatibilidad). Los clientes lite detectan cards 0.3 y fallan con un error claro. Consulta [MIGRATION.md](MIGRATION.md).
+> **Nota sobre v0.3:** a2a-lite 1.0 no interopera con agentes A2A 0.3 (decision explicita — sin modo compatibilidad). Los clientes lite detectan cards 0.3 y fallan con un error claro. Consulta [MIGRATION.md](MIGRATION.md).
+>
+> ¹ **Java REST:** la agent card puede listar la interfaz `HTTP+JSON` por paridad de protocolo, pero el adaptador Javalin solo implementa JSON-RPC en `POST /` hoy.
+>
+> ² **Python gRPC:** extra opcional (`a2a-lite[grpc]`). `agent.build_grpc_server()` / `agent.run_grpc()` sirven A2A por gRPC (standalone; combínalo con `agent.run()` si también quieres HTTP). No se activa solo con `agent.run()`.
 
 ---
 
