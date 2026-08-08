@@ -17,6 +17,7 @@ jobs:
       run:
         working-directory: packages/python
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
@@ -48,7 +49,9 @@ jobs:
       run:
         working-directory: packages/typescript
     strategy:
+      fail-fast: false
       matrix:
+        # package engines: node >= 20; publish workflow uses Node 24
         node-version: [20, 22]
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +85,7 @@ jobs:
       run:
         working-directory: packages/java
     strategy:
+      fail-fast: false
       matrix:
         java-version: [17, 21]
     steps:
@@ -94,8 +98,11 @@ jobs:
           distribution: temurin
           cache: gradle
 
+      - name: Verify Gradle wrapper is present
+        run: test -f gradle/wrapper/gradle-wrapper.jar
+
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
       - name: Build and test
-        run: ./gradlew test
+        run: ./gradlew test --no-daemon

@@ -40,7 +40,7 @@ function getVersion(): string {
     );
     return pkg.version;
   } catch {
-    return '1.0.0';
+    return '1.0.1';
   }
 }
 

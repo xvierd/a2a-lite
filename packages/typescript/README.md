@@ -9,7 +9,7 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple, intuitive API. 100% protocol-compatible.
 
-> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). Requires **Node.js >= 20**. No v0.3 compatibility. Experimental signed Agent Cards via `signAgentCard` / `verifyAgentCard`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). Requires **Node.js >= 20**. No v0.3 compatibility. Experimental signed Agent Cards via `signAgentCard` / `verifyAgentCard`. See [MIGRATION.md](../../MIGRATION.md).
 
 ```typescript
 import { Agent } from 'a2a-lite';

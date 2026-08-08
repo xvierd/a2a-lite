@@ -9,7 +9,7 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
 
-> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). No v0.3 compatibility. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2` (JSON-RPC + REST transports, card at `/.well-known/agent-card.json`). No v0.3 compatibility. See [MIGRATION.md](../../MIGRATION.md).
 
 ```python
 from a2a_lite import Agent

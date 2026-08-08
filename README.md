@@ -58,7 +58,7 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.0.0'
+    implementation 'io.github.xvierd:a2a-lite:1.0.1'
     implementation 'io.javalin:javalin:5.6.3'   // HTTP server
 }
 ```

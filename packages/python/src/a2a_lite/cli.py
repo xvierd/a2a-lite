@@ -287,8 +287,7 @@ def inspect(
 
         console.print(
             Panel(
-                f"[bold]{agent_name}[/] v{agent_version}\n\n"
-                f"[dim]{agent_desc}[/]",
+                f"[bold]{agent_name}[/] v{agent_version}\n\n[dim]{agent_desc}[/]",
                 title="Agent Card",
                 border_style="blue",
             )
@@ -733,7 +732,7 @@ def _find_a2a_lite_source() -> Path | None:
             return None
         url = json.loads(direct_url).get("url", "")
         if url.startswith("file://"):
-            src = Path(url[len("file://"):])
+            src = Path(url[len("file://") :])
             if (src / "pyproject.toml").exists() and (src / "src" / "a2a_lite").is_dir():
                 return src
     except Exception:
@@ -882,9 +881,7 @@ docker compose up --build
 """
     )
 
-    (project_path / ".gitignore").write_text(
-        "__pycache__/\n*.pyc\n.venv/\ndist/\n*.egg-info/\n.pytest_cache/\n"
-    )
+    (project_path / ".gitignore").write_text("__pycache__/\n*.pyc\n.venv/\ndist/\n*.egg-info/\n.pytest_cache/\n")
 
     # a2a-lite 1.0 is not on PyPI yet: when the CLI itself runs from a local
     # source checkout, vendor it into the project so `docker build` works today.

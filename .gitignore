@@ -10,6 +10,8 @@ __pycache__/
 .gradle/
 *.class
 *.jar
+# Gradle needs the wrapper jar in the repo for CI
+!**/gradle/wrapper/gradle-wrapper.jar
 *.egg-info/
 .eggs/
 *.whl

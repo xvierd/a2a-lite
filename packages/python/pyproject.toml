@@ -1,6 +1,6 @@
 [project]
 name = "a2a-lite"
-version = "1.0.0"
+version = "1.0.1"
 description = "Simplified wrapper for Google's A2A Protocol SDK"
 readme = "README.md"
 license = "MIT"

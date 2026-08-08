@@ -4,9 +4,9 @@ a2a-lite 1.0.0 upgrades all three packages (Python, TypeScript, Java) from A2A p
 
 | Package | Version | Underlying SDK |
 |---|---|---|
-| `a2a-lite` (PyPI) | 1.0.0 | `a2a-sdk[http-server] >= 1.1.2` |
-| `a2a-lite` (npm) | 1.0.0 | `@a2a-js/sdk 1.0.1` (Node >= 20) |
-| `io.github.xvierd:a2a-lite` (Maven) | 1.0.0 | `org.a2aproject.sdk:a2a-java-sdk-server-common:1.1.0.Final` |
+| `a2a-lite` (PyPI) | 1.0.1 | `a2a-sdk[http-server] >= 1.1.2` |
+| `a2a-lite` (npm) | 1.0.1 | `@a2a-js/sdk 1.0.1` (Node >= 20) |
+| `io.github.xvierd:a2a-lite` (Maven) | 1.0.1 | `org.a2aproject.sdk:a2a-java-sdk-server-common:1.1.0.Final` |
 
 ## What does NOT change
 
@@ -26,7 +26,7 @@ If you only used the lite API (no direct SDK imports, no raw JSON parsing), **up
 3. **AgentCard shape changed.** The served card now has `supportedInterfaces` (list of `{url, protocolBinding, protocolVersion}`) and **no root-level `url` or `protocolVersion`**. If you parsed the card manually, read `supportedInterfaces[0].url` instead.
 4. **Python:** requires `a2a-sdk >= 1.1.2` (pulled in automatically by `pip install -U a2a-lite`).
 5. **TypeScript:** requires **Node.js >= 20**.
-6. **Java:** Maven coordinates changed to **`io.github.xvierd:a2a-lite:1.0.0`** (was `com.a2alite:a2a-lite:0.3.x`). The `com.a2alite.tasks` package was removed — task types (`TaskContext`, `TaskState`, `TaskHandle`, ...) now live directly under `com.a2alite.*`.
+6. **Java:** Maven coordinates changed to **`io.github.xvierd:a2a-lite:1.0.1`** (was `com.a2alite:a2a-lite:0.3.x`). The `com.a2alite.tasks` package was removed — task types (`TaskContext`, `TaskState`, `TaskHandle`, ...) now live directly under `com.a2alite.*`.
 7. **Parts on the wire:** v1.0 parts have **no `kind`/`type` discriminator** — a text part is just `{"text": "..."}`. This only affects you if you were parsing raw JSON payloads.
 8. **`AgentTestClient` (Python) now accepts `headers=`** — optional HTTP headers sent with every request (e.g. auth headers). New parameter, not breaking.
 
@@ -94,7 +94,7 @@ Update the coordinates in your build file:
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.0.0'
+    implementation 'io.github.xvierd:a2a-lite:1.0.1'
     implementation 'io.javalin:javalin:5.6.3'   // HTTP server (standalone mode)
 }
 ```
@@ -103,7 +103,7 @@ dependencies {
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 

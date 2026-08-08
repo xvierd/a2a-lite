@@ -430,9 +430,7 @@ class Agent:
             AgentInterface(url=url, protocol_binding="HTTP+JSON", protocol_version="1.0"),
         ]
         if grpc_url is not None:
-            supported_interfaces.append(
-                AgentInterface(url=grpc_url, protocol_binding="GRPC", protocol_version="1.0")
-            )
+            supported_interfaces.append(AgentInterface(url=grpc_url, protocol_binding="GRPC", protocol_version="1.0"))
 
         card_kwargs: dict[str, Any] = {
             "name": self.name,
@@ -768,8 +766,7 @@ class Agent:
             from a2a.types import a2a_pb2_grpc
         except ImportError as e:
             raise ImportError(
-                "gRPC support is EXPERIMENTAL and requires extra dependencies. "
-                "Install with: pip install a2a-lite[grpc]"
+                "gRPC support is EXPERIMENTAL and requires extra dependencies. Install with: pip install a2a-lite[grpc]"
             ) from e
 
         display_host = "localhost" if host == "0.0.0.0" else host

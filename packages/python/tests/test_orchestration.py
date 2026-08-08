@@ -202,9 +202,7 @@ class TestAgentDelegate:
             mock.return_value = ("result", "task-123")
             result = await agent.delegate("http://other:8787", "greet", target="Bob", skill="advanced")
             assert result == "result"
-            mock.assert_called_once_with(
-                "http://other:8787", "greet", {"target": "Bob", "skill": "advanced"}, 30.0
-            )
+            mock.assert_called_once_with("http://other:8787", "greet", {"target": "Bob", "skill": "advanced"}, 30.0)
 
     @pytest.mark.asyncio
     async def test_delegate_unknown_name(self):
@@ -443,7 +441,9 @@ class TestDiscover:
         card_data = {
             "name": "RemoteAgent",
             "description": "A remote agent",
-            "supportedInterfaces": [{"url": "http://remote:8787", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}],
+            "supportedInterfaces": [
+                {"url": "http://remote:8787", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}
+            ],
             "version": "2.0.0",
             "capabilities": {"streaming": True, "pushNotifications": False},
             "skills": [{"id": "forecast", "name": "forecast", "description": "Weather forecast"}],
@@ -750,9 +750,9 @@ class TestStreamRemoteSkill:
         raw_lines = [
             ": this is a comment",
             "event: message",
-            f'data: {json.dumps({"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "ok"}]}}}})}',
+            f"data: {json.dumps({'result': {'artifactUpdate': {'artifact': {'parts': [{'text': 'ok'}]}}}})}",
             "",
-            f'data: {json.dumps({"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}})}',
+            f"data: {json.dumps({'result': {'statusUpdate': {'status': {'state': 'TASK_STATE_COMPLETED'}}}})}",
             "",
         ]
         client_cls, _ = _build_streaming_mocks(raw_lines)

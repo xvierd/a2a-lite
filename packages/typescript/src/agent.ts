@@ -47,7 +47,7 @@ import { type PushNotifier, TaskPushRegistry, createPushNotificationMiddleware }
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import type { AgentNetwork } from './orchestration.js';
-import { callRemoteSkill, streamRemoteSkill, TaskHandle, discoverAgent } from './orchestration.js';
+import { callRemoteSkill, streamRemoteSkill, discoverAgent } from './orchestration.js';
 
 export class Agent {
   readonly name: string;

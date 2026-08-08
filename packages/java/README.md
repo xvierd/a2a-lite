@@ -8,7 +8,7 @@
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API. 100% protocol-compatible.
 
-> **v1.0.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.1.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.0.0`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.1.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.0.1`. See [MIGRATION.md](../../MIGRATION.md).
 
 ```java
 var agent = Agent.builder()
@@ -29,7 +29,7 @@ agent.run();
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.0.0'
+    implementation 'io.github.xvierd:a2a-lite:1.0.1'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -40,7 +40,7 @@ dependencies {
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 
 <dependency>

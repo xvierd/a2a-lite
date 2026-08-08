@@ -359,11 +359,16 @@ class LiteAgentExecutor(AgentExecutor):
             if _is_or_subclass(param_type, DataPart):
                 if isinstance(value, dict):
                     # Handle both A2A v1.0 format and simple dict format
-                    if "data" in value and isinstance(value.get("data"), dict) and set(value.keys()) <= {
-                        "data",
-                        "mediaType",
-                        "metadata",
-                    }:
+                    if (
+                        "data" in value
+                        and isinstance(value.get("data"), dict)
+                        and set(value.keys())
+                        <= {
+                            "data",
+                            "mediaType",
+                            "metadata",
+                        }
+                    ):
                         converted[param_name] = DataPart.from_a2a(value)
                     else:
                         # Simple format: pass the dict directly as data

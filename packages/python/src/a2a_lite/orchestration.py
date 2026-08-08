@@ -433,9 +433,7 @@ async def stream_remote_skill(
     }
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
-        async with client.stream(
-            "POST", agent_url, json=request_body, headers={"A2A-Version": "1.0"}
-        ) as response:
+        async with client.stream("POST", agent_url, json=request_body, headers={"A2A-Version": "1.0"}) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
                 line = line.strip()
@@ -447,7 +445,7 @@ async def stream_remote_skill(
                 if not line.startswith("data:"):
                     continue
 
-                data_str = line[len("data:"):].strip()
+                data_str = line[len("data:") :].strip()
                 if not data_str:
                     continue
 
