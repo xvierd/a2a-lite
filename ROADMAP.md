@@ -13,7 +13,7 @@
 - [x] CLI tools (init, inspect, test, discover)
 - [x] Multi-agent discovery from explicit URLs (CLI)
 
-### Enterprise Features (All Optional)
+### Optional Application Features
 - [x] **Human-in-the-Loop** - `InteractionContext` with `ask()`, `confirm()`, `choose()`
 - [x] **File Handling** - `FilePart`, `DataPart`, `Artifact`
 - [x] **Task Lifecycle** - `TaskContext` with progress updates
@@ -74,41 +74,97 @@ Local verification: **1,205 tests passed** — Python 643 (one optional Docker t
 
 Java publication requires Maven Central token credentials and a valid GPG private key. The earlier [Maven publication](https://github.com/xvierd/a2a-lite/actions/runs/31280734960) failed to read its signing key; the prepared workflow checks this explicitly and supports an unsigned artifact dry run once GitHub workflow permission is enabled. See [release instructions](.github/RELEASING.md).
 
-## 🚧 Coming Next
+## Learning-to-production improvement plan — 2026-10-17
 
-### gRPC Transport
-Third A2A v1.0 binding alongside JSON-RPC and REST.
-- **Python:** experimental today (`a2a-lite[grpc]`, `agent.run_grpc()` / `build_grpc_server()`).
-- **TypeScript / Java:** still planned.
+**Objective:** preserve the small, infrastructure-free first agent and provide a tested path to operating authenticated, durable agents with explicit capacity and recovery guarantees. The milestones below are planned work, not existing capabilities or an enterprise certification.
 
-### ListTasks
-Provide a uniform Lite client helper for v1.0 `ListTasks` discovery and history across all languages. Java standalone now exposes the SDK protocol operation.
+The current baseline is the open [PR #5](https://github.com/xvierd/a2a-lite/pull/5): 1,205 local tests and seven CI environments passed. Functional coverage does not establish throughput, availability or automatic recovery. Current release/workflow dependencies remain in [`tasks/todo.md`](tasks/todo.md).
 
-### Signed Agent Cards (Python, Java)
-Port the TypeScript experimental `signAgentCard` / `verifyAgentCard` support.
+### Scope and architectural decisions
 
-### Multi-tenancy
-Tenant isolation for shared deployments (all languages).
+- Preserve skill registration and keep external infrastructure optional for the learning path. Each production capability must have a runnable example, a failure example and a migration guide.
+- Validate declared deployment guarantees at startup in every language: a profile requiring authentication rejects NoAuth; one requiring durability rejects incompatible in-memory stores. Fail before accepting traffic instead of silently downgrading. The explicit learning profile remains supported.
+- Use official SDK extension points. Share behavioral contracts and protocol fixtures across languages; do not require different SDKs to share a database schema or run mixed-language replicas behind one agent endpoint.
+- Propose PostgreSQL as the first operational reference backend. Keep memory for the quickstart; use SQLite only in a learning adapter where the SDK supports it. Additional databases and cloud-specific deployment templates follow demonstrated demand.
+- Distinguish durable task **state**, shared **events**, and recoverable skill **execution**. Persisting a Task or replicating its events does not reconstruct an interrupted function or guarantee a single external side effect.
+- Define maturity per language, transport and deployment profile. A capability becomes supported only after its corresponding contract and failure tests pass. Python can establish the first durable reference; TypeScript and Java must pass the same behavioral gates before claiming parity.
 
-### Background Tasks
-Return immediately, process async:
-```python
-@agent.skill("process", background=True)
-async def process(file_url: str) -> str:
-    # Returns task_id immediately
-    # Client polls for completion
-    ...
-```
+### Milestones and acceptance gates
 
-### Observability
-Built-in tracing and metrics:
-```python
-agent = Agent(
-    name="Bot",
-    tracing="otlp://localhost:4317",
-    metrics=True,  # Prometheus at /metrics
-)
-```
+| Milestone | Priority / dependency | Deliverable | Acceptance gate |
+|---|---|---|---|
+| **0. Close the 1.1.0 baseline** | P0; external publishing prerequisites | Review/integrate PR #5, deliver the prepared workflow changes, publish reproducible packages and verify clean installations. | Registry artifacts match the validated release commit; all three packages can run their quickstart from a clean environment. Java credentials and GitHub workflow access are explicitly resolved before claiming release completion. |
+| **1. Learning path and consistent task/identity contracts** | P0; can start while release access is pending | Progressive examples, one visible protocol task ID, stable authenticated identity and header-based client credentials. | A learner runs Message → Task → streaming without an LLM account or database; the task ID inside a skill works remotely; credential rotation preserves ownership; cross-user/tenant access is rejected. |
+| **2. Managed runtime, resource limits and diagnostics** | P0; identity contract from 1 | Embeddable start/stop lifecycle, bounded admission, deadlines, shutdown draining, readiness and baseline telemetry. | Two agents coexist without terminating their host; saturation has predictable rejection; SIGTERM drains or explicitly interrupts work within its configured deadline; no silently abandoned tasks. |
+| **3. Durable state and authorization** | P1; 1 and lifecycle hooks from 2 | Configurable SDK stores/event mechanisms, PostgreSQL reference, migrations, protected callback secrets, retention and backup/restore. | Restart preserves tasks, owners and callback configurations; concurrent writes are handled explicitly; restoration preserves access control; a storage failure never reports successful persistence. |
+| **4. Recoverable callback delivery** | P1; 3 | Persistent event-to-delivery handoff, retry dispatcher, failure queue, controlled replay and receiver deduplication. | Crash tests at every persistence/send/acknowledgment boundary lose no accepted callback event; duplicates are identifiable; deleted subscriptions stop future attempts; retries retain SSRF/TLS protections. |
+| **5. Multiple replicas and execution recovery** | P2; 2–3; integrate with 4 | Shared event routing, task execution ownership, remote cancellation and a declared recovery/checkpoint model. | Start on A and read/subscribe/cancel through B; after A dies, recover supported tasks or report an explicit interruption; a stale worker cannot overwrite its successor or repeat a protected effect. |
+| **6. Qualify and document production profiles** | P2; relevant earlier gates | Cross-language compatibility, load/failure tests, operational runbooks, release upgrades and a published capability/limit matrix. | Reproducible evidence meets agreed latency/error/recovery targets on a declared workload and hardware profile; unsupported guarantees remain visible. |
+
+Milestones 1–2 can progress in parallel once their shared identity/lifecycle contracts are fixed. Callback recovery and the distributed execution prototype can progress in parallel after durable state is available. Milestone 0's credential blockers do not block local design or implementation.
+
+### 1. Learning and identity work
+
+- Build a progressive example in each language: immediate message, queryable task, streaming/cancellation, authenticated peer calls, then persistence and recovery. Clearly separate local application task storage from protocol task storage. Add shared interoperability scenarios to CI from this milestone onward; milestone 6 completes and qualifies the matrix rather than introducing it for the first time.
+- Align Python/TypeScript `TaskContext` with the protocol task where applicable; preserve compatibility through an explicit migration. Define how users request task mode for a normal skill without requiring artificial streaming.
+- Add a header/credential-provider path consistently to discovery, calls, streams and task helpers. Avoid teaching query-string credentials; scope credentials to the intended endpoint so discovery cannot forward them to an unrelated origin.
+- Specify a stable principal and authorized tenant membership before designing durable keys. Include issuer/subject or an equivalent configured namespace; rotating an API key must not silently orphan tasks. Treat a request's tenant field as input requiring authorization.
+- Reuse one authorization/store test suite for Get/List/Cancel/Subscribe, continuation and push CRUD/inline configuration. Test identical subjects in different issuers/tenants and authorization filtering before pagination.
+
+### 2. Runtime and operational bounds
+
+- Keep process signals and process exit in executable entry points. Expose a runtime handle that the embedding application can start, stop and await; close SDK handlers, stores, pools and outbound clients it owns.
+- Configure limits for active tasks, queued requests, streams, message/artifact sizes, callback configurations, execution deadlines and retained history. Separate admission and rate quotas from execution pools.
+- In Java, preserve separate producer/consumer resources: bounding every SDK pool indiscriminately can deadlock event consumers. Test admission saturation and cancellation while consumers remain responsive.
+- Define cancellation cooperation explicitly (for example, cancellation context or AbortSignal). Uncooperative user code needs process/worker isolation for hard execution limits; cancelling a promise or thread request is insufficient.
+- Add correlated structured logs, traces and metrics for task latency, active/queued work, admission rejection, callback backlog and storage errors. Redact credentials and avoid task/user IDs as unbounded metric labels. Readiness must reflect storage and draining state.
+
+### 3. Durable reference adapters
+
+- **Python:** evaluate the SDK 1.2.2 `VersionedDatabaseTaskStore` with `DatabaseTaskEventStream`, plus `DatabasePushNotificationConfigStore`. Preserve version checks and atomic state/event persistence; an ordinary legacy TaskStore adapter does not provide these guarantees. Expose their configuration together and close their engines correctly. [Official store](https://github.com/a2aproject/a2a-python/blob/v1.2.2/src/a2a/server/cluster/database_task_store.py), [event stream](https://github.com/a2aproject/a2a-python/blob/v1.2.2/src/a2a/server/cluster/database_event_stream.py).
+- **TypeScript:** compose the SDK 1.3.0 database task/push stores with the current callback validation and scope rules. Its basic store interface does not itself provide compare-and-swap, execution leases or a shared outbox transaction; validate those boundaries in a small architectural prototype before implementation. [Official persistent-store support](https://github.com/a2aproject/a2a-js/blob/v1.3.0/README.md).
+- **Java:** provide a production reference using the same skills/executor with the official SDK/Quarkus and its storage/authorization extensions. If Javalin exposes injectable SDK components, validate coherent combinations and forbid silently falling back to memory. Evaluate official JPA and queue-replication modules; `MainEventBus` is not a generic broker SPI. Keep the blocking-send race regression during any adapter migration. [Official SDK 1.4 extensions](https://a2aproject.github.io/a2a-java/1_4_0_Final/extras/).
+- For every adapter: ship schema migrations, expiry/cleanup, backup/restore and rollback compatibility guidance. Protect persisted callback credentials with an external key configuration and test rotation. A persisted task interrupted by a crash must have a defined reconciliation policy even before automatic execution recovery exists.
+
+### 4. Durable callbacks
+
+Define the acceptance boundary and atomic handoff before adding retries. Python's persisted event stream may supply the source; TypeScript/Java need a verified transaction or durable event-log design. Merely replacing the sender leaves a possible gap after saving task state.
+
+Deliver **at least once**, with a stable event identity and documented receiver deduplication. Include bounded exponential retry with jitter, lease/claim ownership, maximum delivery age, inspectable permanent failures and authorized replay. Preserve event ordering where promised; define whether an already in-flight request can finish after subscription deletion. Revalidate public HTTPS/DNS policy on every attempt and keep callback credentials out of logs and error responses.
+
+### 5. Distributed execution
+
+Start with a two-replica architectural prototype per runtime before adding a supported distributed profile. Evaluate the SDK's event/queue extension points and an existing durable execution runtime where appropriate.
+
+Specify task ownership leases, expiry/fencing, concurrent updates, stream reconnect/replay and remote cancellation. Make recoverable skills opt-in with checkpoints/idempotency contracts. Separate transient worker failure from permanent task failure. Test that a resumed task does not silently duplicate billing, email or other external effects; exactly-once execution is not a blanket promise.
+
+### 6. Evidence required for a production claim
+
+- Run the nine language client/server pairings for the common supported protocol surface, plus official-SDK interoperability. Cover Message versus Task, initial SSE snapshots, failures, cancellation, ownership, media types and configuration IDs. Keep a separate transport capability matrix.
+- Define load profiles before setting targets: short I/O skills, long tasks, SSE fan-out and a failing callback receiver. Record hardware, payload sizes, concurrency, throughput, p95/p99 latency, error rate and memory/thread/connection limits. Simulate LLM latency in the baseline; measure real provider limits separately.
+- Exercise worker kill, database/network interruption, callback outage, graceful deploy, credential rotation, stale-worker writes and backup restore. Agree recovery-time and acceptable-data-loss targets before qualifying a deployment profile.
+- Maintain repeatable dependency/security checks, migration/upgrade tests and release provenance. Publish supported SDK/runtime versions and known limitations. Review changed security boundaries; test count alone is not a security audit or availability guarantee.
+- Provide operator procedures for deployment, rollback, failed deliveries, overload, retention and incident diagnosis. Validate the learning exercises with someone unfamiliar with the project.
+
+### Initial implementation backlog
+
+1. Document the progressive Message/Task examples and runtime capability matrix; specify task identity and scoped client authentication.
+2. Implement header-based client auth, task-ID consistency and reusable identity/store contract tests.
+3. Add managed runtime handles, admission limits, shutdown tests and baseline telemetry.
+4. Prototype and implement the Python durable reference; then port the behavior to TypeScript and Java using their SDK-specific adapters.
+5. Resolve atomic delivery handoff and implement the durable callback dispatcher.
+6. Validate two-replica execution/recovery prototypes before committing to their public configuration API.
+7. Complete load/failure/upgrade qualification and the production runbooks.
+
+Each item should be a focused PR with its example, migration notes and acceptance evidence. No calendar estimate or capacity promise is fixed until the adapter prototypes and workload targets are known.
+
+## Deferred protocol features
+
+These remain useful improvements after the reliability milestones, or sooner if required by an identified consumer:
+
+- gRPC wrappers for TypeScript/Java; Python's optional gRPC path remains experimental.
+- A uniform Lite `ListTasks` client helper across languages.
+- Signed Agent Cards for Python/Java; TypeScript support remains experimental.
 
 ---
 

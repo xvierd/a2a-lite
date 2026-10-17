@@ -36,3 +36,15 @@ The HTTPS credential can push package code but GitHub rejects workflow changes b
 - [CI](https://github.com/xvierd/a2a-lite/actions/runs/39064570880) passed on source commit `ff3b38f`: Python 3.10/3.11/3.12, Node 20/22 and Java 17/21.
 - [Python dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064641530) and [npm dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064643732) passed; publication was skipped.
 - Release 1.1.0 is prepared; no package was published by this work. Remaining workflow-permission and Java-credential requirements are above.
+
+## Planned next phase: learning to production
+
+The user requested a plan on 2026-10-17. The detailed scope, dependencies and acceptance gates are in [ROADMAP.md](../ROADMAP.md#learning-to-production-improvement-plan--2026-10-17). These are planned capabilities, not completed implementation.
+
+- [ ] Close release/workflow prerequisites for the prepared 1.1.0 baseline.
+- [ ] Add progressive learning examples, consistent protocol task IDs and stable scoped client authentication.
+- [ ] Add managed runtime lifecycle, bounded admission, graceful shutdown and baseline observability.
+- [ ] Provide durable SDK adapters with ownership, migrations, retention and backup/restore evidence.
+- [ ] Implement durable callback handoff, retry/replay and deduplication semantics.
+- [ ] Prove two-replica event routing, cancellation and explicit execution recovery.
+- [ ] Qualify supported production profiles with interoperability, load/failure/upgrade tests and operator guides.
