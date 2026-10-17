@@ -21,6 +21,7 @@ from .errors import (
     SkillNotFoundError,
 )
 from .middleware import MiddlewareChain, MiddlewareContext
+from .runtime import OutputLimitError
 from .streaming import is_generator_function, stream_generator
 from .utils import _is_or_subclass
 
@@ -50,6 +51,7 @@ class LiteAgentExecutor(AgentExecutor):
         auth_provider: Any | None = None,
         task_store: Any | None = None,
         mcp_servers: list[str] | None = None,
+        runtime_state=None,
     ):
         self.skills = skills
         self.error_handler = error_handler
@@ -58,16 +60,38 @@ class LiteAgentExecutor(AgentExecutor):
         self.auth_provider = auth_provider
         self.task_store = task_store
         self.mcp_servers = mcp_servers or []
+        self.runtime_state = runtime_state
+        self.recovery = None
 
     async def execute(
         self,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
+        if self.runtime_state is not None:
+            await self.runtime_state.execute(self._execute, context, event_queue)
+        else:
+            await self._execute(context, event_queue)
+
+    async def _execute(self, context, event_queue):
         """Execute a skill based on the incoming request."""
         from a2a.helpers import new_text_message
 
         try:
+            if self.recovery:
+                from .recovery import EXECUTION_KEY
+
+                text, _ = self._extract_message_and_parts(context)
+                name, _ = self._parse_message(text)
+                if name is None and len(self.skills) == 1:
+                    name = next(iter(self.skills))
+                skill = self.skills.get(name)
+                if (
+                    skill
+                    and (skill.task_mode or skill.is_streaming)
+                    and EXECUTION_KEY not in context.call_context.state
+                ):
+                    await self.recovery.enter(context, skill.recoverable)
             # Authenticate the request (always run to produce auth_result for injection)
             auth_result = context.call_context.state.get("auth_result") if context.call_context else None
             if self.auth_provider:
@@ -154,6 +178,8 @@ class LiteAgentExecutor(AgentExecutor):
                         exc_info=True,
                     )
 
+        except OutputLimitError:
+            raise
         except Exception as e:
             await self._handle_error(e, event_queue)
 
@@ -213,30 +239,45 @@ class LiteAgentExecutor(AgentExecutor):
         handler = skill_def.handler
         is_streaming_skill = skill_def.is_streaming or is_generator_function(handler)
 
-        # For streaming skills under the A2A 1.x strict event rules, create the
-        # Task + TaskUpdater up front (first event must be the Task).
+        # Task mode is explicit or inferred from TaskContext/streaming. The
+        # protocol-assigned identity is the only task ID exposed to a skill.
         updater = None
-        if is_streaming_skill:
+        task_ctx = None
+        if is_streaming_skill or skill_def.task_mode or skill_def.needs_task_context:
             request_context = metadata.get("request_context")
             if request_context is not None:
                 from a2a.helpers import new_task_from_user_message
                 from a2a.server.tasks import TaskUpdater
 
-                task = request_context.current_task or new_task_from_user_message(request_context.message)
-                await event_queue.enqueue_event(task)
-                updater = TaskUpdater(event_queue, task.id, task.context_id)
+                protocol_task = request_context.current_task or new_task_from_user_message(request_context.message)
+                protocol_task.id = request_context.task_id
+                protocol_task.context_id = request_context.context_id
+                if request_context.current_task is not None:
+                    from a2a.types import TaskState as A2ATaskState
+
+                    protocol_task.status.state = A2ATaskState.TASK_STATE_WORKING
+                await event_queue.enqueue_event(protocol_task)
+                updater = TaskUpdater(event_queue, protocol_task.id, protocol_task.context_id)
                 await updater.start_work()
                 metadata["task_updater"] = updater
 
         # Inject special contexts if needed
-        if skill_def.needs_task_context and self.task_store:
-            from .tasks import TaskContext
+        if skill_def.needs_task_context:
+            from .tasks import Task, TaskContext, TaskState, TaskStatus
 
-            task = await self.task_store.create(skill_name, params)
-            # Only pass an event channel for streaming skills (status updates go via SSE).
-            # Prefer the TaskUpdater so updates follow the A2A 1.x task-event rules.
-            eq = (updater or event_queue) if is_streaming_skill else None
-            task_ctx = TaskContext(task, eq)
+            if updater is not None:
+                local_task = Task(
+                    id=updater.task_id, skill=skill_name, params=dict(params), status=TaskStatus(TaskState.WORKING)
+                )
+                if self.task_store:
+                    await self.task_store.update(local_task)
+            elif self.task_store:
+                local_task = await self.task_store.create(skill_name, params)
+            else:
+                raise RuntimeError("TaskContext requires a protocol request context")
+            task_ctx = TaskContext(local_task, updater)
+            if request_context is not None and request_context.call_context:
+                task_ctx._execution = request_context.call_context.state.get("a2a_lite.execution")
             param_name = skill_def.task_context_param or "task"
             params[param_name] = task_ctx
 
@@ -251,12 +292,59 @@ class LiteAgentExecutor(AgentExecutor):
             param_name = skill_def.mcp_param or "mcp"
             params[param_name] = mcp_client
 
-        if is_streaming_skill:
-            gen = handler(**params)
-            await stream_generator(gen, event_queue, updater=updater)
+        try:
+            if is_streaming_skill:
+                gen = handler(**params)
+                await stream_generator(gen, event_queue, updater=updater)
+                return None
+            result = await self._call_handler(handler, **params)
+            if updater is None:
+                return result
+            from a2a.helpers import new_text_part
+
+            if task_ctx is None or task_ctx.state not in (
+                TaskState.COMPLETED,
+                TaskState.FAILED,
+                TaskState.CANCELED,
+                TaskState.INPUT_REQUIRED,
+                TaskState.AUTH_REQUIRED,
+            ):
+                text = json.dumps(result, default=str) if not isinstance(result, str) else result
+                await updater.add_artifact([new_text_part(text)], name="result")
+                await updater.complete()
+                if task_ctx is not None:
+                    task_ctx._task.result = result
+                    task_ctx._task.update_status(TaskState.COMPLETED)
+                    if self.task_store:
+                        await self.task_store.update(task_ctx._task)
             return None
-        else:
-            return await self._call_handler(handler, **params)
+        except OutputLimitError:
+            raise
+        except Exception as error:
+            if updater is None:
+                raise
+            from a2a.helpers import new_text_part
+
+            if task_ctx is not None and task_ctx.state in (
+                TaskState.COMPLETED,
+                TaskState.FAILED,
+                TaskState.CANCELED,
+                TaskState.INPUT_REQUIRED,
+                TaskState.AUTH_REQUIRED,
+            ):
+                return None
+            detail = (
+                str(error)
+                if self.runtime_state is None or self.runtime_state.config.profile == "learning"
+                else "Skill execution failed"
+            )
+            await updater.failed(updater.new_agent_message([new_text_part(json.dumps({"error": detail}))]))
+            if task_ctx is not None:
+                task_ctx._task.error = str(error)
+                task_ctx._task.update_status(TaskState.FAILED)
+                if self.task_store:
+                    await self.task_store.update(task_ctx._task)
+            return None
 
     def _convert_params(
         self,
@@ -396,6 +484,14 @@ class LiteAgentExecutor(AgentExecutor):
         """Handle execution errors."""
         from a2a.helpers import new_text_message
 
+        if (
+            self.runtime_state is not None
+            and self.runtime_state.config.profile != "learning"
+            and not isinstance(e, A2ALiteError)
+            and self.error_handler is None
+        ):
+            await event_queue.enqueue_event(new_text_message(json.dumps({"error": "Skill execution failed"})))
+            return
         if self.error_handler:
             try:
                 result = await self._call_handler(self.error_handler, e)
@@ -437,9 +533,10 @@ class LiteAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Handle cancellation requests."""
-        from a2a.helpers import new_text_message
+        from a2a.server.tasks import TaskUpdater
 
-        await event_queue.enqueue_event(new_text_message(json.dumps({"status": "cancelled"})))
+        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        await updater.cancel()
 
     async def _call_handler(self, handler: Callable, *args, **kwargs) -> Any:
         """Call a handler, handling both sync and async functions."""

@@ -26,10 +26,12 @@ import json
 import logging
 import re
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
+
+from .client import ClientConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class TaskHandle:
     task_id: str
     result: Any
     _agent_url: str
+    _client: ClientConfig | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -59,23 +62,25 @@ class TaskHandle:
 
     async def get_status(self, timeout: float = 10.0) -> dict:
         """Poll the remote agent for this task's current status."""
-        return await get_remote_task(self._agent_url, self.task_id, timeout)
+        return await get_remote_task(self._agent_url, self.task_id, timeout, client_config=self._client)
 
     async def cancel(self, timeout: float = 10.0) -> dict:
         """Request cancellation of this task on the remote agent."""
-        return await cancel_remote_task(self._agent_url, self.task_id, timeout)
+        return await cancel_remote_task(self._agent_url, self.task_id, timeout, client_config=self._client)
 
     async def subscribe(self, webhook_url: str, token: str | None = None, timeout: float = 10.0) -> dict:
         """Register a webhook for this task on the remote agent."""
-        return await set_task_push_notification(self._agent_url, self.task_id, webhook_url, token, timeout)
+        return await set_task_push_notification(
+            self._agent_url, self.task_id, webhook_url, token, timeout, client_config=self._client
+        )
 
     async def unsubscribe(self, timeout: float = 10.0) -> dict:
         """Remove the webhook registration for this task."""
-        return await delete_task_push_notification(self._agent_url, self.task_id, timeout)
+        return await delete_task_push_notification(self._agent_url, self.task_id, timeout, client_config=self._client)
 
     async def get_push_config(self, timeout: float = 10.0) -> dict:
         """Get the registered webhook config for this task."""
-        return await get_task_push_notification(self._agent_url, self.task_id, timeout)
+        return await get_task_push_notification(self._agent_url, self.task_id, timeout, client_config=self._client)
 
 
 @dataclass
@@ -110,8 +115,12 @@ class AgentNetwork:
     def __init__(self, agents: dict[str, str] | None = None) -> None:
         self._agents: dict[str, str] = dict(agents) if agents else {}
         self._cards: dict[str, AgentCardInfo] = {}
+        self._clients: dict[str, ClientConfig] = {name: ClientConfig().bind(url) for name, url in self._agents.items()}
+        self._discovery_urls: dict[str, str] = dict(self._agents)
 
-    def add(self, name: str, url: str, auto_discover: bool = False) -> None:
+    def add(
+        self, name: str, url: str, auto_discover: bool = False, *, client_config: ClientConfig | None = None
+    ) -> None:
         """Register an agent by name.
 
         Args:
@@ -121,6 +130,8 @@ class AgentNetwork:
                            Must be awaited if True (use within async context via discover()).
         """
         self._agents[name] = url.rstrip("/")
+        self._discovery_urls[name] = url.rstrip("/")
+        self._clients[name] = (client_config or ClientConfig()).bind(url)
         if auto_discover:
             # Schedule discovery; caller should await this in an async context
             asyncio.ensure_future(self.discover(name))
@@ -147,6 +158,9 @@ class AgentNetwork:
         """
         if name in self._agents:
             del self._agents[name]
+            self._clients.pop(name, None)
+            self._discovery_urls.pop(name, None)
+            self._cards.pop(name, None)
             return True
         return False
 
@@ -185,9 +199,10 @@ class AgentNetwork:
         url = self._agents.get(name)
         if url is None:
             raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        result, task_id = await _call_remote_skill(url, skill, params, timeout)
+        client_config = self._clients.get(name)
+        result, task_id = await _call_remote_skill(url, skill, params, timeout, client_config=client_config)
         if return_handle:
-            return TaskHandle(task_id=task_id, result=result, _agent_url=url)
+            return TaskHandle(task_id=task_id, result=result, _agent_url=url, _client=client_config)
         return result
 
     def get_card(self, name: str) -> AgentCardInfo | None:
@@ -217,8 +232,9 @@ class AgentNetwork:
         url = self._agents.get(name)
         if url is None:
             raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        card = await discover(url, timeout)
+        card = await discover(self._discovery_urls.get(name, url), timeout, client_config=self._clients.get(name))
         self._cards[name] = card
+        self._agents[name] = card.url
         return card
 
     async def stream(
@@ -246,7 +262,7 @@ class AgentNetwork:
         url = self._agents.get(name)
         if url is None:
             raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        async for chunk in stream_remote_skill(url, skill, params, timeout):
+        async for chunk in stream_remote_skill(url, skill, params, timeout, client_config=self._clients.get(name)):
             yield chunk
 
     async def broadcast(
@@ -266,7 +282,10 @@ class AgentNetwork:
         Returns:
             Dict mapping agent names to their results (or error dicts).
         """
-        tasks = {name: _call_remote_skill(url, skill, params, timeout) for name, url in self._agents.items()}
+        tasks = {
+            name: _call_remote_skill(url, skill, params, timeout, client_config=self._clients.get(name))
+            for name, url in self._agents.items()
+        }
 
         results: dict[str, Any] = {}
         gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -296,7 +315,7 @@ class AgentNetwork:
         url = self._agents.get(name)
         if url is None:
             raise KeyError(f"Agent '{name}' not found in network.")
-        return await get_remote_task(url, task_id, timeout)
+        return await get_remote_task(url, task_id, timeout, client_config=self._clients.get(name))
 
     async def cancel_task(self, name: str, task_id: str, timeout: float = 10.0) -> dict:
         """Request cancellation of a task running on a named agent.
@@ -315,7 +334,7 @@ class AgentNetwork:
         url = self._agents.get(name)
         if url is None:
             raise KeyError(f"Agent '{name}' not found in network.")
-        return await cancel_remote_task(url, task_id, timeout)
+        return await cancel_remote_task(url, task_id, timeout, client_config=self._clients.get(name))
 
     def __len__(self) -> int:
         return len(self._agents)
@@ -332,6 +351,8 @@ async def _call_remote_skill(
     skill: str,
     params: dict[str, Any],
     timeout: float = 30.0,
+    *,
+    client_config: ClientConfig | None = None,
 ) -> tuple[Any, str]:
     """Call a remote A2A agent's skill and extract the result.
 
@@ -360,8 +381,10 @@ async def _call_remote_skill(
         },
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(agent_url, json=request_body, headers=await config.request_headers(agent_url))
         response.raise_for_status()
         data = response.json()
 
@@ -401,6 +424,8 @@ async def stream_remote_skill(
     skill: str,
     params: dict[str, Any],
     timeout: float = 30.0,
+    *,
+    client_config: ClientConfig | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream chunks from a remote A2A agent skill via SSE.
 
@@ -435,8 +460,12 @@ async def stream_remote_skill(
         },
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
-        async with client.stream("POST", agent_url, json=request_body, headers={"A2A-Version": "1.0"}) as response:
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout), follow_redirects=False) as client:
+        async with client.stream(
+            "POST", agent_url, json=request_body, headers=await config.request_headers(agent_url)
+        ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
                 line = line.strip()
@@ -541,6 +570,7 @@ def _extract_result(response: dict[str, Any]) -> Any:
             candidates.append(result["message"])
         if isinstance(result.get("task"), dict):
             task = result["task"]
+            candidates.extend(task.get("artifacts", []))
             status = task.get("status") or {}
             if isinstance(status.get("message"), dict):
                 candidates.append(status["message"])
@@ -561,7 +591,12 @@ def _extract_result(response: dict[str, Any]) -> Any:
 
 
 async def get_remote_task(
-    agent_url: str, task_id: str, timeout: float = 10.0, *, headers: dict[str, str] | None = None
+    agent_url: str,
+    task_id: str,
+    timeout: float = 10.0,
+    *,
+    headers: dict[str, str] | None = None,
+    client_config: ClientConfig | None = None,
 ) -> dict:
     """Fetch the current status of a remote task.
 
@@ -583,8 +618,12 @@ async def get_remote_task(
         "params": {"id": task_id},
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(
+            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -599,7 +638,12 @@ async def get_remote_task(
 
 
 async def cancel_remote_task(
-    agent_url: str, task_id: str, timeout: float = 10.0, *, headers: dict[str, str] | None = None
+    agent_url: str,
+    task_id: str,
+    timeout: float = 10.0,
+    *,
+    headers: dict[str, str] | None = None,
+    client_config: ClientConfig | None = None,
 ) -> dict:
     """Request cancellation of a remote task.
 
@@ -621,8 +665,12 @@ async def cancel_remote_task(
         "params": {"id": task_id},
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(
+            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -644,6 +692,7 @@ async def set_task_push_notification(
     timeout: float = 10.0,
     *,
     headers: dict[str, str] | None = None,
+    client_config: ClientConfig | None = None,
 ) -> dict:
     """Register a webhook URL for a specific remote task.
 
@@ -675,8 +724,12 @@ async def set_task_push_notification(
     if token:
         request_body["params"]["authentication"] = {"scheme": "Bearer", "credentials": token}
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(
+            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -696,6 +749,7 @@ async def get_task_push_notification(
     timeout: float = 10.0,
     *,
     headers: dict[str, str] | None = None,
+    client_config: ClientConfig | None = None,
 ) -> dict:
     """Get the registered webhook config for a remote task.
 
@@ -717,8 +771,12 @@ async def get_task_push_notification(
         "params": {"taskId": task_id, "id": task_id},
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(
+            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -738,6 +796,7 @@ async def delete_task_push_notification(
     timeout: float = 10.0,
     *,
     headers: dict[str, str] | None = None,
+    client_config: ClientConfig | None = None,
 ) -> dict:
     """Remove the webhook registration for a remote task.
 
@@ -759,8 +818,12 @@ async def delete_task_push_notification(
         "params": {"taskId": task_id, "id": task_id},
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
+    config = (client_config or ClientConfig()).bind(agent_url)
+    request_body["params"] = config.request_params(request_body["params"])
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(
+            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -774,7 +837,9 @@ async def delete_task_push_notification(
     return data.get("result", {})
 
 
-async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
+async def discover(
+    agent_url: str, timeout: float = 10.0, *, client_config: ClientConfig | None = None
+) -> AgentCardInfo:
     """Fetch and parse an agent's card from /.well-known/agent-card.json.
 
     Args:
@@ -791,8 +856,9 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
 
     card_url = f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.get(card_url)
+    config = (client_config or ClientConfig()).bind(agent_url)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.get(card_url, headers=await config.request_headers(card_url))
         response.raise_for_status()
         data = response.json()
 
@@ -806,6 +872,7 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
         )
 
     interface_url = _select_jsonrpc_url(data, agent_url)
+    config.check_endpoint(interface_url)
 
     capabilities = data.get("capabilities", {})
     skills_raw = data.get("skills", [])

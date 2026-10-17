@@ -644,3 +644,27 @@ class TestCompositeAuthEdgeCases:
         assert result.error is not None
         # Error should contain messages from both providers
         assert ";" in result.error
+
+
+async def test_oauth_repeated_decodes_never_disable_claim_verification():
+    import time
+    from types import SimpleNamespace
+
+    import jwt
+
+    from a2a_lite.auth import OAuth2Auth
+
+    secret = "test-only-signing-key-of-at-least-32-bytes"
+    provider = OAuth2Auth(issuer="https://issuer.example", audience="test", algorithms=["HS256"])
+    provider._jwks_client = SimpleNamespace(get_signing_key_from_jwt=lambda token: SimpleNamespace(key=secret))
+    good = {"sub": "alice", "iss": "https://issuer.example", "aud": "test", "exp": time.time() + 60}
+    for claims in (
+        good,
+        {**good, "exp": time.time() - 60},
+        {**good, "iss": "https://wrong.example"},
+        {**good, "aud": "wrong"},
+        good,
+    ):
+        token = jwt.encode(claims, secret, algorithm="HS256")
+        result = await provider.authenticate(AuthRequest(headers={"Authorization": "Bearer " + token}))
+        assert result.authenticated is (claims == good)

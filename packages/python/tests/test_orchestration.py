@@ -3,7 +3,7 @@ Tests for the orchestration module (AgentNetwork, delegate).
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -89,7 +89,7 @@ class TestAgentNetwork:
             mock.return_value = ("hello", "task-123")
             result = await net.call("test", "greet", city="NYC")
             assert result == "hello"
-            mock.assert_called_once_with("http://test:8787", "greet", {"city": "NYC"}, 30.0)
+            mock.assert_called_once_with("http://test:8787", "greet", {"city": "NYC"}, 30.0, client_config=ANY)
 
     @pytest.mark.asyncio
     async def test_call_with_param_named_name_and_skill(self):
@@ -102,7 +102,9 @@ class TestAgentNetwork:
             mock.return_value = ("hello Bob", "task-123")
             result = await net.call("test", "greet", name="Bob", skill="advanced")
             assert result == "hello Bob"
-            mock.assert_called_once_with("http://test:8787", "greet", {"name": "Bob", "skill": "advanced"}, 30.0)
+            mock.assert_called_once_with(
+                "http://test:8787", "greet", {"name": "Bob", "skill": "advanced"}, 30.0, client_config=ANY
+            )
 
     @pytest.mark.asyncio
     async def test_broadcast_with_param_named_skill(self):
@@ -113,7 +115,7 @@ class TestAgentNetwork:
             mock.return_value = ("ok", "tid-a")
             results = await net.broadcast("greet", skill="advanced")
             assert results["a"] == "ok"
-            mock.assert_called_once_with("http://a:8787", "greet", {"skill": "advanced"}, 30.0)
+            mock.assert_called_once_with("http://a:8787", "greet", {"skill": "advanced"}, 30.0, client_config=ANY)
 
     @pytest.mark.asyncio
     async def test_broadcast(self):
@@ -190,7 +192,7 @@ class TestAgentDelegate:
             mock.return_value = ("result", "task-456")
             result = await agent.delegate("other", "skill", x=1)
             assert result == "result"
-            mock.assert_called_once_with("http://other:8787", "skill", {"x": 1}, 30.0)
+            mock.assert_called_once_with("http://other:8787", "skill", {"x": 1}, 30.0, client_config=ANY)
 
     @pytest.mark.asyncio
     async def test_delegate_with_param_named_target_and_skill(self):
@@ -202,7 +204,9 @@ class TestAgentDelegate:
             mock.return_value = ("result", "task-123")
             result = await agent.delegate("http://other:8787", "greet", target="Bob", skill="advanced")
             assert result == "result"
-            mock.assert_called_once_with("http://other:8787", "greet", {"target": "Bob", "skill": "advanced"}, 30.0)
+            mock.assert_called_once_with(
+                "http://other:8787", "greet", {"target": "Bob", "skill": "advanced"}, 30.0, client_config=ANY
+            )
 
     @pytest.mark.asyncio
     async def test_delegate_unknown_name(self):
@@ -311,7 +315,7 @@ class TestTaskHandleLifecycleMethods:
             result = await handle.get_status()
             assert isinstance(result, dict)
             assert result["status"]["state"] == "completed"
-            mock.assert_called_once_with("http://test:8787", "task-xyz", 10.0)
+            mock.assert_called_once_with("http://test:8787", "task-xyz", 10.0, client_config=ANY)
 
     @pytest.mark.asyncio
     async def test_cancel(self):
@@ -322,7 +326,7 @@ class TestTaskHandleLifecycleMethods:
             result = await handle.cancel()
             assert isinstance(result, dict)
             assert result["status"]["state"] == "canceled"
-            mock.assert_called_once_with("http://test:8787", "task-xyz", 10.0)
+            mock.assert_called_once_with("http://test:8787", "task-xyz", 10.0, client_config=ANY)
 
 
 class TestAgentNetworkTaskLifecycle:
@@ -501,7 +505,9 @@ class TestDiscover:
             assert card.supports_push is False
             assert len(card.skills) == 1
             assert card.raw == card_data
-            mock_client.get.assert_called_once_with("http://remote:8787/.well-known/agent-card.json")
+            mock_client.get.assert_called_once_with(
+                "http://remote:8787/.well-known/agent-card.json", headers={"A2A-Version": "1.0"}
+            )
 
 
 class TestGetRemoteTask:

@@ -117,6 +117,28 @@ class TaskContext:
         self._event_queue = event_queue
         self._input_handler = input_handler
         self._status_callbacks: list[Callable] = []
+        self._execution = None
+
+    @property
+    def checkpoint_data(self):
+        """Last committed JSON checkpoint, or None on the initial execution."""
+        return self._execution.checkpoint_data if self._execution else None
+
+    async def checkpoint(self, value):
+        """Persist bounded JSON state under this execution's lease."""
+        if self._execution is None:
+            raise RuntimeError("Checkpoints require a managed persistent runtime")
+        await self._execution.checkpoint(value)
+
+    async def effect_once(self, key, operation):
+        """Run an async same-database transaction once per task/key.
+
+        operation receives AsyncConnection. External effects need their own
+        idempotency protocol; this method cannot make HTTP or email exactly once.
+        """
+        if self._execution is None:
+            raise RuntimeError("Transactional effects require a managed persistent runtime")
+        return await self._execution.effect_once(key, operation)
 
     @property
     def task_id(self) -> str:
@@ -179,7 +201,7 @@ class TaskContext:
 
                 updater = self._event_queue
                 await updater.update_status(
-                    A2ATaskState.TASK_STATE_WORKING,
+                    A2ATaskState.Value(f"TASK_STATE_{self._task.status.state.value.upper().replace('-', '_')}"),
                     message=updater.new_agent_message([new_text_part(status_msg)]),
                 )
             else:

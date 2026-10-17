@@ -24,6 +24,7 @@ from a2a.types import (
     AgentSkill,
 )
 
+from .client import ClientConfig
 from .decorators import SkillDefinition
 from .executor import LiteAgentExecutor
 from .middleware import MiddlewareChain
@@ -119,6 +120,8 @@ class Agent:
         None  # SDK-level TaskStore for A2A protocol persistence (enables Redis, Postgres, etc.)
     )
     push_notifier: Any | None = None  # PushNotifier for skill completion events
+    runtime: Any | None = None  # RuntimeConfig
+    persistence: Any | None = None  # PersistenceConfig
 
     def __post_init__(self):
         # Internal state
@@ -155,6 +158,17 @@ class Agent:
         else:
             self._auth = self.auth
 
+        from .auth import NoAuth
+        from .runtime import RuntimeConfig
+
+        self._runtime_config = self.runtime or RuntimeConfig()
+        if self._runtime_config.profile != "learning" and isinstance(self._auth, NoAuth):
+            raise ValueError("Authenticated and durable profiles require an auth provider")
+        if self._runtime_config.profile == "durable" and self.persistence is None:
+            raise ValueError("Durable profile requires PersistenceConfig")
+        if self.persistence is not None and self.protocol_task_store is not None:
+            raise ValueError("Choose persistence or protocol_task_store, not both")
+
         # Store push notifier
         self._push_notifier = self.push_notifier
 
@@ -167,6 +181,8 @@ class Agent:
         description: str | None = None,
         tags: list[str] | None = None,
         streaming: bool = False,
+        task: bool = False,
+        recoverable: bool = False,
     ) -> Callable:
         """
         Decorator to register a function as an agent skill.
@@ -196,6 +212,11 @@ class Agent:
             # Clean up docstring
             if skill_desc:
                 skill_desc = " ".join(skill_desc.split())
+
+            if recoverable and self.persistence is None:
+                raise ValueError("Recoverable skills require PersistenceConfig")
+            if recoverable and (streaming or is_generator_function(func)):
+                raise ValueError("Recoverable skills currently return a single result; streaming is unsupported")
 
             # Detect streaming
             is_streaming = streaming or is_generator_function(func)
@@ -242,6 +263,8 @@ class Agent:
 
             # Extract schemas
             input_schema, output_schema = extract_function_schemas(func)
+            if task or needs_task_context or recoverable:
+                self._has_streaming = True
 
             skill_def = SkillDefinition(
                 name=skill_name,
@@ -252,6 +275,8 @@ class Agent:
                 output_schema=output_schema,
                 is_async=asyncio.iscoroutinefunction(func) or is_streaming,
                 is_streaming=is_streaming,
+                task_mode=task or needs_task_context or recoverable,
+                recoverable=recoverable,
                 needs_task_context=needs_task_context,
                 needs_auth=needs_auth,
                 needs_mcp=needs_mcp,
@@ -332,6 +357,7 @@ class Agent:
         return_handle: bool = False,
         discover: bool = False,
         stream: bool = False,
+        client_config: ClientConfig | None = None,
         **params: Any,
     ) -> Any:
         """Delegate a skill call to a remote agent and return the parsed result.
@@ -380,14 +406,17 @@ class Agent:
             resolved = self._network.get(target)
             if resolved is not None:
                 url = resolved
+                client_config = client_config or self._network._clients.get(target)
             else:
                 raise KeyError(f"Agent '{target}' not found in network. Available: {list(self._network.list().keys())}")
 
+        client_config = (client_config or ClientConfig()).bind(url)
         # Optionally discover the agent card and validate the skill
         if discover:
             from .errors import SkillNotFoundError
 
-            card = await discover_agent(url, timeout)
+            discovery_url = self._network._discovery_urls.get(target, url) if self._network else url
+            card = await discover_agent(discovery_url, timeout, client_config=client_config)
             # Validate the skill exists on the remote agent
             skill_names = [s.get("id") or s.get("name", "") for s in card.skills]
             if skill and skill not in skill_names:
@@ -396,11 +425,11 @@ class Agent:
             url = card.url
 
         if stream:
-            return stream_remote_skill(url, skill, params, timeout)
+            return stream_remote_skill(url, skill, params, timeout, client_config=client_config)
 
-        result, task_id = await _call_remote_skill(url, skill, params, timeout)
+        result, task_id = await _call_remote_skill(url, skill, params, timeout, client_config=client_config)
         if return_handle:
-            return TaskHandle(task_id=task_id, result=result, _agent_url=url)
+            return TaskHandle(task_id=task_id, result=result, _agent_url=url, _client=client_config)
         return result
 
     def build_agent_card(self, host: str = "localhost", port: int = 8787, grpc_url: str | None = None) -> AgentCard:
@@ -578,59 +607,29 @@ class Agent:
             )
         )
 
-        # Run startup hooks
-        async def _run_startup():
-            for hook in self._on_startup:
-                if asyncio.iscoroutinefunction(hook):
-                    await hook()
-                else:
-                    hook()
+        if self.production and not (self.url or "").startswith("https://"):
+            logger.warning("Running in production mode over HTTP. Consider HTTPS for secure communication.")
+        uvicorn.run(
+            self._build_app(display_host, port),
+            host=host,
+            port=port,
+            log_level=log_level,
+            timeout_graceful_shutdown=self._runtime_config.shutdown_timeout,
+        )
 
-        if self._on_startup:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.run_until_complete(_run_startup())
-            except RuntimeError:
-                asyncio.run(_run_startup())
+    async def start(self, host: str = "127.0.0.1", port: int = 0, log_level: str = "warning"):
+        """Start HTTP in this event loop and return a ManagedRuntime."""
+        from .runtime import start_http
 
-        # Production mode warning
-        if self.production:
-            url_str = self.url or f"http://{display_host}:{port}"
-            if not url_str.startswith("https://"):
-                logger.warning("Running in production mode over HTTP. Consider using HTTPS for secure communication.")
-
-        # Build the ASGI app
-        app = self._build_app(display_host, port)
-
-        # Start server
-        try:
-            uvicorn.run(
-                app,
-                host=host,
-                port=port,
-                log_level=log_level,
-            )
-        finally:
-            # Run shutdown hooks
-            async def _run_shutdown():
-                for hook in self._on_shutdown:
-                    if asyncio.iscoroutinefunction(hook):
-                        await hook()
-                    else:
-                        hook()
-
-            if self._on_shutdown:
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.run_until_complete(_run_shutdown())
-                except RuntimeError:
-                    asyncio.run(_run_shutdown())
+        return await start_http(self, host, port, log_level)
 
     async def call_remote(  # pragma: no cover
         self,
         agent_url: str,
         message: str,
         timeout: float = 30.0,
+        *,
+        client_config: ClientConfig | None = None,
     ) -> dict[str, Any]:
         """Call a remote A2A agent (JSON-RPC SendMessage, wire v1.0)."""
         from uuid import uuid4
@@ -650,11 +649,13 @@ class Agent:
             },
         }
 
-        async with httpx.AsyncClient(timeout=timeout) as http_client:
+        config = (client_config or ClientConfig()).bind(agent_url)
+        request_body["params"] = config.request_params(request_body["params"])
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as http_client:
             response = await http_client.post(
                 agent_url,
                 json=request_body,
-                headers={"A2A-Version": "1.0"},
+                headers=await config.request_headers(agent_url),
             )
             response.raise_for_status()
             return response.json()
@@ -684,6 +685,9 @@ class Agent:
 
             on_complete.insert(0, _push_notify)
 
+        from .runtime import RuntimeLifecycle, RuntimeState
+
+        state = RuntimeState(self._runtime_config)
         executor = LiteAgentExecutor(
             skills=self._skills,
             error_handler=self._error_handler,
@@ -692,22 +696,37 @@ class Agent:
             auth_provider=self._auth,
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
+            runtime_state=state,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
         _protocol_store = self.protocol_task_store if self.protocol_task_store is not None else InMemoryTaskStore()
+        backend = self.persistence.build() if self.persistence is not None else None
+        if backend is not None:
+            backend.recovery.executor = executor
+            executor.recovery = backend.recovery
+            _protocol_store = backend.task_store
+            self.push_registry = backend.push_store
+        from .stores import bound_task_store
+
+        _protocol_store = bound_task_store(_protocol_store, self._runtime_config)
+        if backend is not None:
+            backend.task_store = _protocol_store
         push_http_client = create_push_http_client()
-        return LiteRequestHandler(
+        handler = LiteRequestHandler(
             agent_executor=executor,
             task_store=_protocol_store,
             agent_card=agent_card,
             push_http_client=push_http_client,
             push_config_store=self.push_registry,
-            push_sender=ProtocolPushSender(
-                push_http_client, self.push_registry, push_url_validator=validate_callback_url
-            ),
+            push_sender=backend.push_sender
+            if backend is not None
+            else ProtocolPushSender(push_http_client, self.push_registry, push_url_validator=validate_callback_url),
+            event_stream=backend.event_stream if backend is not None else None,
             push_url_validator=validate_callback_url,
         )
+        handler.runtime = RuntimeLifecycle(self, handler, state, backend)
+        return handler
 
     def _build_app(self, host: str = "localhost", port: int = 8787):
         """Build the Starlette ASGI application.
@@ -726,20 +745,37 @@ class Agent:
 
         @asynccontextmanager
         async def lifespan(app):
+            await request_handler.runtime.start()
             try:
                 yield
             finally:
-                # The SDK owns background task producers and subscribers, even
-                # after a returnImmediately response has reached the client.
-                await request_handler.aclose()
+                await request_handler.runtime.stop()
+
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+
+        async def live(request):
+            return JSONResponse({"live": True})
+
+        async def ready(request):
+            lifecycle = request_handler.runtime
+            available = lifecycle.state.ready and lifecycle.state.accepting
+            if available and lifecycle.backend:
+                try:
+                    await asyncio.wait_for(lifecycle.backend.check(), timeout=2)
+                except Exception:
+                    available = False
+            return JSONResponse({"ready": available}, status_code=200 if available else 503)
 
         app = Starlette(
-            routes=create_agent_card_routes(agent_card)
+            routes=[Route("/health/live", live), Route("/health/ready", ready)]
+            + create_agent_card_routes(agent_card)
             + create_jsonrpc_routes(request_handler, rpc_url="/", context_builder=AuthenticatedContextBuilder())
             + create_rest_routes(request_handler, context_builder=AuthenticatedContextBuilder()),
             lifespan=lifespan,
         )
-        app.add_middleware(ProtocolMiddleware, auth_provider=self._auth)
+        app.state.runtime = request_handler.runtime
+        app.add_middleware(ProtocolMiddleware, auth_provider=self._auth, runtime_state=request_handler.runtime.state)
 
         # Add CORS middleware if configured
         if self.cors_origins is not None:
@@ -796,7 +832,13 @@ class Agent:
 
         from .grpc import AuthenticatedGrpcContextBuilder, AuthInterceptor, ManagedGrpcServer
 
-        server = grpc.aio.server(interceptors=[AuthInterceptor(self._auth)])
+        server = grpc.aio.server(
+            interceptors=[AuthInterceptor(self._auth, request_handler.runtime.state)],
+            options=[
+                ("grpc.max_receive_message_length", self._runtime_config.max_request_bytes),
+                ("grpc.max_send_message_length", self._runtime_config.max_event_bytes),
+            ],
+        )
         a2a_pb2_grpc.add_A2AServiceServicer_to_server(
             GrpcHandler(request_handler, context_builder=AuthenticatedGrpcContextBuilder()), server
         )
@@ -834,22 +876,10 @@ class Agent:
             server = self.build_grpc_server(host, port)
 
             try:
-                for hook in self._on_startup:
-                    if asyncio.iscoroutinefunction(hook):
-                        await hook()
-                    else:
-                        hook()
                 await server.start()
                 await server.wait_for_termination()
             finally:
-                try:
-                    await server.stop(grace=2)
-                finally:
-                    for hook in self._on_shutdown:
-                        if asyncio.iscoroutinefunction(hook):
-                            await hook()
-                        else:
-                            hook()
+                await server.stop(grace=2)
 
         try:
             asyncio.run(_serve())

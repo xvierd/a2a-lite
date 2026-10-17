@@ -9,7 +9,7 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
 
-> **v1.1.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
+> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
 > - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC (experimental, opt-in):** `pip install a2a-lite[grpc]` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
 > - **No v0.3 compatibility.** See [MIGRATION.md](../../MIGRATION.md).
@@ -28,6 +28,17 @@ agent.run()
 
 ---
 
+## Learning, managed runtimes and durability
+
+Start with the [executable learning path](../../examples/python/12_production_path), then use the [runtime and persistence guide](docs/production.md) for authenticated profiles, real task IDs, rotating credentials, PostgreSQL state/events, durable callback delivery and opt-in checkpoint recovery. `Agent.start()` returns an explicit runtime handle with readiness, statistics and `stop()`; the default eight-line API remains available.
+
+```python
+from a2a_lite import RuntimeConfig, ClientConfig, PersistenceConfig
+# RuntimeConfig(profile="learning" | "authenticated" | "durable")
+# @agent.skill("tracked", task=True) exposes a queryable protocol Task.
+# @agent.skill("resumable", recoverable=True) requires managed persistence.
+```
+
 ## Installation
 
 ```bash
@@ -41,6 +52,8 @@ uv add a2a-lite
 ### Optional extras
 
 ```bash
+pip install a2a-lite[sqlite]     # single-host persistent learning examples
+pip install a2a-lite[postgresql] # managed durable state/events/callbacks
 pip install a2a-lite[grpc]       # experimental gRPC transport
 pip install a2a-lite[oauth]      # OAuth2 / JWT (PyJWT)
 pip install a2a-lite[mcp]        # MCP tool client

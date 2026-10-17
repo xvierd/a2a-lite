@@ -30,7 +30,9 @@ Example (with OAuth2 - opt-in):
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -82,12 +84,16 @@ class AuthResult:
     scopes: set[str] = field(default_factory=set)
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    namespace: str | None = None
+    authorized_tenants: frozenset[str] = field(default_factory=lambda: frozenset({""}))
 
     @classmethod
     def success(
         cls,
         user_id: str,
         scopes: set[str] | None = None,
+        namespace: str | None = None,
+        authorized_tenants: set[str] | frozenset[str] | None = None,
         **metadata,
     ) -> AuthResult:
         return cls(
@@ -95,11 +101,36 @@ class AuthResult:
             user_id=user_id,
             scopes=scopes or set(),
             metadata=metadata,
+            namespace=namespace,
+            authorized_tenants=frozenset({""}) if authorized_tenants is None else frozenset(authorized_tenants),
         )
 
     @classmethod
     def failure(cls, error: str) -> AuthResult:
         return cls(authenticated=False, error=error)
+
+    @property
+    def principal(self) -> str:
+        """Stable owner identity; preserve legacy IDs except the reserved prefix."""
+        if not valid_identity(self):
+            raise ValueError("Invalid authenticated identity")
+        if self.namespace is None and not self.user_id.startswith("a2a:v1:"):
+            return self.user_id
+        payload = json.dumps([self.namespace, self.user_id], ensure_ascii=False, separators=(",", ":"))
+        return "a2a:v1:" + base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+
+def valid_identity(result: AuthResult) -> bool:
+    return (
+        isinstance(result, AuthResult)
+        and result.authenticated
+        and isinstance(result.user_id, str)
+        and bool(result.user_id.strip())
+        and (result.namespace is None or isinstance(result.namespace, str) and bool(result.namespace.strip()))
+        and isinstance(result.authorized_tenants, (set, frozenset))
+        and all(isinstance(tenant, str) for tenant in result.authorized_tenants)
+        and (result.metadata.get("anonymous") is not True or result.authorized_tenants <= {""})
+    )
 
 
 class NoAuth(AuthProvider):
@@ -125,12 +156,20 @@ class APIKeyAuth(AuthProvider):
 
     def __init__(
         self,
-        keys: list[str],
+        keys: list[str] | None = None,
         header: str = "X-API-Key",
         query_param: str | None = None,
+        *,
+        principals: dict[str, str] | None = None,
+        namespace: str | None = None,
+        authorized_tenants: set[str] | None = None,
     ):
         # Store only hashes of keys for security
-        self._key_hashes = {hashlib.sha256(k.encode()).hexdigest() for k in keys}
+        self._key_hashes = {hashlib.sha256(k.encode()).hexdigest() for k in (keys or [])}
+        self._principals = {hashlib.sha256(k.encode()).hexdigest(): v for k, v in (principals or {}).items()}
+        self._key_hashes.update(self._principals)
+        self.namespace = namespace
+        self.authorized_tenants = frozenset({""}) if authorized_tenants is None else frozenset(authorized_tenants)
         self.header = header
         self.query_param = query_param
 
@@ -154,8 +193,8 @@ class APIKeyAuth(AuthProvider):
             return AuthResult.failure("Invalid API key")
 
         # Use hash prefix as user ID
-        user_id = key_hash[:16]
-        return AuthResult.success(user_id=user_id)
+        user_id = self._principals.get(key_hash, key_hash[:16])
+        return AuthResult.success(user_id=user_id, namespace=self.namespace, authorized_tenants=self.authorized_tenants)
 
     def get_scheme(self) -> dict[str, Any]:
         return {
@@ -231,12 +270,17 @@ class OAuth2Auth(AuthProvider):
         audience: str,
         jwks_uri: str | None = None,
         algorithms: list[str] = None,
+        *,
+        tenant_claim: str | None = None,
+        authorized_tenants: set[str] | None = None,
     ):
         self.issuer = issuer
         self.audience = audience
         self.jwks_uri = jwks_uri or f"{issuer}/.well-known/jwks.json"
         self.algorithms = algorithms or ["RS256"]
         self._jwks_client = None
+        self.tenant_claim = tenant_claim
+        self.authorized_tenants = frozenset({""}) if authorized_tenants is None else frozenset(authorized_tenants)
 
     async def authenticate(self, request: AuthRequest) -> AuthResult:
         auth_header = request.get_header("Authorization") or ""
@@ -264,16 +308,32 @@ class OAuth2Auth(AuthProvider):
                 algorithms=self.algorithms,
                 audience=self.audience,
                 issuer=self.issuer,
+                # Fresh options never inherit a caller's unverified-decode flags.
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_nbf": True,
+                    "verify_iat": True,
+                    "verify_aud": True,
+                    "verify_iss": True,
+                    "verify_sub": True,
+                    "verify_jti": True,
+                },
             )
 
             user_id = payload.get("sub", payload.get("email"))
             if not isinstance(user_id, str) or not user_id.strip():
                 return AuthResult.failure("Token requires a non-empty subject or email identity")
             scopes = set(payload.get("scope", "").split())
+            tenants = payload.get(self.tenant_claim, []) if self.tenant_claim else self.authorized_tenants
+            if not isinstance(tenants, (list, set, frozenset)) or not all(isinstance(t, str) for t in tenants):
+                return AuthResult.failure("Invalid authorized tenants claim")
 
             return AuthResult.success(
                 user_id=user_id,
                 scopes=scopes,
+                namespace=self.issuer,
+                authorized_tenants=set(tenants),
                 claims=payload,
             )
 

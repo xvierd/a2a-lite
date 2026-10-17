@@ -307,8 +307,9 @@ class TestCancel:
                 events.append(event)
 
         executor = LiteAgentExecutor(skills={})
-        await executor.cancel(MagicMock(), MockEventQueue())
+        await executor.cancel(MagicMock(task_id="task-1", context_id="context-1"), MockEventQueue())
         assert len(events) == 1
+        assert events[0].task_id == "task-1"
 
 
 class TestCallHandler:

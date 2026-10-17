@@ -86,6 +86,7 @@ from .auth import (
     OAuth2Auth,
     require_auth,
 )
+from .client import ClientConfig
 from .decorators import SkillDefinition
 
 # Errors
@@ -125,6 +126,7 @@ from .orchestration import (
 
 # Parts (multi-modal)
 from .parts import Artifact, DataPart, FilePart, TextPart
+from .persistence import PersistenceConfig
 
 # Push notifications
 from .push_notifications import (
@@ -136,16 +138,21 @@ from .push_notifications import (
 
 # Router (multi-agent)
 from .router import Router
+from .runtime import ManagedRuntime, RuntimeConfig
 
 # Tasks
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     # Core
     "Agent",
+    "ClientConfig",
+    "ManagedRuntime",
+    "RuntimeConfig",
+    "PersistenceConfig",
     "SkillDefinition",
     # Testing
     "AgentTestClient",

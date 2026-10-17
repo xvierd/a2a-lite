@@ -234,7 +234,9 @@ class TestAgentDelegate:
             mock_call.return_value = ({"temp": 72}, "task-123")
             result = await agent.delegate("weather", "forecast", city="NYC")
 
-            mock_call.assert_called_once_with("http://weather:8787", "forecast", {"city": "NYC"}, 30.0)
+            mock_call.assert_called_once_with(
+                "http://weather:8787", "forecast", {"city": "NYC"}, 30.0, client_config=network._clients["weather"]
+            )
             assert result == {"temp": 72}
 
 

@@ -4,7 +4,7 @@ client-side functions, and TaskHandle methods.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -162,7 +162,9 @@ class TestTaskHandleSubscribe:
             mock.return_value = {"taskId": "task-99", "url": "http://hook/cb", "token": None}
             result = await handle.subscribe("http://hook/cb")
             assert result["taskId"] == "task-99"
-            mock.assert_called_once_with("http://agent:8787", "task-99", "http://hook/cb", None, 10.0)
+            mock.assert_called_once_with(
+                "http://agent:8787", "task-99", "http://hook/cb", None, 10.0, client_config=ANY
+            )
 
     @pytest.mark.asyncio
     async def test_task_handle_unsubscribe(self):
@@ -175,7 +177,7 @@ class TestTaskHandleSubscribe:
             mock.return_value = {}
             result = await handle.unsubscribe()
             assert result == {}
-            mock.assert_called_once_with("http://agent:8787", "task-99", 10.0)
+            mock.assert_called_once_with("http://agent:8787", "task-99", 10.0, client_config=ANY)
 
     @pytest.mark.asyncio
     async def test_task_handle_get_push_config(self):
@@ -192,4 +194,4 @@ class TestTaskHandleSubscribe:
             }
             result = await handle.get_push_config()
             assert result["url"] == "http://hook/cb"
-            mock.assert_called_once_with("http://agent:8787", "task-99", 10.0)
+            mock.assert_called_once_with("http://agent:8787", "task-99", 10.0, client_config=ANY)
