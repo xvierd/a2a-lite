@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TaskPushRegistry, createPushNotificationMiddleware } from '../src/push-notifications.js';
+import { TaskPushRegistry } from '../src/push-notifications.js';
 import {
   setTaskPushNotification,
   getTaskPushNotification,
@@ -10,21 +10,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mockReq(body: Record<string, unknown>) {
-  return { method: 'POST', body } as any;
-}
-
-function mockRes() {
-  const res: any = {
-    _json: null,
-    json(data: unknown) {
-      res._json = data;
-      return res;
-    },
-  };
-  return res;
-}
 
 function mockJsonResponse(body: Record<string, unknown>, status = 200): Response {
   return {
@@ -80,168 +65,6 @@ describe('TaskPushRegistry', () => {
     expect(registry.delete('missing')).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// createPushNotificationMiddleware
-// ---------------------------------------------------------------------------
-
-describe('createPushNotificationMiddleware', () => {
-  let registry: TaskPushRegistry;
-  let middleware: ReturnType<typeof createPushNotificationMiddleware>;
-
-  beforeEach(() => {
-    registry = new TaskPushRegistry();
-    middleware = createPushNotificationMiddleware(registry);
-  });
-
-  it('CreateTaskPushNotificationConfig stores config and returns success', async () => {
-    const req = mockReq({
-      method: 'CreateTaskPushNotificationConfig',
-      id: '1',
-      params: {
-        taskId: 'task-100',
-        url: 'http://hook.test/cb',
-        token: 'tok',
-      },
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._json).toEqual({
-      jsonrpc: '2.0',
-      id: '1',
-      result: {
-        taskId: 'task-100',
-        id: 'task-100',
-        url: 'http://hook.test/cb',
-        token: 'tok',
-      },
-    });
-    expect(registry.get('task-100')).toEqual({ url: 'http://hook.test/cb', token: 'tok' });
-  });
-
-  it('CreateTaskPushNotificationConfig returns error when params are missing', async () => {
-    const req = mockReq({
-      method: 'CreateTaskPushNotificationConfig',
-      id: '2',
-      params: {},
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._json.error.code).toBe(-32602);
-  });
-
-  it('GetTaskPushNotificationConfig returns config when present', async () => {
-    registry.set('task-200', 'http://hook.test', 'abc');
-
-    const req = mockReq({
-      method: 'GetTaskPushNotificationConfig',
-      id: '3',
-      params: { taskId: 'task-200' },
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._json.result).toEqual({
-      taskId: 'task-200',
-      id: 'task-200',
-      url: 'http://hook.test',
-      token: 'abc',
-    });
-  });
-
-  it('GetTaskPushNotificationConfig returns error when config is missing', async () => {
-    const req = mockReq({
-      method: 'GetTaskPushNotificationConfig',
-      id: '4',
-      params: { taskId: 'no-such-task' },
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._json.error.code).toBe(-32001);
-  });
-
-  it('DeleteTaskPushNotificationConfig removes config and returns success', async () => {
-    registry.set('task-300', 'http://hook.test');
-
-    const req = mockReq({
-      method: 'DeleteTaskPushNotificationConfig',
-      id: '5',
-      params: { taskId: 'task-300' },
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._json.result).toEqual({});
-    expect(registry.has('task-300')).toBe(false);
-  });
-
-  it('unknown method calls next()', async () => {
-    const req = mockReq({
-      method: 'SendMessage',
-      id: '6',
-      params: {},
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).toHaveBeenCalledOnce();
-    expect(res._json).toBeNull();
-  });
-
-  it('non-POST request calls next()', async () => {
-    const req = { method: 'GET', body: null } as any;
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(next).toHaveBeenCalledOnce();
-  });
-
-  it('uses params.id as config id when provided', async () => {
-    const req = mockReq({
-      method: 'CreateTaskPushNotificationConfig',
-      id: '7',
-      params: {
-        taskId: 'task-alt',
-        id: 'cfg-1',
-        url: 'http://alt.test',
-      },
-    });
-    const res = mockRes();
-    const next = vi.fn();
-
-    await middleware(req, res, next);
-
-    expect(res._json.result.taskId).toBe('task-alt');
-    expect(res._json.result.id).toBe('cfg-1');
-    expect(registry.get('task-alt')).toEqual({ url: 'http://alt.test', token: undefined });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Client functions: setTaskPushNotification / get / delete
-// ---------------------------------------------------------------------------
 
 describe('setTaskPushNotification()', () => {
   beforeEach(() => {

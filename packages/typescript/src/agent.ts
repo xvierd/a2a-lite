@@ -15,7 +15,7 @@
 
 import express, { Express } from 'express';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
-import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
+import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/server/express';
 import type {
   AgentCard,
   AgentSkill,
@@ -35,9 +35,11 @@ import type {
   TaskStore,
   AuthProvider,
 } from './types.js';
-import { type PushNotifier, TaskPushRegistry, createPushNotificationMiddleware } from './push-notifications.js';
+import { type PushNotifier, TaskPushRegistry } from './push-notifications.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
+import { createHttpAuthentication } from './http-auth.js';
+import { ProtocolPushStore, ProtocolPushSender } from './protocol-push.js';
 import type { AgentNetwork } from './orchestration.js';
 import { callRemoteSkill, streamRemoteSkill, discoverAgent } from './orchestration.js';
 
@@ -56,6 +58,7 @@ export class Agent {
   private taskStore?: TaskStore;
   private protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
   private pushNotifier?: PushNotifier;
+  /** @deprecated Standalone legacy registry; protocol callbacks use the scoped SDK store. */
   readonly pushRegistry: TaskPushRegistry;
   private auth: AuthProvider;
   private network?: AgentNetwork;
@@ -307,10 +310,6 @@ export class Agent {
     }
 
     if (returnHandle) {
-      // Use the network's call with returnHandle if available, otherwise do it inline
-      if (this.network && !target.startsWith('http://') && !target.startsWith('https://')) {
-        return this.network.call(target, skill, params, timeout, { returnHandle: true });
-      }
       // For direct URLs, import the internal helper indirectly via callRemoteSkill pattern
       const { callRemoteSkillWithHandle } = await import('./orchestration.js');
       return callRemoteSkillWithHandle(url, skill, params, timeout);
@@ -456,11 +455,35 @@ export class Agent {
   buildApp(host = 'localhost', port = 8787): Express {
     const app = express();
 
-    // Auto-register push notifier as an onComplete hook
+    // CORS must run before auth and SDK handlers, including for preflight requests.
+    if (this.corsOrigins) {
+      const origins = this.corsOrigins;
+      app.use((req, res, next) => {
+        const origin = req.headers.origin;
+        res.vary('Origin');
+        if (origin && (origins.includes('*') || origins.includes(origin))) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+          res.setHeader(
+            'Access-Control-Allow-Headers',
+            'Content-Type, Authorization, X-API-Key, A2A-Version, A2A-Extensions',
+          );
+          res.setHeader('Access-Control-Expose-Headers', 'A2A-Version, A2A-Extensions');
+        }
+        if (req.method === 'OPTIONS') {
+          res.status(204).end();
+          return;
+        }
+        next();
+      });
+    }
+
+    // Keep app construction from adding duplicate notifier hooks to the agent.
+    const onCompleteHooks = [...this.onCompleteHooks];
     if (this.pushNotifier) {
       const notifier = this.pushNotifier;
       const agentName = this.name;
-      this.onCompleteHooks.unshift(async (skill: string, result: unknown) => {
+      onCompleteHooks.unshift(async (skill: string, result: unknown) => {
         try {
           await notifier.notify({
             skill,
@@ -480,63 +503,36 @@ export class Agent {
       skills: this.skills,
       errorHandler: this.errorHandler,
       middlewares: this.middlewares,
-      onCompleteHooks: this.onCompleteHooks,
+      onCompleteHooks,
       authProvider: this.auth,
       taskStore: this.taskStore,
       mcpServers: this.mcpServers,
-      pushRegistry: this.pushRegistry,
     });
 
     // Create the SDK's request handler
     const agentCard = this.buildAgentCard(host, port);
+    const pushStore = new ProtocolPushStore();
     const requestHandler = new DefaultRequestHandler(
       agentCard,
       this.protocolTaskStore ?? new InMemoryTaskStore(),
       executor,
+      undefined,
+      pushStore,
+      new ProtocolPushSender(pushStore),
     );
 
     // Mount SDK handlers — agent card at the A2A v1.0 well-known path
     app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
 
-    // Add auth middleware for API endpoints (skip for agent card)
-    const authProvider = this.auth;
-    const isNoAuth = authProvider instanceof NoAuth;
-    if (!isNoAuth) {
-      const authMiddleware: express.RequestHandler = async (req, res, next) => {
-        const headers: Record<string, string> = {};
-        for (const [key, value] of Object.entries(req.headers)) {
-          if (typeof value === 'string') {
-            headers[key] = value;
-          }
-        }
-        const queryParams: Record<string, string> = {};
-        for (const [key, value] of Object.entries(req.query)) {
-          if (typeof value === 'string') {
-            queryParams[key] = value;
-          }
-        }
-        const result = await authProvider.authenticate({ headers, queryParams });
-        if (!result.authenticated) {
-          res.status(401).json({
-            jsonrpc: '2.0',
-            error: { code: -32600, message: result.error || 'Authentication failed' },
-          });
-          return;
-        }
-        next();
-      };
-      app.use('/', authMiddleware);
-    }
+    const authentication = createHttpAuthentication(this.auth);
+    app.use('/', authentication.middleware);
 
-    // Per-task push notification middleware (must come before SDK JSON-RPC handler)
-    app.use('/', express.json(), createPushNotificationMiddleware(this.pushRegistry));
-
-    // JSON-RPC transport at the base URL (A2A v1.0 methods: SendMessage, ...)
-    app.use(
+    // Scope JSON-RPC's content-type guard to its endpoint so REST can accept application/a2a+json.
+    app.post(
       '/',
       jsonRpcHandler({
         requestHandler,
-        userBuilder: UserBuilder.noAuthentication,
+        userBuilder: authentication.userBuilder,
       }),
     );
 
@@ -545,27 +541,9 @@ export class Agent {
       '/',
       restHandler({
         requestHandler,
-        userBuilder: UserBuilder.noAuthentication,
+        userBuilder: authentication.userBuilder,
       }),
     );
-
-    // Add CORS headers if configured
-    if (this.corsOrigins) {
-      const origins = this.corsOrigins;
-      app.use((req, res, next) => {
-        const origin = req.headers.origin;
-        if (origin && (origins.includes('*') || origins.includes(origin))) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
-        }
-        if (req.method === 'OPTIONS') {
-          res.status(204).end();
-          return;
-        }
-        next();
-      });
-    }
 
     return app;
   }

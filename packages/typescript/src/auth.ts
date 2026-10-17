@@ -33,6 +33,7 @@ export class NoAuth implements AuthProvider {
   async authenticate(_request: AuthRequest): Promise<AuthResult> {
     return {
       authenticated: true,
+      anonymous: true,
       userId: 'anonymous',
       scopes: new Set(['*']),
     };
@@ -283,8 +284,11 @@ export class OAuth2Auth implements AuthProvider {
         algorithms: this.algorithms,
       });
 
-      const userId = (payload.sub as string) ?? (payload.email as string) ?? 'unknown';
-      const scopeString = (payload.scope as string) ?? '';
+      const userId = payload.sub ?? payload.email;
+      if (typeof userId !== 'string' || !userId.trim()) {
+        return { authenticated: false, error: 'Token must identify a user.' };
+      }
+      const scopeString = typeof payload.scope === 'string' ? payload.scope : '';
       const scopes = new Set(scopeString.split(/\s+/).filter(Boolean));
 
       return {

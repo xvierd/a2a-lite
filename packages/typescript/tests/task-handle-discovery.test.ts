@@ -183,7 +183,7 @@ describe('AgentNetwork.call() with returnHandle', () => {
     expect(result).not.toBeInstanceOf(TaskHandle);
   });
 
-  it('generates a UUID taskId when response has no task id', async () => {
+  it('rejects a task handle when the peer returns a Message without a task ID', async () => {
     const body = {
       jsonrpc: '2.0',
       id: '1',
@@ -192,12 +192,10 @@ describe('AgentNetwork.call() with returnHandle', () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
-    const handle = await net.call('bot', 'ping', {}, 30000, { returnHandle: true });
-    const th = handle as TaskHandle;
-
-    expect(th.taskId).toBeTruthy();
-    expect(typeof th.taskId).toBe('string');
-    expect(th.taskId.length).toBeGreaterThan(0);
+    await expect(net.call('bot', 'ping', {}, 30000, { returnHandle: true })).rejects.toThrow(
+      'requires a real remote task',
+    );
+    await expect(net.call('bot', 'ping')).resolves.toBe('ok');
   });
 });
 
@@ -345,6 +343,29 @@ describe('discoverAgent()', () => {
     expect(card).toHaveProperty('supportsPush');
     expect(card).toHaveProperty('raw');
   });
+
+  it('selects compatible JSON-RPC after REST, gRPC and incompatible versions', async () => {
+    const response = agentCardResponse();
+    response.supportedInterfaces = [
+      { url: 'https://agent/rest', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
+      { url: 'https://agent/grpc', protocolBinding: 'GRPC', protocolVersion: '1.0' },
+      { url: 'https://agent/future', protocolBinding: 'JSONRPC', protocolVersion: '2.0' },
+      { url: 'https://agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
+    ];
+    vi.mocked(fetch).mockResolvedValue(mockJsonResponse(response));
+    expect((await discoverAgent('https://agent')).url).toBe('https://agent/rpc');
+  });
+
+  it.each([
+    [],
+    [{ url: 'https://agent/rest', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' }],
+    [{ url: 'https://agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '2.0' }],
+    [{ url: 'file:///tmp/socket', protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
+    [{ url: 'https://user:secret@agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
+  ])('rejects missing or incompatible interfaces: %j', async (...interfaces) => {
+    vi.mocked(fetch).mockResolvedValue(mockJsonResponse({ ...agentCardResponse(), supportedInterfaces: interfaces }));
+    await expect(discoverAgent('https://agent')).rejects.toThrow(RemoteAgentError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -415,6 +436,32 @@ describe('AgentNetwork.discover()', () => {
   it('throws for unknown agent name', async () => {
     const net = new AgentNetwork();
     await expect(net.discover('nope')).rejects.toThrow("Agent 'nope' not found");
+  });
+
+  it('uses the discovered endpoint for calls and the registered base for rediscovery', async () => {
+    const card = {
+      ...agentCardResponse(),
+      supportedInterfaces: [
+        { url: 'https://agent/rest', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
+        { url: 'https://agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
+      ],
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(mockJsonResponse(card))
+      .mockResolvedValueOnce(mockJsonResponse(a2aResponse('"ok"')))
+      .mockResolvedValueOnce(mockJsonResponse(card));
+    const network = new AgentNetwork({ bot: 'https://agent' });
+    await network.discover('bot');
+    await network.call('bot', 'greet');
+    await network.discover('bot');
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      'https://agent/.well-known/agent-card.json',
+      'https://agent/rpc',
+      'https://agent/.well-known/agent-card.json',
+    ]);
+    network.add('bot', 'https://replacement');
+    expect(network.get('bot')).toBe('https://replacement');
+    expect(network.getCard('bot')).toBeUndefined();
   });
 });
 

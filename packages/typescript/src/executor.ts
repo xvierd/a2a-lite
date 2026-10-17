@@ -13,7 +13,6 @@ import type { SkillDefinition, MiddlewareContext, Middleware, AuthProvider, Task
 import { TaskContext } from './tasks.js';
 import { MCPClient } from './mcp/index.js';
 import { A2ALiteError, SkillNotFoundError } from './errors.js';
-import type { TaskPushRegistry } from './push-notifications.js';
 
 /** Tracks per-execution task state so error handling follows the v1.0 event rules. */
 interface ExecutionState {
@@ -31,7 +30,6 @@ export class LiteAgentExecutor implements AgentExecutor {
   private taskStore?: TaskStore;
   private mcpServers: string[];
   private mcpClient?: MCPClient;
-  private pushRegistry?: TaskPushRegistry;
 
   constructor(options: {
     skills: Map<string, SkillDefinition>;
@@ -41,7 +39,6 @@ export class LiteAgentExecutor implements AgentExecutor {
     authProvider?: AuthProvider;
     taskStore?: TaskStore;
     mcpServers?: string[];
-    pushRegistry?: TaskPushRegistry;
   }) {
     this.skills = options.skills;
     this.errorHandler = options.errorHandler;
@@ -50,7 +47,6 @@ export class LiteAgentExecutor implements AgentExecutor {
     this.authProvider = options.authProvider;
     this.taskStore = options.taskStore;
     this.mcpServers = options.mcpServers ?? [];
-    this.pushRegistry = options.pushRegistry;
 
     // Create MCP client if servers are configured
     if (this.mcpServers.length > 0) {
@@ -118,9 +114,6 @@ export class LiteAgentExecutor implements AgentExecutor {
           console.warn(`Completion hook error for skill '${skillName ?? ''}':`, hookError);
         }
       }
-
-      // Fire per-task push notification if registered
-      await this.fireTaskWebhook(requestContext.taskId, skillName ?? '', result);
 
       eventBus.finished();
     } catch (error) {
@@ -344,35 +337,6 @@ export class LiteAgentExecutor implements AgentExecutor {
       eventBus.publish(AgentEvent.message(this.buildAgentTextMessage(errorText, execState.contextId)));
     }
     eventBus.finished();
-  }
-
-  /**
-   * Fire a per-task push notification webhook if one is registered.
-   */
-  private async fireTaskWebhook(taskId: string, skill: string, result: unknown): Promise<void> {
-    const config = this.pushRegistry?.get(taskId);
-    if (!config) return;
-
-    const event = {
-      task_id: taskId,
-      skill,
-      result,
-      status: 'completed',
-      timestamp: Date.now() / 1000,
-    };
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (config.token) headers['Authorization'] = `Bearer ${config.token}`;
-
-    try {
-      await fetch(config.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(event),
-      });
-    } catch (e) {
-      console.warn(`[A2A] Per-task push notification failed for task ${taskId}:`, e);
-    }
   }
 
   /**

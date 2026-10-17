@@ -4,6 +4,11 @@ import { LogPushNotifier, WebhookPushNotifier } from '../src/push-notifications.
 import type { PushEvent } from '../src/push-notifications.js';
 import { Agent, InMemoryTaskStore } from '../src/index.js';
 import { AgentTestClient } from '../src/testing.js';
+import { postWebhook } from '../src/push-delivery.js';
+vi.mock('../src/push-delivery.js', async (original) => ({
+  ...(await original<typeof import('../src/push-delivery.js')>()),
+  postWebhook: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -18,22 +23,6 @@ function makeEvent(overrides: Partial<PushEvent> = {}): PushEvent {
     agent: 'TestAgent',
     ...overrides,
   };
-}
-
-function mockOkResponse(status = 200): Response {
-  return {
-    ok: true,
-    status,
-    statusText: 'OK',
-  } as Response;
-}
-
-function mockErrorResponse(status: number): Response {
-  return {
-    ok: false,
-    status,
-    statusText: 'Error',
-  } as Response;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +67,7 @@ describe('WebhookPushNotifier', () => {
   const WEBHOOK_URL = 'https://example.com/hook';
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    vi.mocked(postWebhook).mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -89,52 +78,51 @@ describe('WebhookPushNotifier', () => {
   });
 
   it('sends a POST request to the webhook URL', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse());
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL });
     await notifier.notify(makeEvent());
 
-    expect(fetch).toHaveBeenCalledOnce();
-    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(postWebhook).toHaveBeenCalledOnce();
+    const [url] = vi.mocked(postWebhook).mock.calls[0];
     expect(url).toBe(WEBHOOK_URL);
-    expect(init.method).toBe('POST');
   });
 
   it('includes Content-Type: application/json header', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse());
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL });
     await notifier.notify(makeEvent());
 
-    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = vi.mocked(postWebhook).mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['Content-Type']).toBe('application/json');
   });
 
   it('does NOT include X-A2A-Signature when no secret is set', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse());
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL });
     await notifier.notify(makeEvent());
 
-    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = vi.mocked(postWebhook).mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['X-A2A-Signature']).toBeUndefined();
   });
 
   it('includes X-A2A-Signature header when secret is set', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse());
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, secret: 'my-secret' });
     await notifier.notify(makeEvent());
 
-    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = vi.mocked(postWebhook).mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['X-A2A-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
   });
 
   it('HMAC signature is valid and can be verified with Node crypto', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse());
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const secret = 'super-secret';
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, secret });
@@ -142,7 +130,7 @@ describe('WebhookPushNotifier', () => {
 
     await notifier.notify(event);
 
-    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = vi.mocked(postWebhook).mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     const sentBody = init.body as string;
     const sentSig = headers['X-A2A-Signature'];
@@ -156,14 +144,14 @@ describe('WebhookPushNotifier', () => {
   });
 
   it('resolves cleanly on a 2xx response', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockOkResponse(201));
+    vi.mocked(postWebhook).mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL });
     await expect(notifier.notify(makeEvent())).resolves.toBeUndefined();
   });
 
   it('logs error and resolves (does not throw) on 4xx after retries', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockErrorResponse(400));
+    vi.mocked(postWebhook).mockRejectedValue(new Error('HTTP 400'));
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, maxRetries: 1 });
     // Should NOT throw — it logs and swallows
@@ -172,34 +160,34 @@ describe('WebhookPushNotifier', () => {
   });
 
   it('logs error and resolves (does not throw) on 5xx after exhausting retries', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockErrorResponse(503));
+    vi.mocked(postWebhook).mockRejectedValue(new Error('HTTP 503'));
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, maxRetries: 2 });
     await expect(notifier.notify(makeEvent())).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(postWebhook).toHaveBeenCalledTimes(2);
     expect(console.error).toHaveBeenCalled();
   });
 
   it('retries on network-level errors and succeeds', async () => {
-    (fetch as ReturnType<typeof vi.fn>)
+    vi.mocked(postWebhook)
       .mockRejectedValueOnce(new Error('network error'))
       .mockRejectedValueOnce(new Error('network error'))
-      .mockResolvedValue(mockOkResponse());
+      .mockResolvedValue(undefined);
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, maxRetries: 3 });
 
     await expect(notifier.notify(makeEvent())).resolves.toBeUndefined();
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(postWebhook).toHaveBeenCalledTimes(3);
   });
 
   it('logs error after all retries on persistent network errors', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('timeout'));
+    vi.mocked(postWebhook).mockRejectedValue(new Error('timeout'));
 
     const notifier = new WebhookPushNotifier({ url: WEBHOOK_URL, maxRetries: 2 });
 
     await expect(notifier.notify(makeEvent())).resolves.toBeUndefined();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(postWebhook).toHaveBeenCalledTimes(2);
     expect(console.error).toHaveBeenCalled();
   });
 });
@@ -296,7 +284,7 @@ describe('Agent pushNotifier auto-wiring', () => {
     });
 
     const card = agent.buildAgentCard();
-    // Per-task push notifications are always available via TaskPushRegistry
+    // The official scoped SDK store supplies per-task push notification support
     expect(card.capabilities?.pushNotifications).toBe(true);
   });
 
@@ -318,8 +306,8 @@ describe('Agent pushNotifier auto-wiring', () => {
     await client.call('greet', { name: 'Bob' });
     const afterBob = fakeNotifier.notify.mock.calls.length;
 
-    // Each call should increase the notify count by at least 1
-    expect(afterAlice).toBeGreaterThan(beforeAlice);
-    expect(afterBob).toBeGreaterThan(afterAlice);
+    // Repeated buildApp() calls must not accumulate completion hooks.
+    expect(afterAlice - beforeAlice).toBe(1);
+    expect(afterBob - afterAlice).toBe(1);
   });
 });

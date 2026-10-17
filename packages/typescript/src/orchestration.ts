@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { RemoteAgentError } from './errors.js';
+import { parseDiscoveryCard, selectJsonRpcInterface } from './discovery.js';
 
 /** A2A v1.0 version header — required: without it 1.x servers assume 0.3 and reject. */
 const A2A_VERSION_HEADERS = { 'A2A-Version': '1.0' } as const;
@@ -47,17 +48,26 @@ export class TaskHandle {
     return cancelRemoteTask(this.agentUrl, this.taskId, timeout);
   }
 
-  async subscribe(webhookUrl: string, token?: string, timeout?: number): Promise<unknown> {
-    return setTaskPushNotification(this.agentUrl, this.taskId, webhookUrl, token, timeout);
+  async subscribe(webhookUrl: string, token?: string, timeout?: number, configId = this.taskId): Promise<unknown> {
+    return setTaskPushNotification(this.agentUrl, this.taskId, webhookUrl, token, timeout, configId);
   }
 
-  async unsubscribe(timeout?: number): Promise<unknown> {
-    return deleteTaskPushNotification(this.agentUrl, this.taskId, timeout);
+  async unsubscribe(timeout?: number, configId = this.taskId): Promise<unknown> {
+    return deleteTaskPushNotification(this.agentUrl, this.taskId, timeout, configId);
   }
 
-  async getPushConfig(timeout?: number): Promise<unknown> {
-    return getTaskPushNotification(this.agentUrl, this.taskId, timeout);
+  async getPushConfig(timeout?: number, configId = this.taskId): Promise<unknown> {
+    return getTaskPushNotification(this.agentUrl, this.taskId, timeout, configId);
   }
+}
+
+function remoteTaskHandle(taskId: string | undefined, result: unknown, agentUrl: string): TaskHandle {
+  if (!taskId) {
+    throw new RemoteAgentError(
+      'Remote agent returned a Message without a task ID; a task handle requires a real remote task.',
+    );
+  }
+  return new TaskHandle(taskId, result, agentUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,18 +109,9 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
       });
     }
 
-    const raw = (await response.json()) as Record<string, unknown>;
-
-    // Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
-    if (!('supportedInterfaces' in raw) && ('url' in raw || 'protocolVersion' in raw)) {
-      throw new RemoteAgentError(`Agent at ${agentUrl} speaks A2A 0.3, not supported by a2a-lite 1.0`, raw);
-    }
-
-    const interfaces = (raw.supportedInterfaces ?? []) as Array<Record<string, unknown>>;
-    const interfaceUrl = interfaces.length > 0 ? ((interfaces[0].url as string) ?? agentUrl) : agentUrl;
-
-    const capabilities = (raw.capabilities ?? {}) as Record<string, unknown>;
-    const skills = (raw.skills ?? []) as Array<Record<string, unknown>>;
+    const raw = parseDiscoveryCard(await response.json());
+    const interfaceUrl = selectJsonRpcInterface(raw);
+    const { capabilities, skills } = raw;
 
     return {
       name: (raw.name as string) ?? 'unknown',
@@ -153,21 +154,32 @@ export async function setTaskPushNotification(
   webhookUrl: string,
   token?: string,
   timeout = 10000,
+  configId = taskId,
 ): Promise<unknown> {
   return sendJsonRpc(
     agentUrl,
     'CreateTaskPushNotificationConfig',
-    { taskId, url: webhookUrl, ...(token ? { token } : {}) },
+    { taskId, id: configId, url: webhookUrl, ...(token ? { token } : {}) },
     timeout,
   );
 }
 
-export async function getTaskPushNotification(agentUrl: string, taskId: string, timeout = 10000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId }, timeout);
+export async function getTaskPushNotification(
+  agentUrl: string,
+  taskId: string,
+  timeout = 10000,
+  configId = taskId,
+): Promise<unknown> {
+  return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId, id: configId }, timeout);
 }
 
-export async function deleteTaskPushNotification(agentUrl: string, taskId: string, timeout = 10000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId }, timeout);
+export async function deleteTaskPushNotification(
+  agentUrl: string,
+  taskId: string,
+  timeout = 10000,
+  configId = taskId,
+): Promise<unknown> {
+  return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId, id: configId }, timeout);
 }
 
 async function sendJsonRpc(
@@ -229,6 +241,7 @@ export class AgentNetwork {
   }
 
   add(name: string, url: string, options?: { autoDiscover?: boolean }): void {
+    this.cards.delete(name);
     this.agents.set(name, url.replace(/\/$/, ''));
     if (options?.autoDiscover) {
       // Fire-and-forget discovery; errors are silently ignored
@@ -237,7 +250,7 @@ export class AgentNetwork {
   }
 
   get(name: string): string | undefined {
-    return this.agents.get(name);
+    return this.cards.get(name)?.url ?? this.agents.get(name);
   }
 
   remove(name: string): boolean {
@@ -270,7 +283,7 @@ export class AgentNetwork {
     timeout = 30000,
     options?: { returnHandle?: boolean },
   ): Promise<unknown> {
-    const url = this.agents.get(name);
+    const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (!url) {
       throw new Error(`Agent '${name}' not found in network. Available: ${[...this.agents.keys()].join(', ')}`);
     }
@@ -278,7 +291,7 @@ export class AgentNetwork {
     const { result, taskId } = await callRemoteSkillInternal(url, skill, params, timeout);
 
     if (options?.returnHandle) {
-      return new TaskHandle(taskId, result, url);
+      return remoteTaskHandle(taskId, result, url);
     }
     return result;
   }
@@ -289,7 +302,7 @@ export class AgentNetwork {
     params: Record<string, unknown> = {},
     timeout = 30000,
   ): AsyncGenerator<string> {
-    const url = this.agents.get(name);
+    const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (!url) {
       throw new Error(`Agent '${name}' not found in network. Available: ${[...this.agents.keys()].join(', ')}`);
     }
@@ -305,7 +318,7 @@ export class AgentNetwork {
     await Promise.all(
       [...this.agents.entries()].map(async ([name, url]) => {
         try {
-          const { result } = await callRemoteSkillInternal(url, skill, params, timeout);
+          const { result } = await callRemoteSkillInternal(this.cards.get(name)?.url ?? url, skill, params, timeout);
           results[name] = result;
         } catch (err) {
           results[name] = { error: (err as Error).message, type: (err as Error).constructor.name };
@@ -316,13 +329,13 @@ export class AgentNetwork {
   }
 
   async getTask(name: string, taskId: string, timeout?: number): Promise<unknown> {
-    const url = this.agents.get(name);
+    const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (url === undefined) throw new Error(`Agent '${name}' not found in network.`);
     return getRemoteTask(url, taskId, timeout);
   }
 
   async cancelTask(name: string, taskId: string, timeout?: number): Promise<unknown> {
-    const url = this.agents.get(name);
+    const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (url === undefined) throw new Error(`Agent '${name}' not found in network.`);
     return cancelRemoteTask(url, taskId, timeout);
   }
@@ -353,7 +366,7 @@ export async function callRemoteSkillWithHandle(
   timeout = 30000,
 ): Promise<TaskHandle> {
   const { result, taskId } = await callRemoteSkillInternal(agentUrl, skill, params, timeout);
-  return new TaskHandle(taskId, result, agentUrl);
+  return remoteTaskHandle(taskId, result, agentUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -365,7 +378,7 @@ async function callRemoteSkillInternal(
   skill: string,
   params: Record<string, unknown>,
   timeout: number,
-): Promise<{ result: unknown; taskId: string }> {
+): Promise<{ result: unknown; taskId: string | undefined }> {
   const message = JSON.stringify({ skill, params });
   const requestBody = {
     jsonrpc: '2.0',
@@ -399,15 +412,14 @@ async function callRemoteSkillInternal(
     const result = extractResult(data);
 
     // Extract task ID from the A2A v1.0 response envelope:
-    // result.task.id or result.message.taskId (fallback: random UUID)
+    // Only the peer can assign a task ID; message-only responses have none.
     const resultObj = (data.result ?? {}) as Record<string, unknown>;
     const taskObj = (resultObj.task ?? {}) as Record<string, unknown>;
     const messageObj = (resultObj.message ?? {}) as Record<string, unknown>;
     const taskId =
-      (typeof taskObj.id === 'string' && taskObj.id) ||
-      (typeof messageObj.taskId === 'string' && messageObj.taskId) ||
-      (typeof resultObj.id === 'string' && resultObj.id) ||
-      uuidv4();
+      (typeof taskObj.id === 'string' && taskObj.id.trim() && taskObj.id) ||
+      (typeof messageObj.taskId === 'string' && messageObj.taskId.trim() && messageObj.taskId) ||
+      undefined;
 
     return { result, taskId };
   } finally {

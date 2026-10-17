@@ -9,12 +9,40 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple, intuitive API. 100% protocol-compatible.
 
-> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `@a2a-js/sdk 1.0.1`.
+> **v1.1.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
 > - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC:** not implemented in TypeScript yet (Python has experimental `run_grpc`; see root Feature Matrix).
 > - Requires **Node.js >= 20**. No v0.3 compatibility.
 > - Experimental **signed Agent Cards** via `signAgentCard` / `verifyAgentCard`.
 > - See [MIGRATION.md](../../MIGRATION.md).
+
+Discovery selects an advertised JSON-RPC interface for A2A `1.0`, including when
+REST or gRPC appears first. Agents without a compatible interface are rejected.
+`returnHandle` requires a task ID issued by the remote agent; a plain Message
+still works with regular calls but cannot be used for task management.
+
+Authenticated requests carry their verified `userId` into both SDK transports.
+The default SDK stores isolate tasks and push configurations by user and tenant.
+Custom `protocolTaskStore` implementations must preserve that same scope contract.
+Authentication providers must return a nonempty identity on successful authentication.
+
+Per-task push configurations now use the official SDK API. They require an authenticated
+caller, an existing task owned by that caller, independent configuration IDs and a public **HTTPS**
+callback URL. Registration and delivery reject private/reserved addresses; delivery
+pins DNS resolution, preserves the original TLS identity and never follows redirects
+or uses proxy agents. Notifications use the A2A v1.0 `StreamResponse` body and
+`application/a2a+json`; `token` is sent in `X-A2A-Notification-Token`.
+
+`TaskHandle.subscribe`, `getPushConfig` and `unsubscribe` retain their existing
+arguments and accept an optional final `configId`; the default is the task ID.
+`TaskPushRegistry` remains available as a deprecated standalone utility. Direct
+`agent.pushRegistry.set(...)` calls no longer register network callbacks; use the
+protocol helpers or inline `configuration.taskPushNotificationConfig` instead.
+
+The operator-configured `WebhookPushNotifier` retains its completion-event payload
+and HMAC signing. It accepts public HTTP(S) URLs and shares the same address,
+redirect and timeout protections; use HTTPS when sending sensitive data. Private
+callback destinations require a separately implemented, trusted `PushNotifier`.
 
 ```typescript
 import { Agent } from 'a2a-lite';
