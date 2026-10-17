@@ -243,7 +243,7 @@ class TestTaskTracking:
 class TestAuth:
     def setup_method(self):
         self.mod = load_example("12_with_auth.py")
-        self.client = AgentTestClient(self.mod.agent)
+        self.client = AgentTestClient(self.mod.agent, headers={"X-API-Key": "secret-key"})
 
     def test_public_info(self):
         result = self.client.call("public_info")

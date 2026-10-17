@@ -10,7 +10,7 @@ v1.0 streaming pattern (strictly enforced by the SDK):
   3. The stream ends with updater.complete() / failed() / cancel().
   Emitting multiple bare Messages raises InvalidAgentResponseError.
 
-Install: pip install "a2a-sdk[http-server]>=1.1.2,<2.0"
+Install: pip install "a2a-sdk[http-server]>=1.2.2,<2.0"
 """
 
 import asyncio

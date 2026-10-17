@@ -16,10 +16,17 @@ an A2A Lite agent.
 ## Run in dev mode
 
 ```bash
+# From the repository root, build the local package first.
+npm --prefix packages/typescript ci
+npm --prefix packages/typescript run build
 cd examples/typescript/10_persistence_lite
 npm install
+npm run typecheck
 npm start          # or: npx tsx agent.ts
 ```
+
+The example's `.npmrc` installs the local `a2a-lite` package with a shared SDK
+dependency tree, avoiding incompatible duplicate SDK types from symlinked installs.
 
 The `LogPushNotifier` will print every completion event to stdout.
 
@@ -32,6 +39,11 @@ npm start
 ```
 
 Every time a skill finishes, the agent POSTs a JSON payload to your webhook:
+
+`WebhookPushNotifier` accepts public HTTP(S) destinations, rejects private/reserved
+addresses and does not follow redirects. Use a public HTTPS callback for the signed
+production example. Protocol per-task subscriptions separately require a real A2A
+task and use the SDK's user-scoped configuration API and v1.0 notification envelope.
 
 ```json
 {

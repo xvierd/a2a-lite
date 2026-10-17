@@ -9,7 +9,7 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
 
-> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.1.2`.
+> **v1.1.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
 > - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC (experimental, opt-in):** `pip install a2a-lite[grpc]` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
 > - **No v0.3 compatibility.** See [MIGRATION.md](../../MIGRATION.md).
@@ -36,7 +36,7 @@ pip install a2a-lite
 uv add a2a-lite
 ```
 
-**Requirements:** Python 3.10+ (pulls in `a2a-sdk[http-server] >= 1.1.2` automatically)
+**Requirements:** Python 3.10+ (pulls in `a2a-sdk[http-server] >= 1.2.2` automatically)
 
 ### Optional extras
 
@@ -273,6 +273,8 @@ agent = Agent(
 
 #### TaskHandle — track remote tasks
 
+A handle requires a real task ID returned by the peer. Message-only responses cannot be polled or subscribed to; requesting a handle for one raises a clear error instead of inventing an ID. Discovery selects a compatible JSON-RPC interface regardless of card order.
+
 ```python
 from a2a_lite import Agent, AgentNetwork, TaskHandle
 
@@ -367,34 +369,30 @@ async for chunk in stream_remote_skill("http://localhost:8787", "tell_story", {"
 
 ### Per-Task Push Notifications
 
-Register a webhook for a specific task — the server calls it when that task completes:
+Per-task callbacks require an authenticated identity, including inline configuration in `SendMessage`. Agents with `auth=None` reject callback configuration. Register callbacks for an existing protocol task owned by the authenticated caller:
 
 ```python
-from a2a_lite import set_task_push_notification, delete_task_push_notification
+from a2a_lite import set_task_push_notification, get_task_push_notification, delete_task_push_notification
 
-# Get a handle when delegating
-handle = await agent.delegate("data", "fetch", query="hello", return_handle=True)
-
-# Register a webhook for this specific task
-await handle.subscribe("https://my-app.com/webhook", token="secret")
-
-# Or use the standalone function
+# task_id must come from result.task.id in an A2A response.
+headers = {"X-API-Key": "your-agent-key"}
 await set_task_push_notification(
-    "http://localhost:8787", handle.task_id,
-    "https://my-app.com/webhook", token="secret"
+    "https://agent.example/rpc", task_id,
+    "https://my-app.com/webhook", token="callback-token", headers=headers,
 )
-
-# Retrieve registration
-config = await handle.get_push_config()
-
-# Remove registration
-await handle.unsubscribe()
+config = await get_task_push_notification("https://agent.example/rpc", task_id, headers=headers)
+await delete_task_push_notification("https://agent.example/rpc", task_id, headers=headers)
 ```
 
-The server-side `TaskPushRegistry` is automatically created on every Agent. When a task completes, the registered webhook receives:
-```json
-{"task_id": "...", "skill": "process", "result": ..., "status": "completed", "timestamp": 1234567890}
-```
+Register during `SendMessage` using `configuration.taskPushNotificationConfig` to avoid missing a fast task's completion. See [the complete example](examples/18_per_task_push.py). Callbacks carry standard A2A task, status-update or artifact-update payloads with `Content-Type: application/a2a+json`; the old custom `{skill, result, status}` envelope is no longer used for per-task notifications. The standalone agent-level `WebhookPushNotifier` keeps its existing trusted configuration and envelope.
+
+Client-supplied callbacks require **public HTTPS**. User info, fragments, private/loopback/link-local/shared addresses, unresolved hosts and redirects are rejected. Delivery has a ten-second total deadline, connects to a validated address while preserving TLS verification for the original hostname, and closes the response without buffering its body. Logs omit callback URLs and exception details. Local development should use a public HTTPS reverse proxy or mocked HTTP transport in tests; there is no insecure callback bypass.
+
+Configured authentication now protects all protocol operations, including task reads, cancellation, streaming and push configuration. HTTP authentication failures return `401`; gRPC returns `UNAUTHENTICATED`. Agent-card discovery remains public. With `auth=None`, messages and tasks retain their public anonymous mode, while dynamic callback operations return `UnsupportedOperation` until authentication is configured. Custom authentication must return a stable non-empty string `AuthResult.user_id`; OAuth tokens require a subject or email identity. In-memory SDK stores isolate tasks/configuration by this identity. Custom `protocol_task_store` implementations must honor the SDK `ServerCallContext` ownership contract.
+
+`agent.push_registry` is now the SDK owner-scoped store with async `set_info`, `get_info` and `delete_info` methods; direct access is for trusted server code. Use the authenticated protocol operations above for clients. The exported legacy `TaskPushRegistry` remains a standalone local utility, but it does not register server callbacks. The internal `PushNotificationMiddleware` has been removed.
+
+The HTTP app and managed gRPC server close SDK background tasks and callback connections during shutdown. Await `server.stop()` when using `build_grpc_server()`. Its card advertises only gRPC and is available through `GetExtendedAgentCard`.
 
 ### Level 9 — Lifecycle Hooks
 

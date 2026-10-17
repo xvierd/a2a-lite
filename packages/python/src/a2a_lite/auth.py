@@ -106,7 +106,7 @@ class NoAuth(AuthProvider):
     """No authentication (default)."""
 
     async def authenticate(self, request: AuthRequest) -> AuthResult:
-        return AuthResult.success(user_id="anonymous")
+        return AuthResult.success(user_id="anonymous", anonymous=True)
 
     def get_scheme(self) -> dict[str, Any]:
         return {}
@@ -266,7 +266,9 @@ class OAuth2Auth(AuthProvider):
                 issuer=self.issuer,
             )
 
-            user_id = payload.get("sub", payload.get("email", "unknown"))
+            user_id = payload.get("sub", payload.get("email"))
+            if not isinstance(user_id, str) or not user_id.strip():
+                return AuthResult.failure("Token requires a non-empty subject or email identity")
             scopes = set(payload.get("scope", "").split())
 
             return AuthResult.success(

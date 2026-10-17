@@ -11,8 +11,8 @@ Pattern — Capability-Based Negotiation:
 
     OrchestratorAgent
          │
-         ├── discover("http://localhost:8787") → reads /.well-known/agent.json
-         ├── discover("http://localhost:8788") → reads /.well-known/agent.json
+         ├── discover("http://localhost:8787") → reads /.well-known/agent-card.json
+         ├── discover("http://localhost:8788") → reads /.well-known/agent-card.json
          │
          │   selects the agent that has the "analyze" skill
          │
@@ -20,7 +20,7 @@ Pattern — Capability-Based Negotiation:
                   │
                   ├── handle.task_id  → unique task ID
                   ├── handle.result   → immediate result
-                  └── handle.get_status() → polls tasks/get on remote
+                  └── handle.get_status() → polls GetTask on remote
 
 Run:
     # Terminal 1 — specialist A (has "analyze" skill):
@@ -32,9 +32,11 @@ Run:
     # Terminal 3 — orchestrator (discovers + selects + delegates):
     python examples/19_capability_negotiation.py orchestrator
 """
+
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 
 from a2a_lite import Agent, AgentNetwork, discover
@@ -44,6 +46,7 @@ from a2a_lite import Agent, AgentNetwork, discover
 # Specialist A — port 8787 — has the "analyze" skill
 # ---------------------------------------------------------------------------
 
+
 def create_specialist_a() -> Agent:
     agent = Agent(
         name="AnalystAgent",
@@ -51,18 +54,20 @@ def create_specialist_a() -> Agent:
         version="1.0.0",
     )
 
-    @agent.skill("analyze", description="Deep analysis of a text document")
-    async def analyze(text: str) -> dict:
+    @agent.skill("analyze", description="Deep analysis of a text document", streaming=True)
+    async def analyze(text: str):
         words = text.split()
         sentences = [s.strip() for s in text.split(".") if s.strip()]
         avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
-        return {
-            "agent": "AnalystAgent",
-            "word_count": len(words),
-            "sentence_count": len(sentences),
-            "avg_word_length": round(avg_word_len, 2),
-            "complexity": "high" if avg_word_len > 5 else "low",
-        }
+        yield json.dumps(
+            {
+                "agent": "AnalystAgent",
+                "word_count": len(words),
+                "sentence_count": len(sentences),
+                "avg_word_length": round(avg_word_len, 2),
+                "complexity": "high" if avg_word_len > 5 else "low",
+            }
+        )
 
     return agent
 
@@ -70,6 +75,7 @@ def create_specialist_a() -> Agent:
 # ---------------------------------------------------------------------------
 # Specialist B — port 8788 — has the "summarize" skill (NOT "analyze")
 # ---------------------------------------------------------------------------
+
 
 def create_specialist_b() -> Agent:
     agent = Agent(
@@ -94,6 +100,7 @@ def create_specialist_b() -> Agent:
 # ---------------------------------------------------------------------------
 # Orchestrator — discovers, negotiates, delegates
 # ---------------------------------------------------------------------------
+
 
 def create_orchestrator() -> Agent:
     network = AgentNetwork()
@@ -145,7 +152,7 @@ def create_orchestrator() -> Agent:
         handle = await orchestrator.delegate(
             selected_name,
             "analyze",
-            discover=True,       # re-validate before committing
+            discover=True,  # re-validate before committing
             return_handle=True,  # get TaskHandle back
             text=text,
         )

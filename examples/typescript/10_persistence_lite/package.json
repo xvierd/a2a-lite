@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "a2a-lite": "file:../../../packages/typescript",
-    "@a2a-js/sdk": "^1.0.1",
+    "@a2a-js/sdk": "^1.3.0",
     "express": "^5.1.0"
   },
   "devDependencies": {

@@ -1,80 +1,46 @@
 package com.a2alite.server;
 
 import com.a2alite.Agent;
-import com.a2alite.auth.AuthProvider;
+import com.a2alite.auth.AuthRequest;
 import com.a2alite.auth.NoAuth;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.javalin.Javalin;
+import io.javalin.http.Context;
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
+import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AErrorResponse;
+import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AResponse;
+import org.a2aproject.sdk.jsonrpc.common.wrappers.SendStreamingMessageResponse;
+import org.a2aproject.sdk.server.ServerCallContext;
+import org.a2aproject.sdk.server.auth.AuthenticatedUser;
+import org.a2aproject.sdk.server.auth.UnauthenticatedUser;
+import org.a2aproject.sdk.server.extensions.A2AExtensions;
+import org.a2aproject.sdk.spec.*;
+import org.a2aproject.sdk.spec.InternalError;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * {@link ServerAdapter} implementation backed by Javalin.
- *
- * <p>This is the default adapter used when Javalin is on the classpath. It
- * registers the A2A Lite endpoints ({@code GET /.well-known/agent-card.json} and
- * {@code POST /}) on a Javalin instance and starts the HTTP server. It speaks
- * the A2A protocol v1.0 JSON-RPC binding ({@code SendMessage},
- * {@code CreateTaskPushNotificationConfig}, ...).
- *
- * <p>Javalin is declared {@code compileOnly} in the SDK's build file so that
- * users who deploy on Quarkus, Spring Boot, or another container are not
- * forced to bundle it. If Javalin is absent at runtime the static factory
- * method {@link #createIfAvailable()} returns {@code null} instead of
- * throwing, allowing {@link Agent} to produce a helpful error message.
- */
+/** Javalin HTTP adapter backed by the official SDK's task lifecycle and JSON-RPC models. */
 public class JavalinServerAdapter implements ServerAdapter {
-
     private final List<String> corsOrigins;
-    private final ObjectMapper mapper;
-
+    private final ObjectMapper mapper = new ObjectMapper();
     private Javalin app;
+    private SdkProtocol protocol;
 
-    /**
-     * Creates a new adapter with no CORS configuration.
-     */
-    public JavalinServerAdapter() {
-        this(null);
-    }
+    public JavalinServerAdapter() { this(null); }
 
-    /**
-     * Creates a new adapter with the given CORS origins.
-     *
-     * @param corsOrigins allowed CORS origins, or {@code null} / empty to disable CORS headers
-     */
-    public JavalinServerAdapter(List<String> corsOrigins) {
-        this.corsOrigins = corsOrigins;
-        this.mapper = new ObjectMapper();
-    }
+    public JavalinServerAdapter(List<String> corsOrigins) { this.corsOrigins = corsOrigins; }
 
-    /**
-     * Attempts to create a {@link JavalinServerAdapter} without throwing if
-     * Javalin is absent from the classpath.
-     *
-     * <p>This method is used by {@link Agent} to provide automatic default
-     * behaviour: if Javalin is available a ready-to-use adapter is returned;
-     * otherwise {@code null} is returned so the caller can decide how to
-     * handle the missing dependency.
-     *
-     * @return a new {@link JavalinServerAdapter}, or {@code null} if Javalin
-     *         is not on the classpath
-     */
-    public static JavalinServerAdapter createIfAvailable() {
-        try {
-            Class.forName("io.javalin.Javalin");
-            return new JavalinServerAdapter();
-        } catch (ClassNotFoundException e) {
-            return null;
-        }
-    }
+    public static JavalinServerAdapter createIfAvailable() { return createIfAvailable(null); }
 
-    /**
-     * Same as {@link #createIfAvailable()} but also forwards the CORS origins
-     * from the agent builder so the adapter is fully configured.
-     */
     public static JavalinServerAdapter createIfAvailable(List<String> corsOrigins) {
         try {
             Class.forName("io.javalin.Javalin");
@@ -86,207 +52,166 @@ public class JavalinServerAdapter implements ServerAdapter {
 
     @Override
     public void start(Agent agent, String host, int port) {
-        this.app = Javalin.create();
-
-        // Agent card endpoint (A2A v1.0 well-known path)
+        String displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
+        protocol = new SdkProtocol(agent, displayHost, port);
+        app = Javalin.create();
+        app.before(this::addCorsHeaders);
         app.get("/.well-known/agent-card.json", ctx -> {
-            String displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
-            ctx.json(agent.buildAgentCardJson(displayHost, port));
+            var card = agent.buildAgentCardJson(displayHost, app.port());
+            card.withObject("/capabilities").put("pushNotifications", !(agent.getAuth() instanceof NoAuth));
+            ctx.json(card);
         });
-
-        // Main A2A JSON-RPC endpoint
         app.post("/", ctx -> handleRequest(ctx, agent));
-
-        // OPTIONS preflight handler for CORS
-        if (corsOrigins != null && !corsOrigins.isEmpty()) {
-            app.options("/", ctx -> {
-                ctx.header("Access-Control-Allow-Origin", String.join(",", corsOrigins));
-                ctx.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                ctx.header("Access-Control-Allow-Headers", "*");
-                ctx.status(204);
-            });
+        if (corsOrigins != null && !corsOrigins.isEmpty()) app.options("/", ctx -> ctx.status(204));
+        try {
+            app.start(host, port);
+        } catch (RuntimeException e) {
+            protocol.close();
+            throw e;
         }
-
-        var displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
-
-        System.out.printf("""
-            \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-            \u2502  \uD83D\uDE80 A2A Lite Agent Started                      \u2502
-            \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
-            \u2502  %s v%s
-            \u2502  %s
-            \u2502
-            \u2502  Skills:
-            %s
-            \u2502
-            \u2502  Endpoints:
-            \u2502    \u2022 Agent Card: http://%s:%d/.well-known/agent-card.json
-            \u2502    \u2022 API: http://%s:%d/
-            \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
-            %n""",
-            agent.getName(), agent.getVersion(),
-            agent.getDescription(),
-            agent.getSkills().values().stream()
-                .map(s -> "\u2502    \u2022 " + s.name() + ": " + s.description())
-                .reduce((a, b) -> a + "\n" + b)
-                .orElse("\u2502    (no skills)"),
-            displayHost, port,
-            displayHost, port
-        );
-
-        app.start(host, port);
     }
+
+    /** Actual listening port, including when started with port zero. */
+    public int port() { return app.port(); }
 
     @Override
     public void stop() {
-        if (app != null) {
-            app.stop();
-        }
+        if (protocol != null) protocol.close();
+        if (app != null) app.stop();
     }
 
-    // -----------------------------------------------------------------------
-    // Request handling
-    // -----------------------------------------------------------------------
-
-    private void handleRequest(io.javalin.http.Context ctx, Agent agent) throws Exception {
-        addCorsHeaders(ctx);
+    private void handleRequest(Context ctx, Agent agent) throws Exception {
         ctx.header("A2A-Version", "1.0");
-
-        Map<String, String> headers = new HashMap<>(ctx.headerMap());
-        AuthProvider auth = agent.getAuth();
-
-        if (!(auth instanceof NoAuth)) {
-            var authReq = new com.a2alite.auth.AuthRequest(headers);
-            var authResult = auth.authenticate(authReq);
-            if (!authResult.authenticated()) {
+        JsonNode id = mapper.nullNode();
+        try {
+            JsonNode body;
+            try {
+                body = mapper.readTree(ctx.bodyAsBytes());
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new JSONParseError();
+            }
+            if (body == null || !body.isObject()) throw new InvalidRequestError();
+            id = body.path("id");
+            if (id.isMissingNode()) id = mapper.nullNode();
+            if (!id.isNull() && !id.isTextual() && !id.isNumber()) {
+                id = mapper.nullNode();
+                throw new InvalidRequestError();
+            }
+            if (!"2.0".equals(body.path("jsonrpc").asText()) || !body.path("method").isTextual()) {
+                throw new InvalidRequestError();
+            }
+            Object correlation = id.isNumber() ? id.numberValue() : id.isTextual() ? id.textValue() : null;
+            var headers = new HashMap<>(ctx.headerMap());
+            var query = new HashMap<String, String>();
+            ctx.queryParamMap().forEach((key, values) -> {
+                if (!values.isEmpty()) query.put(key, values.get(0));
+            });
+            var auth = agent.getAuth().authenticate(new AuthRequest(headers, query));
+            if (auth == null || !auth.authenticated() || (!auth.anonymous()
+                    && (auth.userId() == null || auth.userId().isBlank()))) {
                 ctx.status(401);
-                ctx.json(Map.of(
-                    "jsonrpc", "2.0",
-                    "error", Map.of(
-                        "code", -32600,
-                        "message", authResult.error() != null ? authResult.error() : "Authentication failed"
-                    )
-                ));
+                respond(ctx, new A2AErrorResponse(correlation, new InvalidRequestError("Authentication required")), id);
                 return;
             }
-        }
-
-        JsonNode body = mapper.readTree(ctx.bodyAsBytes());
-        var method = body.path("method").asText();
-        var id = body.path("id").asText();
-
-        if ("SendMessage".equals(method)) {
-            var message = body.path("params").path("message");
-            var result = agent.handleMessage(message, headers);
-
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-
-            var resultNode = response.putObject("result");
-            var messageNode = resultNode.putObject("message");
-            messageNode.put("role", "ROLE_AGENT");
-            messageNode.put("messageId", java.util.UUID.randomUUID().toString().replace("-", ""));
-            var partsArray = messageNode.putArray("parts");
-            var textPart = partsArray.addObject();
-            textPart.put("text", mapper.writeValueAsString(result));
-
-            ctx.json(response);
-        } else if ("CreateTaskPushNotificationConfig".equals(method)) {
-            handlePushNotificationSet(ctx, body, id, agent);
-        } else if ("GetTaskPushNotificationConfig".equals(method)) {
-            handlePushNotificationGet(ctx, body, id, agent);
-        } else if ("DeleteTaskPushNotificationConfig".equals(method)) {
-            handlePushNotificationDelete(ctx, body, id, agent);
-        } else {
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-            var error = response.putObject("error");
-            error.put("code", -32601);
-            error.put("message", "Method not found");
-            ctx.json(response);
-        }
-    }
-
-    private void handlePushNotificationSet(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
-        var params = body.path("params");
-        var taskId = params.path("taskId").asText();
-        var url = params.path("url").asText();
-        var token = params.has("token") && !params.path("token").isNull()
-                ? params.path("token").asText() : null;
-
-        if (taskId.isEmpty() || url.isEmpty()) {
-            var response = mapper.createObjectNode();
-            response.put("jsonrpc", "2.0");
-            response.put("id", id);
-            var error = response.putObject("error");
-            error.put("code", -32602);
-            error.put("message", "Missing required fields: taskId and url");
-            ctx.json(response);
-            return;
-        }
-
-        agent.getPushRegistry().set(taskId, url, token);
-
-        var response = mapper.createObjectNode();
-        response.put("jsonrpc", "2.0");
-        response.put("id", id);
-        var result = response.putObject("result");
-        result.put("taskId", taskId);
-        result.put("id", taskId);
-        result.put("url", url);
-        if (token != null) {
-            result.put("token", token);
-        }
-        ctx.json(response);
-    }
-
-    private void handlePushNotificationGet(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
-        var params = body.path("params");
-        var taskId = params.path("taskId").asText();
-
-        var config = agent.getPushRegistry().get(taskId);
-
-        var response = mapper.createObjectNode();
-        response.put("jsonrpc", "2.0");
-        response.put("id", id);
-
-        if (config.isPresent()) {
-            var result = response.putObject("result");
-            result.put("taskId", taskId);
-            result.put("id", taskId);
-            result.put("url", config.get().url());
-            if (config.get().token() != null) {
-                result.put("token", config.get().token());
+            var user = auth.anonymous() ? UnauthenticatedUser.INSTANCE
+                : new AuthenticatedUser(auth.userId());
+            String extensionHeader = ctx.header("A2A-Extensions");
+            var context = new ServerCallContext(user,
+                Map.of(ServerCallContext.TRANSPORT_KEY, TransportProtocol.JSONRPC),
+                A2AExtensions.getRequestedExtensions(extensionHeader == null ? List.of() : List.of(extensionHeader)),
+                ctx.header("A2A-Version"));
+            Object result = protocol.dispatch(body.path("method").asText(), body.path("params"), correlation, context);
+            if (result instanceof Flow.Publisher<?> publisher) {
+                @SuppressWarnings("unchecked")
+                var events = (Flow.Publisher<StreamingEventKind>) publisher;
+                stream(ctx, events, correlation, id, context);
+            } else {
+                respond(ctx, (A2AResponse<?>) result, id);
             }
-        } else {
-            var error = response.putObject("error");
-            error.put("code", -32001);
-            error.put("message", "No push notification config for task: " + taskId);
+        } catch (A2AError e) {
+            respond(ctx, new A2AErrorResponse(null, e), id);
+        } catch (IllegalArgumentException e) {
+            respond(ctx, new A2AErrorResponse(null, new InvalidParamsError("Invalid request parameters")), id);
+        } catch (Exception e) {
+            respond(ctx, new A2AErrorResponse(null, new InternalError("Request failed")), id);
         }
-
-        ctx.json(response);
     }
 
-    private void handlePushNotificationDelete(io.javalin.http.Context ctx, JsonNode body, String id, Agent agent) throws Exception {
-        var params = body.path("params");
-        var taskId = params.path("taskId").asText();
-
-        agent.getPushRegistry().delete(taskId);
-
-        var response = mapper.createObjectNode();
-        response.put("jsonrpc", "2.0");
-        response.put("id", id);
-        response.putObject("result");
-        ctx.json(response);
+    private String encode(A2AResponse<?> response, JsonNode id) throws Exception {
+        var json = (ObjectNode) mapper.readTree(JsonUtil.toJson(response));
+        json.set("id", id);
+        if (response.getError() == null && response.getResult() == null) json.putObject("result");
+        return mapper.writeValueAsString(json);
     }
 
-    private void addCorsHeaders(io.javalin.http.Context ctx) {
-        if (corsOrigins != null && !corsOrigins.isEmpty()) {
-            ctx.header("Access-Control-Allow-Origin", String.join(",", corsOrigins));
+    private void respond(Context ctx, A2AResponse<?> response, JsonNode id) throws Exception {
+        if (!ctx.res().isCommitted()) ctx.contentType("application/json").result(encode(response, id));
+    }
+
+    private void stream(Context ctx, Flow.Publisher<StreamingEventKind> publisher, Object correlation,
+                        JsonNode id, ServerCallContext context) throws Exception {
+        ctx.contentType("text/event-stream");
+        ctx.header("Cache-Control", "no-cache");
+        ctx.header("X-Accel-Buffering", "no");
+        var done = new CountDownLatch(1);
+        var subscription = new AtomicReference<Flow.Subscription>();
+        publisher.subscribe(new Flow.Subscriber<>() {
+            @Override
+            public void onSubscribe(Flow.Subscription value) {
+                subscription.set(value);
+                value.request(1);
+            }
+
+            @Override
+            public void onNext(StreamingEventKind event) {
+                try {
+                    write(new SendStreamingMessageResponse(correlation, event));
+                    subscription.get().request(1);
+                } catch (Exception e) {
+                    subscription.get().cancel();
+                    context.invokeEventConsumerCancelCallback();
+                    done.countDown();
+                }
+            }
+
+            private void write(A2AResponse<?> response) throws Exception {
+                byte[] data = ("data: " + encode(response, id) + "\n\n").getBytes(StandardCharsets.UTF_8);
+                ctx.res().getOutputStream().write(data);
+                ctx.res().getOutputStream().flush();
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                try {
+                    write(new A2AErrorResponse(correlation,
+                        error instanceof A2AError a2a ? a2a : new InternalError("Stream failed")));
+                } catch (Exception ignored) {
+                    // The client may have disconnected.
+                } finally {
+                    done.countDown();
+                }
+            }
+
+            @Override
+            public void onComplete() { done.countDown(); }
+        });
+        try {
+            done.await(5, TimeUnit.MINUTES);
+        } finally {
+            if (subscription.get() != null) subscription.get().cancel();
+            context.invokeEventConsumerCancelCallback();
+        }
+    }
+
+    private void addCorsHeaders(Context ctx) {
+        if (corsOrigins == null || corsOrigins.isEmpty()) return;
+        String origin = ctx.header("Origin");
+        ctx.header("Vary", "Origin");
+        if (origin != null && (corsOrigins.contains("*") || corsOrigins.contains(origin))) {
+            ctx.header("Access-Control-Allow-Origin", origin);
             ctx.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            ctx.header("Access-Control-Allow-Headers", "*");
+            ctx.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, A2A-Version, A2A-Extensions");
+            ctx.header("Access-Control-Expose-Headers", "A2A-Version, A2A-Extensions");
         }
     }
 }

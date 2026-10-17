@@ -363,7 +363,7 @@ class TestProtocolTaskStoreWiring:
             return "pong"
 
         # Verify the app builds without error (uses default InMemoryTaskStore)
-        with patch("a2a_lite.agent.DefaultRequestHandler") as mock_handler_cls:
+        with patch("a2a_lite.agent.LiteRequestHandler") as mock_handler_cls:
             mock_handler_cls.return_value = MagicMock()
             agent._build_app("localhost", 8787)
 
@@ -383,7 +383,7 @@ class TestProtocolTaskStoreWiring:
         async def ping() -> str:
             return "pong"
 
-        with patch("a2a_lite.agent.DefaultRequestHandler") as mock_handler_cls:
+        with patch("a2a_lite.agent.LiteRequestHandler") as mock_handler_cls:
             mock_handler_cls.return_value = MagicMock()
             agent._build_app("localhost", 8787)
 
@@ -429,7 +429,7 @@ class TestPushNotifierWiring:
             original_build(self_inner, *args, **kwargs)
             captured_executors.append(self_inner)
 
-        with patch("a2a_lite.agent.DefaultRequestHandler", return_value=MagicMock()):
+        with patch("a2a_lite.agent.LiteRequestHandler", return_value=MagicMock()):
             with patch.object(LiteAgentExecutor, "__init__", _capture_init):
                 agent._build_app("localhost", 8787)
 
@@ -475,7 +475,7 @@ class TestPushNotifierWiring:
             original_build(self_inner, *args, **kwargs)
             captured_executors.append(self_inner)
 
-        with patch("a2a_lite.agent.DefaultRequestHandler", return_value=MagicMock()):
+        with patch("a2a_lite.agent.LiteRequestHandler", return_value=MagicMock()):
             with patch.object(LiteAgentExecutor, "__init__", _capture_init):
                 agent._build_app("localhost", 8787)
 
@@ -510,7 +510,7 @@ class TestPushNotifierWiring:
             original_build(self_inner, *args, **kwargs)
             captured_executors.append(self_inner)
 
-        with patch("a2a_lite.agent.DefaultRequestHandler", return_value=MagicMock()):
+        with patch("a2a_lite.agent.LiteRequestHandler", return_value=MagicMock()):
             with patch.object(LiteAgentExecutor, "__init__", _capture_init):
                 agent._build_app("localhost", 8787)
 

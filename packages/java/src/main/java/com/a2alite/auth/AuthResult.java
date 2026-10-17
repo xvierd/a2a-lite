@@ -9,8 +9,19 @@ public record AuthResult(
     boolean authenticated,
     String userId,
     Set<String> scopes,
-    String error
+    String error,
+    boolean anonymous
 ) {
+    /** Backwards-compatible constructor for identified authentication results. */
+    public AuthResult(boolean authenticated, String userId, Set<String> scopes, String error) {
+        this(authenticated, userId, scopes, error, false);
+    }
+
+    /** Explicit anonymous access, preserved through composite providers. */
+    public static AuthResult anonymousAccess() {
+        return new AuthResult(true, "anonymous", Set.of(), null, true);
+    }
+
     /**
      * Create a successful authentication result.
      */

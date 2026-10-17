@@ -16,6 +16,7 @@
  */
 
 import { createHmac } from 'crypto';
+import { postWebhook, parseWebhookUrl } from './push-delivery.js';
 
 /** Event payload sent to push notifiers on skill completion. */
 export interface PushEvent {
@@ -85,6 +86,7 @@ export class WebhookPushNotifier extends PushNotifier {
 
   constructor(options: WebhookPushNotifierOptions) {
     super();
+    parseWebhookUrl(options.url);
     this.url = options.url;
     this.secret = options.secret;
     this.headers = options.headers ?? {};
@@ -108,30 +110,11 @@ export class WebhookPushNotifier extends PushNotifier {
       headers['X-A2A-Signature'] = this.sign(payload);
     }
 
-    let lastError: unknown;
-
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-
-        try {
-          const response = await fetch(this.url, {
-            method: 'POST',
-            body: payload,
-            headers,
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            throw new Error(`Webhook responded with ${response.status}`);
-          }
-          return; // success
-        } finally {
-          clearTimeout(timer);
-        }
-      } catch (err) {
-        lastError = err;
+        await postWebhook(this.url, { body: payload, headers, timeoutMs: this.timeoutMs });
+        return;
+      } catch {
         if (attempt < this.maxRetries - 1) {
           const waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
           await new Promise((resolve) => setTimeout(resolve, waitMs));
@@ -139,7 +122,7 @@ export class WebhookPushNotifier extends PushNotifier {
       }
     }
 
-    console.error(`[A2A] Push notification failed after ${this.maxRetries} attempts:`, lastError);
+    console.error(`[A2A] Push notification failed after ${this.maxRetries} attempts.`);
   }
 }
 
@@ -159,11 +142,11 @@ export class WebhookPushNotifier extends PushNotifier {
 // ---------------------------------------------------------------------------
 
 /**
+ * @deprecated Legacy standalone registry. It is no longer connected to HTTP handlers.
+ * Register protocol callbacks through CreateTaskPushNotificationConfig instead.
  * In-memory registry for per-task push notification configurations.
  *
- * A caller registers a webhook URL (and optional bearer token) for a specific
- * task ID via the `CreateTaskPushNotificationConfig` JSON-RPC method.  When the
- * task completes, the server fires the webhook.
+ * This utility only retains local values; it cannot authorize a network callback.
  */
 export class TaskPushRegistry {
   private readonly configs = new Map<string, { url: string; token?: string }>();
@@ -185,111 +168,7 @@ export class TaskPushRegistry {
   }
 }
 
-// ---------------------------------------------------------------------------
-// createPushNotificationMiddleware — Express middleware for JSON-RPC methods
-// ---------------------------------------------------------------------------
-
-/**
- * Returns Express middleware that intercepts the A2A v1.0 push notification
- * JSON-RPC methods (`CreateTaskPushNotificationConfig`, `GetTaskPushNotificationConfig`,
- * `DeleteTaskPushNotificationConfig`) and manages the per-task registry.
- *
- * Mount this **before** the SDK's `jsonRpcHandler` so that the custom
- * methods are handled without reaching the protocol layer.
- */
-export function createPushNotificationMiddleware(registry: TaskPushRegistry) {
-  return async (req: any, res: any, next: () => void): Promise<void> => {
-    if (req.method !== 'POST' || !req.body) {
-      return next();
-    }
-
-    const { method, id, params } = req.body;
-
-    if (method === 'CreateTaskPushNotificationConfig') {
-      const taskId = params?.taskId;
-      const configId = params?.id ?? taskId;
-      const url = params?.url;
-      const token = params?.token;
-
-      if (!taskId || !url) {
-        res.json({
-          jsonrpc: '2.0',
-          id: id ?? null,
-          error: { code: -32602, message: 'Missing required fields: taskId and url' },
-        });
-        return;
-      }
-
-      registry.set(taskId, url, token);
-
-      res.json({
-        jsonrpc: '2.0',
-        id: id ?? null,
-        result: { taskId, id: configId, url, token },
-      });
-      return;
-    }
-
-    if (method === 'GetTaskPushNotificationConfig') {
-      const taskId = params?.taskId;
-      const configId = params?.id ?? taskId;
-
-      if (!taskId) {
-        res.json({
-          jsonrpc: '2.0',
-          id: id ?? null,
-          error: { code: -32602, message: 'Missing taskId' },
-        });
-        return;
-      }
-
-      const config = registry.get(taskId);
-      if (!config) {
-        res.json({
-          jsonrpc: '2.0',
-          id: id ?? null,
-          error: { code: -32001, message: `No push notification config for task ${taskId}` },
-        });
-        return;
-      }
-
-      res.json({
-        jsonrpc: '2.0',
-        id: id ?? null,
-        result: { taskId, id: configId, url: config.url, token: config.token },
-      });
-      return;
-    }
-
-    if (method === 'DeleteTaskPushNotificationConfig') {
-      const taskId = params?.taskId;
-
-      if (!taskId) {
-        res.json({
-          jsonrpc: '2.0',
-          id: id ?? null,
-          error: { code: -32602, message: 'Missing taskId' },
-        });
-        return;
-      }
-
-      registry.delete(taskId);
-      res.json({
-        jsonrpc: '2.0',
-        id: id ?? null,
-        result: {},
-      });
-      return;
-    }
-
-    return next();
-  };
-}
-
-// ---------------------------------------------------------------------------
-// LogPushNotifier
-// ---------------------------------------------------------------------------
-
+/** Log agent-level completion events during development. */
 export class LogPushNotifier extends PushNotifier {
   async notify(event: PushEvent): Promise<void> {
     console.log('[A2A Push]', {

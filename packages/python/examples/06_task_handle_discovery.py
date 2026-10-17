@@ -13,6 +13,7 @@ Run:
     python examples/06_task_handle_discovery.py orchestrator
 """
 
+import json
 import sys
 
 from a2a_lite import Agent, AgentNetwork, get_remote_task
@@ -25,15 +26,15 @@ def create_data_agent():
         description="Provides data lookups for various topics",
     )
 
-    @agent.skill("lookup", description="Look up data for a given topic")
-    async def lookup(topic: str) -> dict:
+    @agent.skill("lookup", description="Look up data for a given topic", streaming=True)
+    async def lookup(topic: str):
         # Simulated data store
         data = {
             "weather": {"temp": "72F", "condition": "Sunny"},
             "stocks": {"AAPL": 185.50, "GOOG": 141.20},
             "news": {"headline": "AI agents are everywhere"},
         }
-        return data.get(topic, {"error": f"No data for '{topic}'"})
+        yield json.dumps(data.get(topic, {"error": f"No data for '{topic}'"}))
 
     return agent
 

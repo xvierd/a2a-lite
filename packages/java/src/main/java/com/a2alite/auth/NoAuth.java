@@ -8,7 +8,7 @@ import java.util.Map;
 public class NoAuth implements AuthProvider {
     @Override
     public AuthResult authenticate(AuthRequest request) {
-        return AuthResult.success("anonymous");
+        return AuthResult.anonymousAccess();
     }
 
     @Override

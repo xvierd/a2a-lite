@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'io.github.xvierd'
-version = '1.0.1'
+version = '1.1.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -35,7 +35,7 @@ repositories {
 
 dependencies {
     // A2A SDK - official Java implementation (A2A protocol v1.0)
-    api 'org.a2aproject.sdk:a2a-java-sdk-server-common:1.1.0.Final'
+    api 'org.a2aproject.sdk:a2a-java-sdk-server-common:1.4.0.Final'
 
     // Web framework for standalone mode (optional for Quarkus users)
     compileOnly 'io.javalin:javalin:5.6.3'
@@ -45,6 +45,12 @@ dependencies {
 
     // JSON handling (provided by Quarkus in Quarkus mode)
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
+
+    // Pins validated callback DNS answers while preserving TLS hostname verification.
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.6.5'
+
+    // OAuth2 always verifies JWT signatures, never just parses token claims.
+    implementation 'com.nimbusds:nimbus-jose-jwt:10.10'
 
     // Logging
     implementation 'org.slf4j:slf4j-api:2.0.9'

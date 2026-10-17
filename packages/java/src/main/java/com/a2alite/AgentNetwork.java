@@ -39,6 +39,7 @@ public class AgentNetwork {
         "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED");
     private final Map<String, String> agents = new ConcurrentHashMap<>();
     private final Map<String, AgentCardInfo> cards = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, String>> requestHeaders = new ConcurrentHashMap<>();
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build();
@@ -50,6 +51,18 @@ public class AgentNetwork {
         for (var entry : agents.entrySet()) {
             this.agents.put(entry.getKey(), entry.getValue().replaceAll("/$", ""));
         }
+    }
+
+    /** Configure authentication headers for this exact agent endpoint, not other destinations. */
+    public AgentNetwork withHeaders(String agentUrl, Map<String, String> headers) {
+        requestHeaders.put(agentUrl.replaceAll("/$", ""), Map.copyOf(headers));
+        return this;
+    }
+
+    private HttpRequest.Builder requestBuilder(String agentUrl) {
+        var builder = HttpRequest.newBuilder(URI.create(agentUrl));
+        requestHeaders.getOrDefault(agentUrl.replaceAll("/$", ""), Map.of()).forEach(builder::header);
+        return builder;
     }
 
     public void add(String name, String url) {
@@ -142,6 +155,9 @@ public class AgentNetwork {
      */
     public TaskHandle callRemoteSkillWithHandle(String agentUrl, String skill, Map<String, Object> params, int timeoutSeconds) throws Exception {
         var internalResult = callRemoteSkillInternal(agentUrl, skill, params, timeoutSeconds);
+        if (internalResult.taskId == null || internalResult.taskId.isBlank()) {
+            throw new RemoteAgentException("Remote agent returned only a Message; no task handle is available");
+        }
         return new TaskHandle(internalResult.taskId, internalResult.result, agentUrl, this);
     }
 
@@ -158,8 +174,7 @@ public class AgentNetwork {
             "params", Map.of("id", taskId)
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -189,8 +204,7 @@ public class AgentNetwork {
             "params", Map.of("id", taskId)
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -352,8 +366,7 @@ public class AgentNetwork {
                     )
                 ));
 
-                var request = HttpRequest.newBuilder()
-                    .uri(URI.create(agentUrl))
+                var request = requestBuilder(agentUrl)
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
                     .header(A2A_VERSION_HEADER, A2A_VERSION)
@@ -546,8 +559,7 @@ public class AgentNetwork {
             "params", params
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -587,11 +599,10 @@ public class AgentNetwork {
             "jsonrpc", "2.0",
             "method", "GetTaskPushNotificationConfig",
             "id", UUID.randomUUID().toString().replace("-", ""),
-            "params", Map.of("taskId", taskId)
+            "params", Map.of("taskId", taskId, "id", taskId)
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -631,11 +642,10 @@ public class AgentNetwork {
             "jsonrpc", "2.0",
             "method", "DeleteTaskPushNotificationConfig",
             "id", UUID.randomUUID().toString().replace("-", ""),
-            "params", Map.of("taskId", taskId)
+            "params", Map.of("taskId", taskId, "id", taskId)
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -693,8 +703,7 @@ public class AgentNetwork {
             )
         ));
 
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(agentUrl))
+        var request = requestBuilder(agentUrl)
             .header("Content-Type", "application/json")
             .header(A2A_VERSION_HEADER, A2A_VERSION)
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -726,13 +735,11 @@ public class AgentNetwork {
             : envelope;
 
         // Task ID from the v1.0 response envelope:
-        // result.task.id, result.message.taskId, or result.id (bare Task)
+        // result.task.id or result.id with status (bare Task)
         String taskId = null;
         if (envelope.get("task") instanceof Map<?, ?> taskObj && ((Map<String, Object>) taskObj).get("id") != null) {
             taskId = String.valueOf(((Map<String, Object>) taskObj).get("id"));
-        } else if (envelope.get("message") instanceof Map<?, ?> msgObj && ((Map<String, Object>) msgObj).get("taskId") != null) {
-            taskId = String.valueOf(((Map<String, Object>) msgObj).get("taskId"));
-        } else if (envelope.get("id") != null) {
+        } else if (envelope.get("id") != null && envelope.get("status") instanceof Map<?, ?>) {
             taskId = String.valueOf(envelope.get("id"));
         }
 

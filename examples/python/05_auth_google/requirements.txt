@@ -1,5 +1,5 @@
 # Google A2A Python SDK with HTTP server support (A2A protocol v1.0)
-a2a-sdk[http-server]>=1.1.2,<2.0
+a2a-sdk[http-server]>=1.2.2,<2.0
 
 # Web framework
 uvicorn>=0.23.0

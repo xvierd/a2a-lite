@@ -14,37 +14,47 @@ Usage (agent-level):
     )
 
 Usage (per-task):
-    from a2a_lite.push_notifications import TaskPushRegistry
-
-    # Server-side: registry is auto-created on every Agent.
+    # Server-side: the SDK manages owner-scoped task configuration.
     # Client-side: use set_task_push_notification() or handle.subscribe().
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 from abc import ABC, abstractmethod
 from typing import Any
 
+import httpx
+from a2a.server.tasks import BasePushNotificationSender
+from a2a.utils.proto_utils import to_stream_response
+from a2a.utils.push_url_validator import validate_push_notification_url
+from google.protobuf.json_format import MessageToDict
+
 logger = logging.getLogger(__name__)
+CALLBACK_DNS_TIMEOUT = 10.0
+CALLBACK_DELIVERY_TIMEOUT = 10.0
 
 
 # ---------------------------------------------------------------------------
-# Per-task push notification registry & middleware
+# Legacy local registry and guarded SDK callback transport
 # ---------------------------------------------------------------------------
 
 
 class TaskPushRegistry:
-    """
-    Server-side registry mapping task IDs to webhook configurations.
-    Used to deliver per-task push notifications when tasks complete.
+    """Legacy standalone registry; protocol endpoints use the SDK scoped store.
+
+    Prefer authenticated A2A push configuration operations for server callbacks.
+    This local utility does not register callbacks on an Agent.
     """
 
     def __init__(self) -> None:
-        self._configs: dict[str, dict] = {}  # task_id -> {url, token}
+        self._configs: dict[str, dict] = {}
 
     def set(self, task_id: str, url: str, token: str | None = None) -> None:
         self._configs[task_id] = {"url": url, "token": token}
@@ -59,138 +69,112 @@ class TaskPushRegistry:
         return task_id in self._configs
 
 
-class PushNotificationMiddleware:
+async def _public_callback_addresses(url: httpx.URL) -> list[str]:
+    if url.scheme != "https" or not url.host or url.userinfo or url.fragment:
+        raise ValueError("Callback requires a public HTTPS URL without credentials or fragments")
+    addresses = await asyncio.get_running_loop().getaddrinfo(url.host, url.port or 443, type=socket.SOCK_STREAM)
+    ips = list(dict.fromkeys(str(ipaddress.ip_address(info[4][0])) for info in addresses))
+    if not ips:
+        raise ValueError("Callback hostname has no addresses")
+    for address in ips:
+        # is_global also rejects shared CGNAT ranges that are neither private
+        # nor public under the SDK's address categories.
+        if not ipaddress.ip_address(address).is_global or not await validate_push_notification_url(
+            str(url.copy_with(host=address, path="/", query=None))
+        ):
+            raise ValueError("Push notification URL is not public")
+    return ips
+
+
+async def validate_callback_url(url: str) -> bool:
+    """Apply the SDK public-address policy within a bounded DNS lookup."""
+    try:
+        await asyncio.wait_for(_public_callback_addresses(httpx.URL(url)), timeout=CALLBACK_DNS_TIMEOUT)
+        return True
+    except (httpx.InvalidURL, TypeError, ValueError, OSError, asyncio.TimeoutError):
+        return False
+
+
+class PublicWebhookTransport(httpx.AsyncBaseTransport):
+    """Pin callback connections to validated public addresses.
+
+    The SDK URL validator is also applied when registering a callback. Resolve
+    again immediately before dispatch, validate every returned address, then
+    connect to a numeric IP so DNS cannot change between checking and dialing.
+    Host and TLS certificate/SNI verification retain the original hostname.
     """
-    Starlette ASGI middleware that handles the A2A v1.0 push notification
-    JSON-RPC methods (CreateTaskPushNotificationConfig, GetTaskPushNotificationConfig,
-    DeleteTaskPushNotificationConfig).
-    Wraps the underlying A2A SDK app and intercepts these specific methods.
-    """
 
-    def __init__(self, app: Any, registry: TaskPushRegistry) -> None:
-        self.app = app
-        self.registry = registry
+    def __init__(self) -> None:
+        # Never share a connection across hostnames that happen to share an IP.
+        self._transport = httpx.AsyncHTTPTransport(trust_env=False, limits=httpx.Limits(max_keepalive_connections=0))
 
-    def __getattr__(self, name: str) -> Any:
-        # Proxy attribute access to the wrapped app so callers can still
-        # inspect Starlette-specific attributes (e.g. ``routes``).
-        return getattr(self.app, name)
-
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
-        if scope["type"] != "http" or scope.get("method") != "POST":
-            await self.app(scope, receive, send)
-            return
-
-        # Buffer the request body so we can read it and also replay it
-        body_parts: list[bytes] = []
-        more_body = True
-        while more_body:
-            message = await receive()
-            body_parts.append(message.get("body", b""))
-            more_body = message.get("more_body", False)
-        body = b"".join(body_parts)
-
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        url = request.url
         try:
-            data = json.loads(body)
-            method = data.get("method", "")
-        except (json.JSONDecodeError, AttributeError):
-            method = ""
-
-        if method == "CreateTaskPushNotificationConfig":
-            await self._handle_set(data, send)
-        elif method == "GetTaskPushNotificationConfig":
-            await self._handle_get(data, send)
-        elif method == "DeleteTaskPushNotificationConfig":
-            await self._handle_delete(data, send)
-        else:
-            # Not a push notification method -- replay body to original app
-            replayed = False
-
-            async def replay_receive() -> dict:
-                nonlocal replayed
-                if not replayed:
-                    replayed = True
-                    return {"type": "http.request", "body": body, "more_body": False}
-                # Pass through so SSE responses can still detect real disconnects
-                return await receive()
-
-            await self.app(scope, replay_receive, send)
-
-    async def _send_json(self, send: Any, data: dict, status: int = 200) -> None:
-        body = json.dumps(data).encode()
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode()),
-                ],
-            }
+            ips = await asyncio.wait_for(_public_callback_addresses(url), timeout=CALLBACK_DNS_TIMEOUT)
+        except asyncio.TimeoutError as error:
+            raise httpx.ConnectTimeout("Push notification DNS lookup timed out", request=request) from error
+        except (OSError, ValueError) as error:
+            raise httpx.ConnectError(str(error), request=request) from error
+        headers = httpx.Headers(request.headers)
+        headers["Host"] = url.netloc.decode("ascii")
+        pinned_request = httpx.Request(
+            request.method,
+            url.copy_with(host=ips[0]),
+            headers=headers,
+            stream=request.stream,
+            extensions={**request.extensions, "sni_hostname": url.raw_host.decode("ascii")},
         )
-        await send({"type": "http.response.body", "body": body})
+        return await self._transport.handle_async_request(pinned_request)
 
-    async def _handle_set(self, data: dict, send: Any) -> None:
-        params = data.get("params", {})
-        task_id = params.get("taskId", "")
-        config_id = params.get("id") or task_id
-        url = params.get("url", "")
-        token = params.get("token")
-        if not task_id or not url:
-            await self._send_json(
-                send,
-                {
-                    "jsonrpc": "2.0",
-                    "id": data.get("id"),
-                    "error": {"code": -32602, "message": "Missing required fields: taskId and url"},
-                },
-            )
-            return
-        self.registry.set(task_id, url, token)
-        await self._send_json(
-            send,
-            {
-                "jsonrpc": "2.0",
-                "id": data.get("id"),
-                "result": {"taskId": task_id, "id": config_id, "url": url, "token": token},
-            },
-        )
+    async def aclose(self) -> None:
+        await self._transport.aclose()
 
-    async def _handle_get(self, data: dict, send: Any) -> None:
-        params = data.get("params", {})
-        task_id = params.get("taskId", "")
-        config_id = params.get("id") or task_id
-        config = self.registry.get(task_id)
-        if config is None:
-            await self._send_json(
-                send,
-                {
-                    "jsonrpc": "2.0",
-                    "id": data.get("id"),
-                    "error": {"code": -32001, "message": f"No push notification config for task {task_id}"},
-                },
-            )
-            return
-        await self._send_json(
-            send,
-            {
-                "jsonrpc": "2.0",
-                "id": data.get("id"),
-                "result": {"taskId": task_id, "id": config_id, "url": config["url"], "token": config["token"]},
-            },
-        )
 
-    async def _handle_delete(self, data: dict, send: Any) -> None:
-        params = data.get("params", {})
-        task_id = params.get("taskId", "")
-        self.registry.delete(task_id)
-        await self._send_json(
-            send,
-            {
-                "jsonrpc": "2.0",
-                "id": data.get("id"),
-                "result": {},
-            },
+class _PushHttpClient(httpx.AsyncClient):
+    def __init__(self):
+        self._callback_transport = PublicWebhookTransport()
+        super().__init__(transport=self._callback_transport, timeout=10.0, follow_redirects=False, trust_env=False)
+
+    async def post_callback(self, url, *, json, headers):
+        # HTTPX's normal request path logs the complete URL at INFO. Use its
+        # documented transport API so query credentials never reach that log.
+        request = self.build_request("POST", url, json=json, headers=headers)
+        response = await self._callback_transport.handle_async_request(request)
+        try:
+            return response.is_success
+        finally:
+            await response.aclose()
+
+
+def create_push_http_client() -> _PushHttpClient:
+    """Create a callback client without redirects or environment proxies."""
+    return _PushHttpClient()
+
+
+class ProtocolPushSender(BasePushNotificationSender):
+    """Keep SDK event/config handling with protocol media and secret-safe logs."""
+
+    async def _dispatch_notification(self, event, push_info, task_id):
+        try:
+            return await asyncio.wait_for(self._deliver(event, push_info), timeout=CALLBACK_DELIVERY_TIMEOUT)
+        except Exception:
+            # Exception text/tracebacks can include URLs, query credentials,
+            # request headers or response bodies controlled by the callback.
+            logger.warning("Push notification delivery failed")
+            return False
+
+    async def _deliver(self, event, push_info):
+        if self._push_url_validator and not await self._push_url_validator(push_info.url):
+            return False
+        headers = {"Content-Type": "application/a2a+json"}
+        if push_info.token:
+            headers["X-A2A-Notification-Token"] = push_info.token
+        auth = push_info.authentication
+        if auth.scheme and auth.credentials:
+            headers["Authorization"] = f"{auth.scheme} {auth.credentials}"
+        return await self._client.post_callback(
+            push_info.url, json=MessageToDict(to_stream_response(event)), headers=headers
         )
 
 

@@ -124,4 +124,34 @@ class StreamingTest {
         StreamResult result = StreamingHandler.fromIterator(List.of("a", "b").iterator());
         assertThat(StreamingHandler.collect(result)).isEqualTo("ab");
     }
+    @Test
+    void closingBeforeIterationDoesNotStartProducer() {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var result = StreamingHandler.stream(sink -> calls.incrementAndGet());
+        result.close();
+        assertThat(result.iterator().hasNext()).isFalse();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void closingStopsBlockedProducer() throws Exception {
+        var stopped = new java.util.concurrent.CountDownLatch(1);
+        var result = StreamingHandler.stream(sink -> {
+            try {
+                while (true) sink.accept("chunk");
+            } finally { stopped.countDown(); }
+        });
+        assertThat(result.iterator().next()).isEqualTo("chunk");
+        result.close();
+        assertThat(stopped.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void collectClosesUnderlyingJavaStream() {
+        var closed = new java.util.concurrent.atomic.AtomicBoolean();
+        var result = StreamingHandler.fromStream(Stream.of("one").onClose(() -> closed.set(true)));
+        assertThat(StreamingHandler.collect(result)).isEqualTo("one");
+        assertThat(closed).isTrue();
+    }
+
 }

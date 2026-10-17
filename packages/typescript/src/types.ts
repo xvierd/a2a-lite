@@ -80,6 +80,8 @@ export interface AuthRequest {
 
 export interface AuthResult {
   authenticated: boolean;
+  /** Public access was allowed without verifying an identity (for example, NoAuth). */
+  anonymous?: boolean;
   userId?: string;
   scopes?: Set<string>;
   error?: string;

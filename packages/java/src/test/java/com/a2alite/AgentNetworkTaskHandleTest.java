@@ -93,12 +93,11 @@ class AgentNetworkTaskHandleTest {
         });
 
         var network = new AgentNetwork();
-        var handle = network.callRemoteSkillWithHandle(
+        assertThatThrownBy(() -> network.callRemoteSkillWithHandle(
             "http://localhost:" + port, "skill", Map.of(), 10
-        );
-
-        assertThat(handle.getTaskId()).isEqualTo("task-from-message");
-        assertThat(handle.getResult()).isEqualTo("plain result");
+        )).hasMessageContaining("only a Message");
+        assertThat(network.callRemoteSkill("http://localhost:" + port, "skill", Map.of(), 10))
+            .isEqualTo("plain result");
     }
 
     @Test
@@ -119,12 +118,11 @@ class AgentNetworkTaskHandleTest {
         });
 
         var network = new AgentNetwork();
-        var handle = network.callRemoteSkillWithHandle(
+        assertThatThrownBy(() -> network.callRemoteSkillWithHandle(
             "http://localhost:" + port, "skill", Map.of(), 10
-        );
-
-        assertThat(handle.getTaskId()).isNull();
-        assertThat(handle.getResult()).isEqualTo("plain result");
+        )).hasMessageContaining("only a Message");
+        assertThat(network.callRemoteSkill("http://localhost:" + port, "skill", Map.of(), 10))
+            .isEqualTo("plain result");
     }
 
     // ---- callWithHandle -----------------------------------------------------

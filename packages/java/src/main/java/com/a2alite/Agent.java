@@ -64,6 +64,7 @@ public class Agent {
     private final TaskPushRegistry pushRegistry = new TaskPushRegistry();
 
     private final Map<String, SkillDefinition> skills = new LinkedHashMap<>();
+    private final Map<String, SkillHandlerWithContext> contextualSkills = new LinkedHashMap<>();
     private final List<Middleware> middlewares = new ArrayList<>();
     private final List<Runnable> startupHooks = new ArrayList<>();
     private final List<Runnable> shutdownHooks = new ArrayList<>();
@@ -145,6 +146,7 @@ public class Agent {
             hasStreaming = true;
         }
 
+        contextualSkills.remove(name);
         skills.put(name, def);
         return this;
     }
@@ -180,6 +182,7 @@ public class Agent {
             hasStreaming = true;
         }
 
+        contextualSkills.put(name, handler);
         skills.put(name, def);
         return this;
     }
@@ -244,8 +247,7 @@ public class Agent {
             .description(description)
             .version(version)
             .supportedInterfaces(List.of(
-                new AgentInterface("JSONRPC", agentUrl, null, PROTOCOL_VERSION),
-                new AgentInterface("HTTP+JSON", agentUrl, null, PROTOCOL_VERSION)))
+                new AgentInterface("JSONRPC", agentUrl, null, PROTOCOL_VERSION)))
             .capabilities(AgentCapabilities.builder()
                 .streaming(hasStreaming)
                 .pushNotifications(!completeHooks.isEmpty())
@@ -260,7 +262,7 @@ public class Agent {
      * Get the agent executor for use with the SDK.
      */
     public AgentExecutor getExecutor() {
-        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry);
+        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry, errorHandler, contextualSkills);
     }
 
     /**
@@ -276,12 +278,10 @@ public class Agent {
         card.put("version", version);
 
         var interfaces = card.putArray("supportedInterfaces");
-        for (var binding : List.of("JSONRPC", "HTTP+JSON")) {
-            var iface = interfaces.addObject();
-            iface.put("protocolBinding", binding);
-            iface.put("url", agentUrl);
-            iface.put("protocolVersion", PROTOCOL_VERSION);
-        }
+        var iface = interfaces.addObject();
+        iface.put("protocolBinding", "JSONRPC");
+        iface.put("url", agentUrl);
+        iface.put("protocolVersion", PROTOCOL_VERSION);
 
         var capabilities = card.putObject("capabilities");
         capabilities.put("streaming", hasStreaming);
