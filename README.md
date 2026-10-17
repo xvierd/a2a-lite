@@ -628,7 +628,7 @@ Migrating from an earlier release? Basic skill registration is unchanged; review
 These entries describe available APIs, not a certification or a throughput guarantee.
 See the [operator guide](OPERATIONS.md) and [reproducible interoperability and failure gates](tests/interop/README.md)
 for tested behavior, recovery limits and deployment prerequisites. Callback delivery is at least once;
-receivers must deduplicate. An interrupted ordinary skill is marked failed rather than automatically rerun.
+receivers must deduplicate. With durable execution coordination enabled, an interrupted ordinary skill is marked failed after lease expiry; it is not automatically rerun.
 
 > **Note on v0.3:** a2a-lite 1.0 does not interoperate with A2A 0.3 agents (explicit decision — no compatibility mode). Lite clients detect 0.3 agent cards and fail with a clear error. See [MIGRATION.md](MIGRATION.md).
 >

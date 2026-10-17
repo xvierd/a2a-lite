@@ -588,7 +588,7 @@ Auto-injected when detected in skill function signatures:
 
 | Type | Description |
 |------|-------------|
-| `TaskContext` | Task lifecycle management (requires `task_store`) |
+| `TaskContext` | Task lifecycle management using the real protocol task ID; no separate `task_store` required |
 | `AuthResult` | Authentication result injection |
 | `FilePart` | File upload handling |
 | `DataPart` | Structured data handling |
@@ -616,7 +616,7 @@ Repo-root demo (not under `packages/python/examples/`): human vs bot + agent-vs-
 ```bash
 cd ../../examples/python/11_battleship_lite   # from packages/python
 # or from repo root: examples/python/11_battleship_lite
-pip install -e .   # editable a2a-lite from packages/python
+pip install -e ../../../packages/python   # editable a2a-lite from this example directory
 python agent.py    # http://localhost:8790/
 # python arena.py  # http://localhost:8793/?mode=arena
 ```
