@@ -22,7 +22,8 @@ src/main/java/com/example/calculator/
 ## 🚀 Quick Start
 
 ```bash
-cd java/02_calculator_google
+# From the repository root
+cd examples/java/02_calculator_google
 mvn clean package
 mvn exec:java
 ```

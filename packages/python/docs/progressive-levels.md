@@ -103,7 +103,7 @@ Track progress for long-running operations.
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Bot", description="...", task_store="memory")
+agent = Agent(name="Bot", description="...")
 
 @agent.skill("process")
 async def process(data: str, task: TaskContext) -> str:
@@ -133,7 +133,13 @@ async def plan_trip(destination: str):
     return {"weather": weather, "hotels": hotels}
 ```
 
-## Beyond Level 8
+## Level 9: Managed Runtime and Durable State
+
+Use `await agent.start()` to obtain a runtime with readiness, statistics and `stop()`. `RuntimeConfig(profile="authenticated")` requires verified identity while allowing memory state. The `durable` profile also requires `PersistenceConfig`; it never falls back to memory.
+
+Run the [executable learning path](../../../examples/python/12_production_path) for a Message, a real Task ID, streaming, authenticated requests and SQLite restart with API key rotation. Follow the [deployment guide](production.md) for PostgreSQL, callback delivery and checkpoint recovery. A database does not resume arbitrary Python coroutines: `recoverable=True` handlers restart from their beginning with their last committed checkpoint.
+
+## Beyond the Learning Path
 
 Combine features as needed:
 

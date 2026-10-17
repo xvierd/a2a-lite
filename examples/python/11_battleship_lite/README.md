@@ -27,8 +27,8 @@ Demo jugable del protocolo **A2A v1.0** con a2a-lite: un agente jugador (humano 
 # Desde la raíz del repo (recomendado en desarrollo):
 pip install -e packages/python
 
-# O solo las deps del ejemplo (PyPI, cuando 1.0 esté publicado):
-pip install -r requirements.txt
+# O instala las dependencias publicadas del ejemplo, también desde la raíz:
+pip install -r examples/python/11_battleship_lite/requirements.txt
 ```
 
 ## Modo humano vs agente

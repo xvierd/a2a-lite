@@ -42,7 +42,8 @@ A2A Lite handles all the protocol details for you:
 ### Step 1: Create Virtual Environment
 
 ```bash
-cd python/01_hello_world_lite
+# From the repository root:
+cd examples/python/01_hello_world_lite
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
@@ -71,7 +72,7 @@ The agent will start on `http://localhost:8787`
 curl http://localhost:8787/.well-known/agent-card.json
 ```
 
-**Expected Response:**
+**Response excerpt:**
 ```json
 {
   "name": "HelloAgent",
@@ -79,31 +80,24 @@ curl http://localhost:8787/.well-known/agent-card.json
   "version": "1.0.0",
   "supportedInterfaces": [
     {
-      "url": "http://localhost:8787/",
+      "url": "http://localhost:8787",
       "protocolBinding": "JSONRPC",
       "protocolVersion": "1.0"
     }
   ],
   "skills": [
     {
+      "id": "greet",
       "name": "greet",
-      "description": "Greet someone by name",
-      "inputSchema": {
-        "properties": {
-          "name": {"type": "string"}
-        },
-        "required": ["name"],
-        "type": "object"
-      },
-      "outputSchema": {
-        "type": "string"
-      }
+      "description": "Greet someone by name.",
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"]
     }
   ]
 }
 ```
 
-**Note**: The schema is automatically generated from your Python type hints!
+The card also advertises HTTP+JSON and agent capabilities. Input schemas are generated from type hints for validation and `agent.get_tool_schemas()`; they are not `inputSchema`/`outputSchema` fields on standard A2A v1.0 skills.
 
 ### Test 2: Call the Greet Skill
 

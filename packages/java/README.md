@@ -2,13 +2,13 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
-> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [google/a2a-java](https://github.com/a2aproject/a2a-java) SDK. Perfect for courses, POCs, and demos.
+> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [a2aproject/a2a-java](https://github.com/a2aproject/a2a-java) SDK. Perfect for courses, POCs, and demos.
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API and a standalone JSON-RPC adapter.
 
-> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. Prepared Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0`. See [MIGRATION.md](../../MIGRATION.md).
 
 The standalone Javalin server started by `agent.run()` uses the official SDK
 request handler for messages, SSE streaming, task retrieval/cancellation,
@@ -32,7 +32,27 @@ agent.run();
 
 ## Installation
 
-### Gradle
+**Java 1.2.0 is built and verified in this repository, but is not published to Maven Central.** A dependency declaration alone will not download it. Java 17+ is required.
+
+The examples resolve the library directly from the checkout through a Gradle composite build; no publication, credentials or signing key is needed:
+
+```bash
+# From the repository root
+cd examples/java
+./gradlew :01_hello_world_lite:run
+```
+
+For another Gradle application, add this to its `settings.gradle`, replacing the path with your checkout location:
+
+```groovy
+includeBuild('/absolute/path/to/a2a-lite/packages/java') {
+    dependencySubstitution {
+        substitute module('io.github.xvierd:a2a-lite') using project(':')
+    }
+}
+```
+
+### Gradle dependencies (with the composite build above)
 
 ```groovy
 dependencies {
@@ -41,7 +61,22 @@ dependencies {
 }
 ```
 
-### Maven
+### Maven (local installation)
+
+Build the artifacts and install their generated POM in your local Maven repository. These commands do not sign or publish to a remote repository:
+
+```bash
+# From the repository root
+cd packages/java
+./gradlew jar sourcesJar javadocJar generatePomFileForMavenPublication
+mvn install:install-file \
+  -Dfile=build/libs/java-1.2.0.jar \
+  -DpomFile=build/publications/maven/pom-default.xml \
+  -Dsources=build/libs/java-1.2.0-sources.jar \
+  -Djavadoc=build/libs/java-1.2.0-javadoc.jar
+```
+
+Then use these dependencies in your Maven application:
 
 ```xml
 <dependency>
@@ -235,11 +270,11 @@ agent.skill("process", params -> {
 Use convenience methods directly on the handle, or via the network by name:
 
 ```java
-// Poll status directly on the handle
-Object status = handle.getStatus();
-Object status2 = handle.getStatus(15);  // custom timeout in seconds
+// Read the full protocol Task, including its status
+Map<String, Object> task = handle.get();
+Map<String, Object> task2 = handle.get(15);  // custom timeout in seconds
 
-// Or poll via network name
+// Legacy network helpers below return the flattened task result
 Object status3 = network.getTask("data", handle.getTaskId());
 Object status4 = network.getTask("data", handle.getTaskId(), 15);
 
@@ -473,8 +508,9 @@ tenants share their identity's admission quota. The learning backend retains at
 most 10,000 task/ownership reservations. At capacity it evicts only finalized tasks
 older than one second, with their ownership and callback credentials; it never
 evicts active/input-required work to admit a new call. Finalized records expire
-on the next admission after 24 hours, and owner-only reservations after the
-execution deadline plus five seconds. Saturation
+on the next admission after 24 hours. Message-only reservations are released after
+delivery; orphaned owner-only reservations expire after the execution deadline plus
+five seconds. Saturation
 returns HTTP 503 before allocating SDK task/stream resources. Reads/cancel remain
 available. `/health/live`, `/health/ready`, `/metrics`, `runtime.ready()` and
 `runtime.metrics()` expose operational state without principal/task labels.
@@ -505,7 +541,9 @@ var durable = Agent.builder().name("Worker").description("Persistent tasks")
 `ProtocolBackend` groups the official SDK task/state stores, authorization, push
 store and queue factory so state and ownership cannot silently fall back to memory.
 The optional JDBC reference uses PostgreSQL; the application supplies its JDBC driver,
-bounded DataSource and AES callback-key ring. The four-argument constructor with
+bounded DataSource and AES callback-key ring. Startup validates the active key
+configuration, not decryption of every retained callback; verify retained keys
+before resuming delivery after a restore. The four-argument constructor with
 `automaticDelivery=false` keeps the atomic outbox while pausing automatic outbound
 callbacks, for isolated restores or tests; explicit `outbox().drainOnce()` is an
 operator-controlled send. The official SDK JPA store remains a
@@ -527,6 +565,7 @@ letter. Explicit operator retry preserves the delivery ID and starts a new attem
 budget. Delivery remains at least once. A config
 delete removes queued work; in-flight delivery can finish. Retention is an explicit
 bounded `purgeFinalizedBefore()` operation and protects pending/dead-letter deliveries.
+Schedule it explicitly; the durable revision journal has no automatic retention cap.
 
 ## Full API Reference
 

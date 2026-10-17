@@ -4,10 +4,12 @@ A complete working example using the official **a2a-sdk** Python package.
 
 ## 📦 Installation
 
+Run these commands from `examples/python/01_hello_world_google` in the repository. The requirements include the official SDK 1.2.2 baseline, Uvicorn and the test client dependency.
+
 ### Using pip
 
 ```bash
-pip install "a2a-sdk[http-server]"
+pip install -r requirements.txt
 ```
 
 ### Using uv (recommended)
@@ -15,7 +17,7 @@ pip install "a2a-sdk[http-server]"
 ```bash
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install "a2a-sdk[http-server]"
+uv pip install -r requirements.txt
 ```
 
 ## 🚀 Running the Agent
@@ -54,8 +56,7 @@ Expected response:
   ],
   "capabilities": {
     "streaming": false,
-    "pushNotifications": false,
-    "stateTransitionHistory": false
+    "pushNotifications": false
   },
   "defaultInputModes": ["text/plain"],
   "defaultOutputModes": ["text/plain"],

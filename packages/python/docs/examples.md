@@ -2,6 +2,8 @@
 
 A2A Lite includes progressive package examples plus a playable multi-agent showcase.
 
+For the 1.2.0 progression from Message and Task to authenticated runtime, SQLite restart and API key rotation, start with [the executable learning path](../../../examples/python/12_production_path/README.md).
+
 ## Showcase: Battleship
 
 ```bash
@@ -23,7 +25,7 @@ cd packages/python
 uv run examples/01_hello_world.py
 
 # Test a running agent
-a2a-lite test http://localhost:8787 hello -p name=World
+uv run a2a-lite test http://localhost:8787 greet -p name=World
 ```
 
 ## Example Index

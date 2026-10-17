@@ -5,7 +5,7 @@ A2A Lite integrates with [MCP (Model Context Protocol)](https://modelcontextprot
 ## Installation
 
 ```bash
-pip install a2a-lite[mcp]
+pip install 'a2a-lite[mcp]'
 ```
 
 ## Quick Start
@@ -79,4 +79,4 @@ async def research(query: str, mcp: MCPClient) -> str:
 
 ## Example
 
-See [`examples/13_mcp_tools.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/13_mcp_tools.py) for a complete working example.
+See [`examples/13_mcp_tools.py`](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/13_mcp_tools.py) for a complete working example.

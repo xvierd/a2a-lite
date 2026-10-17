@@ -17,16 +17,18 @@ agent = Agent(
     version="1.0.0",            # Optional, default "1.0.0"
     url=None,                   # Optional, auto-detected
     auth=None,                  # Optional AuthProvider
-    task_store=None,            # Optional: "memory" or TaskStore
+    task_store=None,            # Optional local application mirror
     cors_origins=None,          # Optional: ["*"] for open CORS
     production=False,           # Optional: enable production warnings
     network=None,               # Optional: AgentNetwork for multi-agent
+    runtime=None,               # Optional: RuntimeConfig profile and limits
+    persistence=None,           # Optional: PersistenceConfig for managed SQL
 )
 ```
 
 **Key Methods:**
 
-- `agent.skill(name, description, tags, streaming)` — Decorator to register skills
+- `agent.skill(name, description, tags, streaming, task, recoverable)` — Register a Message, Task, stream or recoverable skill
 - `agent.middleware(func)` — Decorator to register middleware
 - `agent.add_middleware(func)` — Non-decorator middleware registration
 - `agent.add_mcp_server(url)` — Register an MCP server
@@ -36,6 +38,7 @@ agent = Agent(
 - `agent.on_shutdown(func)` — Register shutdown hook
 - `agent.on_complete(func)` — Register completion hook
 - `agent.run(host, port, log_level)` — Start the server
+- `await agent.start(host, port)` — Start an embedded server and return its managed runtime handle
 - `agent.get_app()` — Get Starlette app without running
 - `agent.call_remote(url, message, timeout)` — Call remote A2A agent
 - `agent.build_agent_card(host, port)` — Build A2A agent card
@@ -105,6 +108,8 @@ Provides multiple accessors: `.data`, `.text`, `.json()`, `.raw_response`.
 
 ### TaskContext / TaskState / Task / TaskStore
 
+An injected `TaskContext` uses the real A2A protocol task ID; no separate `task_store` is required. `task=True` also opts a skill into Task responses. `TaskStore` is an optional local application mirror, distinct from protocol storage. See [managed SQL and recovery](production.md) for `PersistenceConfig`, checkpoints and paused-task continuation.
+
 ::: a2a_lite.TaskContext
 ::: a2a_lite.Task
 ::: a2a_lite.TaskStore
@@ -119,7 +124,7 @@ Provides multiple accessors: `.data`, `.text`, `.json()`, `.raw_response`.
 ### Providers
 
 - `NoAuth()` — No authentication (default)
-- `APIKeyAuth(keys, header, query_param)` — API key validation
+- `APIKeyAuth(keys, header, query_param, principals=..., namespace=..., authorized_tenants=...)` — API key validation; `principals` preserves ownership across key rotation
 - `BearerAuth(validator, header)` — Bearer token validation
 - `OAuth2Auth(issuer, audience, jwks_uri, algorithms)` — JWT/OAuth2
 - `CompositeAuth(providers)` — Try multiple providers
@@ -143,6 +148,8 @@ async def admin_action(data: str, auth: AuthResult) -> str:
 ::: a2a_lite.errors.AuthRequiredError
 
 ## Orchestration
+
+`ClientConfig(headers=..., credential_provider=..., tenant=...)` carries per-request credentials and tenant context through discovery, calls, streams and task handles. Cross-origin card endpoints require an explicit `allowed_origins` entry. See [authenticated peers](multi-agent.md#authenticated-peers-and-task-handles).
 
 ### AgentNetwork
 

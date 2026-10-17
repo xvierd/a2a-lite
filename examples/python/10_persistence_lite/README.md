@@ -3,14 +3,16 @@
 This example shows how to wire a custom **protocol-level TaskStore** and a
 **PushNotifier** into an A2A Lite agent.
 
+It uses memory storage and trusted agent-level notifications. For the 1.2.0 managed SQL, durable callback and recovery path, start with [example 12](../12_production_path/) and the [deployment guide](../../../packages/python/docs/production.md). This example's ordinary skills return Messages, so they do not demonstrate queryable Task IDs; use `task=True` or an injected `TaskContext` for those.
+
 ## What each piece does
 
 | Piece | What it does |
 |---|---|
-| `protocol_task_store` | Stores A2A protocol task state (status, results). Pass any `TaskStore` implementation — swap `InMemoryTaskStore` for Redis/Postgres in production. |
+| `protocol_task_store` | Advanced SDK `TaskStore` extension point. Custom stores must honor request ownership and tenant scope; changing only the store does not provide shared event streams, durable callbacks or execution recovery. |
 | `push_notifier` | Called automatically after every skill completes. Two built-in options: `LogPushNotifier` (logs to stdout) and `WebhookPushNotifier` (POSTs JSON to a URL). |
 | `LogPushNotifier` | Zero-config notifier for development. Events are written to the Python logger. |
-| `WebhookPushNotifier` | Production notifier. Reads `WEBHOOK_URL` from env, optionally signs each request with HMAC-SHA256 when `WEBHOOK_SECRET` is set. Retries on transient failures. |
+| `WebhookPushNotifier` | Trusted agent-level notifier configured by the application. Reads `WEBHOOK_URL`, optionally signs with HMAC-SHA256 via `WEBHOOK_SECRET`, and retries within the process. It has no durable outbox. |
 
 ## Skills
 
@@ -32,7 +34,7 @@ python agent.py
 The agent starts on **port 8793**. All task-completion events are logged to
 the console via `LogPushNotifier`.
 
-### Production (with webhook)
+### Trusted Application Webhook
 
 ```bash
 WEBHOOK_URL=https://hooks.example.com/a2a python agent.py
@@ -63,23 +65,11 @@ import hashlib, hmac
 
 def verify(body: bytes, secret: str, header: str) -> bool:
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return header == f"sha256={expected}"
+    return hmac.compare_digest(header, f"sha256={expected}")
 ```
 
-## Extending to a real persistent store
+## Moving to Managed Persistence
 
-Replace `InMemoryTaskStore()` with your own implementation that satisfies the
-`a2a.server.tasks.TaskStore` interface:
+Install `a2a-lite[sqlite]` for a single-host tutorial or `a2a-lite[postgresql]` for the qualified multi-replica path. Configure `PersistenceConfig` with a stable encryption key, run its explicit migration, and use authenticated principals with `RuntimeConfig(profile="durable")`. The [deployment guide](../../../packages/python/docs/production.md) covers the complete configuration and operational limits.
 
-```python
-from myapp.stores import RedisTaskStore
-
-protocol_store = RedisTaskStore(url=os.getenv("REDIS_URL"))
-
-agent = Agent(
-    name="MyAgent",
-    description="...",
-    protocol_task_store=protocol_store,
-    push_notifier=push_notifier,
-)
-```
+Dynamic per-task callbacks use the authenticated A2A push configuration operations and public HTTPS destinations. With managed SQL they use the transactional outbox and standard protocol payloads; the custom `{skill, result}` envelope above belongs only to the agent-level notifier. Recovering execution additionally requires `recoverable=True` and explicit checkpoint/idempotency design; durable state alone cannot resume arbitrary work.

@@ -61,7 +61,7 @@ a2a-lite init my-agent --path /custom/path
 
 ## `create` — Full project with Docker
 
-Like `init`, but also generates **Dockerfile**, **docker-compose.yml**, and (when the CLI runs from a local a2a-lite checkout) a **vendored** copy of the library so `docker build` works before 1.0 is on PyPI.
+Like `init`, but also generates **Dockerfile**, **docker-compose.yml**, and (when the CLI runs from a local a2a-lite checkout) a **vendored** copy of the library so `docker build` can use that checkout. Registry installations use the published package.
 
 ```bash
 a2a-lite create my-agent
@@ -130,7 +130,7 @@ a2a-lite inspect http://localhost:8787
 |----------|-------------|
 | `URL` | Base URL of the agent (required) |
 
-Rejects **A2A 0.3** cards with a clear error (a2a-lite 1.0 requires protocol v1.0).
+Rejects **A2A 0.3** cards with a clear error (a2a-lite 1.x requires protocol v1.0).
 
 ---
 

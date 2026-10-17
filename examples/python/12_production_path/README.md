@@ -3,6 +3,7 @@
 No LLM account, external callback or database server is needed.
 
 ```bash
+# From the repository root:
 pip install -e 'packages/python[sqlite]'
 python examples/python/12_production_path/main.py
 python examples/python/12_production_path/main.py --durable-directory /tmp/a2a-learning-state

@@ -13,7 +13,7 @@
     <a href="#installation">Installation</a> &bull;
     <a href="#quick-start">Quick Start</a> &bull;
     <a href="#features">Features</a> &bull;
-    <a href="#multi-language-examples">Examples</a> &bull;
+    <a href="#examples">Examples</a> &bull;
     <a href="#feature-matrix">Feature Matrix</a> &bull;
     <a href="ROADMAP.md">Roadmap</a>
   </p>
@@ -56,6 +56,8 @@ npm install a2a-lite
 ```
 
 ### Java (Gradle)
+
+Java 1.2.0 is validated from source; Maven Central publication is pending. Run the [local composite-build examples](examples/java/README.md) now. The coordinate below identifies this source version; see the [Java installation guide](packages/java/README.md#installation) for required Maven BOM imports.
 ```groovy
 dependencies {
     implementation 'io.github.xvierd:a2a-lite:1.2.0'
@@ -202,7 +204,7 @@ async def summarize(doc: FilePart) -> str:
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Processor", description="...", task_store="memory")
+agent = Agent(name="Processor", description="...")
 
 @agent.skill("process")
 async def process(data: str, task: TaskContext) -> str:
@@ -222,7 +224,7 @@ from a2a_lite import Agent, APIKeyAuth, BearerAuth, OAuth2Auth
 agent = Agent(name="Bot", description="...", auth=APIKeyAuth(keys=["sk-..."]))
 
 # Bearer / JWT
-agent = Agent(name="Bot", description="...", auth=BearerAuth(tokens=["my-token"]))
+agent = Agent(name="Bot", description="...", auth=BearerAuth(validator=lambda token: "demo-user" if token == "my-token" else None))
 
 # OAuth2 (JWT validation)
 agent = Agent(
@@ -327,7 +329,7 @@ Consume a remote streaming agent's response chunk by chunk:
 **Python:**
 ```python
 # Consume a remote streaming agent's response chunk by chunk
-async for chunk in agent.delegate("story", "tell_story", topic="dragons", stream=True):
+async for chunk in await agent.delegate("story", "tell_story", topic="dragons", stream=True):
     print(chunk, end="", flush=True)
 ```
 
@@ -340,8 +342,8 @@ for await (const chunk of await agent.delegate('story', 'tellStory', { topic: 'd
 
 **Java:**
 ```java
-for (Object chunk : agent.streamDelegate("story", "tell_story", Map.of("topic", "dragons"))) {
-    System.out.print(chunk);
+try (var stream = agent.streamDelegate("story", "tell_story", Map.of("topic", "dragons"))) {
+    for (Object chunk : stream) System.out.print(chunk);
 }
 ```
 
@@ -491,11 +493,16 @@ client = AgentTestClient(agent)
 result = client.call("greet", name="World")
 assert result == "Hello, World!"
 
-# Async call
-result = await client.acall("greet", name="World")
+# Streaming (synchronous test client)
+chunks = client.stream("chat", message="Hi")
 
-# Streaming
-chunks = await client.stream("chat", message="Hi")
+# Async test
+from a2a_lite import AsyncAgentTestClient
+
+async def test_greet():
+    async with AsyncAgentTestClient(agent) as async_client:
+        result = await async_client.call("greet", name="World")
+        assert result == "Hello, World!"
 ```
 
 </td>
@@ -524,7 +531,7 @@ const card = client.getAgentCard();
 var client = new AgentTestClient(agent);
 
 var result = client.call("greet", Map.of("name", "World"));
-assertThat(result.data()).isEqualTo("Hello, World!");
+assertThat(result.getData()).isEqualTo("Hello, World!");
 
 // No params
 var result2 = client.call("ping");
@@ -565,14 +572,14 @@ Since a2a-lite 1.0.0, all three packages serve **A2A protocol v1.0** on the offi
 
 - **JSON-RPC transport** — Python, TypeScript, Java.
 - **REST (HTTP+JSON) transport** — Python and TypeScript; Java currently serves and advertises only JSON-RPC.
-- **gRPC transport** — Python **experimental** (`pip install a2a-lite[grpc]`, `agent.run_grpc()`); TypeScript/Java planned.
+- **gRPC transport** — Python **experimental** (`pip install 'a2a-lite[grpc]'`, `agent.run_grpc()`); TypeScript/Java planned.
 - **SSE streaming and task lifecycle** — Python, TypeScript and the standalone Java Javalin server use official SDK handlers for streaming, task reads and cancellation.
 - **Per-task push notifications** (`TaskPushNotificationConfig`) and **`securitySchemes` in the agent card** — all three languages.
 - **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planned.
 - Agent card served at **`/.well-known/agent-card.json`** (the old `agent.json` path is gone).
 - **No v0.3 compatibility** — lite clients detect 0.3 cards and fail with a clear error.
 
-Migrating from an earlier release? Basic skill registration is unchanged; review the authentication, push and task-handle changes in 1.1.0. See [MIGRATION.md](MIGRATION.md) for breaking changes, per-language steps, and SDK 0.3 → 1.x equivalence tables.
+Migrating from an earlier release? Basic skill registration is unchanged; review the authentication, push and task-handle changes in 1.1.0 and the runtime, identity and persistence requirements in 1.2.0. See [MIGRATION.md](MIGRATION.md) for breaking changes, per-language steps, and SDK 0.3 → 1.x equivalence tables.
 
 ---
 
@@ -679,7 +686,7 @@ Docs: [`examples/python/11_battleship_lite/README.md`](examples/python/11_battle
 
 ### Google SDK vs A2A Lite — side-by-side comparison
 
-The [`examples/`](examples/) directory contains complete, runnable pairs of the same agent written with the official SDK and with A2A Lite (all migrated to A2A v1.0 / SDK 1.x): hello world, calculator, file handling, auth, streaming, LLM integration, human-in-the-loop, persistence, plus the [battleship showcase](examples/python/11_battleship_lite/) above. See [examples/README.md](examples/README.md).
+The [`examples/`](examples/) directory compares Python SDK examples and manual Java protocol implementations with A2A Lite. It also includes human approval, application storage, the progressive durable path and the [battleship showcase](examples/python/11_battleship_lite/). The guides identify simulations, provider requirements and each demo’s limits; see [examples/README.md](examples/README.md).
 
 ### Python
 

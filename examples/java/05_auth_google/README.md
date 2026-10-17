@@ -7,7 +7,7 @@ with Javalin + Jackson — **no SDK**. For the official Java SDK approach see
 ## Features
 
 - **API Key Authentication**: Header (`X-API-Key`) and Query parameter (`api_key`) support
-- **Bearer Token Authentication**: JWT-style Bearer tokens via `Authorization` header
+- **Bearer Token Authentication**: Fixed demo token lookup via the `Authorization` header; no JWT signature or expiry verification
 - **SecurityScheme Configuration**: A2A v1.0 agent card with `securitySchemes` + `securityRequirements`
 - **Role-Based Access Control (RBAC)**: USER, ADMIN, GUEST, SERVICE roles
 - **Protected Skills**:
@@ -40,6 +40,9 @@ with Javalin + Jackson — **no SDK**. For the official Java SDK approach see
 ## Build & Run
 
 ```bash
+# From the repository root
+cd examples/java/05_auth_google
+
 # Compile
 mvn clean package
 
@@ -159,6 +162,8 @@ curl -X POST http://localhost:8080/skills/admin_only \
   -H "Content-Type: application/json" \
   -d '{"operation":"status"}'
 ```
+
+These hard-coded credentials and token lookups are for local learning only. For verified JWTs, use the library's `OAuth2Auth` with a trusted issuer/JWKS configuration; see the [Java package documentation](../../../packages/java/README.md#oauth2-verification).
 
 ## Demo Credentials
 

@@ -2,7 +2,7 @@
 
 > **Agent powered by REAL OpenAI/Anthropic APIs with conversation memory and tool calling.**
 
-This example demonstrates a production-ready agent using the official Google A2A Python SDK with real LLM integration. It supports:
+This example demonstrates a demonstration agent using the official Google A2A Python SDK with real LLM integration. It supports:
 
 - ✅ **Real OpenAI API** (GPT-4, GPT-3.5)
 - ✅ **Real Anthropic API** (Claude 3)
@@ -24,7 +24,8 @@ This example demonstrates a production-ready agent using the official Google A2A
 ### 1. Install Dependencies
 
 ```bash
-cd a2a-lite/examples/python/08_llm_integration_google
+# From the repository root:
+cd examples/python/08_llm_integration_google
 pip install -r requirements.txt
 ```
 

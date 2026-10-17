@@ -10,7 +10,18 @@ Quick reference for AI coding assistants implementing A2A agents.
 - Wire: JSON-RPC methods `SendMessage`, `SendStreamingMessage`, `GetTask`, `CancelTask`, `CreateTaskPushNotificationConfig`, etc., with header `A2A-Version: 1.0`. Parts have **no `kind`/`type` discriminator** — a text part is `{"text": "..."}`. Roles/states are enum-style: `ROLE_USER`, `TASK_STATE_WORKING`, ...
 - SDK integration underneath (invisible to lite-API users): Python mounts `a2a-sdk` 1.2.2 **route factories** (`create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes`); TypeScript uses `@a2a-js/sdk` 1.3.0 **express handlers** (`jsonRpcHandler` / `restHandler` / `agentCardHandler`, requires Node >= 20); Java connects its Javalin JSON-RPC adapter to the request handler and event runtime in `org.a2aproject.sdk` 1.4.0.Final through `AgentEmitter` (the 1.x replacement for `EventQueue` + `TaskUpdater`).
 - Java standalone `agent.run()` uses official SDK handlers for messaging, SSE, task lifecycle and push configuration over JSON-RPC. REST is not advertised. SDK task authorization must be configured separately for Quarkus (see `MIGRATION.md`). Dynamic push requires authentication and public HTTPS callbacks in every language.
-- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.1.0`. The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
+- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0` (source version; Maven Central publication pending). Standalone requires Javalin 7.2.3 on Java 17+ and the BOM alignment in [the Java guide](packages/java/README.md#installation). The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
+
+## 1.2.0 runtime and task contracts
+
+- Python and npm 1.2.0 are published. Java 1.2.0 currently runs from the source/composite builds in `examples/java`.
+- Ordinary Message responses do not create a queryable Task. Request task mode with Python `task=True`, TypeScript `{ task: true }`, or Java `SkillConfig.withTask()`. The injected context uses the protocol Task ID; Python `TaskContext` no longer requires an application-local `task_store`.
+- Use `learning` for infrastructure-free examples, `authenticated` for verified identities and `durable` with the supported database adapter and external encryption keys. A durable profile validates prerequisites and does not silently fall back to memory.
+- Use the managed `start` API and close its returned runtime in `finally`. The host application owns process signals. Cancellation is cooperative; uncooperative work needs process isolation for hard termination.
+- Map rotating credentials to a stable principal, and authorize tenant membership before accessing tasks. Send client credentials in headers or a scoped credential provider.
+- Durable callbacks are at least once and require receiver deduplication. Arbitrary interrupted functions do not automatically resume: checkpoint recovery is opt-in and language-specific.
+
+See [OPERATIONS.md](OPERATIONS.md), [MIGRATION.md](MIGRATION.md), and the progressive examples for [Python](examples/python/12_production_path/README.md), [TypeScript](examples/typescript/11_production_path/README.md) and [Java](examples/java/11_production_path_lite/README.md).
 
 ## Core Pattern
 
@@ -176,7 +187,7 @@ async def analyze(file: FilePart) -> dict:
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Bot", description="...", task_store="memory")
+agent = Agent(name="Bot", description="...")
 
 @agent.skill("process")
 async def process(data: str, task: TaskContext) -> dict:
@@ -202,7 +213,7 @@ from a2a_lite.auth import AuthResult
 
 @agent.skill("whoami")
 async def whoami(auth: AuthResult) -> dict:
-    return {"user": auth.identity, "scheme": auth.scheme}
+    return {"user": auth.user_id, "namespace": auth.namespace}
 ```
 
 ### 8. Middleware
@@ -299,7 +310,9 @@ agent = Agent(
     version="1.0.0",         # Optional, default "1.0.0"
     url=None,                # Optional, auto-detected
     auth=None,               # Optional: APIKeyAuth, BearerAuth, etc.
-    task_store=None,         # Optional: "memory" or TaskStore instance
+    task_store=None,         # Optional application-local mirror, not protocol persistence
+    runtime=None,            # Optional RuntimeConfig; default learning profile
+    persistence=None,        # Optional PersistenceConfig for durable protocol state
     cors_origins=None,       # Optional: list of allowed origins
     production=False,        # Optional: enable production warnings
 )
@@ -313,6 +326,8 @@ const agent = new Agent({
   version: '1.0.0',         // Optional, default "1.0.0"
   url: undefined,           // Optional, auto-detected
   auth: undefined,          // Optional: APIKeyAuth, BearerAuth, etc.
+  profile: 'learning',      // authenticated and durable validate prerequisites
+  persistence: undefined,  // Optional PostgreSQL protocol adapter
 });
 ```
 
@@ -379,7 +394,7 @@ async def error_handler(e: Exception) -> dict:
 agent.onStartup(() => console.log('Agent starting'));
 agent.onShutdown(() => console.log('Agent stopping'));
 agent.onComplete((skill, result) => console.log(`Completed: ${skill}`));
-agent.onError((e) => ({ error: e.message }));
+agent.onError(async (e) => ({ error: e.message }));
 ```
 
 ### Java
@@ -394,9 +409,8 @@ agent.onError(e -> Map.of("error", e.getMessage()));
 
 ### Python
 ```python
-# API Key (header or query param)
-APIKeyAuth(keys=["key1", "key2"], header="X-API-Key")
-APIKeyAuth(keys=["key"], query_param="api_key")
+# Header API keys mapped to a stable owner across rotation
+APIKeyAuth(principals={"key1": "user-1", "key2": "user-1"}, header="X-API-Key")
 
 # Bearer token with custom validator
 BearerAuth(validator=lambda token: "user-id" if valid(token) else None)
@@ -459,7 +473,7 @@ content = await file.read_bytes()     # As bytes
 
 ### Python
 1. **Forgetting async**: Skills should be `async def`
-2. **Missing task_store**: TaskContext requires `task_store="memory"`
+2. **Confusing Message and Task**: use `task=True` or a `TaskContext` parameter for queryable tasks; no separate `task_store` is required
 3. **Wrong import**: `from a2a_lite import X` not `from a2a_lite.module import X` for core features
 4. **Streaming without flag**: Use `@agent.skill("name", streaming=True)` for generators
 
@@ -533,16 +547,16 @@ async def stream(text: str):
 
 ### TypeScript
 ```typescript
-agent.skill('greet', async ({ name }) => `Hello, ${name}!`, {
+agent.skill('greet', {
   description: 'Greet someone',
   tags: ['greeting']
-});
+}, async ({ name }) => `Hello, ${name}!`);
 
-agent.skill('stream', async function* ({ text }) {
-  for (const word of text.split(' ')) {
+agent.skill('stream', { streaming: true }, async function* ({ text }) {
+  for (const word of String(text).split(' ')) {
     yield word;
   }
-}, { streaming: true });
+});
 ```
 
 ### Java
@@ -554,6 +568,6 @@ agent.skill("greet",
 
 agent.skill("stream",
     SkillConfig.withStreaming(),
-    params -> "Streaming result"
+    params -> com.a2alite.streaming.StreamingHandler.fromIterator(List.of("one", "two").iterator())
 );
 ```

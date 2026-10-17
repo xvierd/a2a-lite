@@ -11,7 +11,9 @@ Agent with **API Key authentication** using the real A2A Lite library.
 ## Running
 
 ```bash
-./gradlew run
+# From the repository root; resolves the local 1.2.0 library via composite build
+cd examples/java
+./gradlew :05_auth_lite:run
 ```
 
 ## API Usage

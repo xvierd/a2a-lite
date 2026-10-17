@@ -5,30 +5,21 @@ A simple greeting agent using the **real A2A Lite library** (`com.a2alite`).
 ## Prerequisites
 
 - Java 17+
-- The A2A Lite library built locally (see `packages/java/`)
+- Repository checkout; the composite build resolves A2A Lite 1.2.0 locally. It is not yet published to Maven Central.
 
 ## Building
 
 ```bash
-# From the packages/java directory, publish to local Maven first
-cd ../../../packages/java
-./gradlew publishToMavenLocal
-
-# Then build the example
-cd examples/java/01_hello_world_lite
-./gradlew build
+# From the repository root
+cd examples/java
+./gradlew :01_hello_world_lite:build
 ```
 
 ## Running
 
 ```bash
-./gradlew run
-```
-
-Or with Gradle wrapper:
-
-```bash
-gradle run
+# From examples/java
+./gradlew :01_hello_world_lite:run
 ```
 
 ## API

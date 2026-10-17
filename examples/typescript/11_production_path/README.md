@@ -1,10 +1,21 @@
 # Message → Task → stream → authenticated → durable
 
-Build `packages/typescript` first, then run `npm install --package-lock=false` here.
+This example uses A2A Lite 1.2.0 and protocol wire version `1.0`.
+
+```sh
+# From the repository root:
+npm --prefix packages/typescript ci
+npm --prefix packages/typescript run build
+cd examples/typescript/11_production_path
+npm install --package-lock=false
+npm run typecheck
+npm run learn
+```
+
 `npm run learn` runs four local exercises and closes every listener. It needs no database,
 external model, callback receiver or credentials beyond the explicit learning keys.
 
-The first call returns a Message. `identify` opts into a Task and proves its TaskContext taskId is
+The first call returns a Message. `identify` opts into a Task and proves its `TaskContext.taskId` is
 the same task ID returned by the protocol. `count` streams three chunks. The last call
 uses a rotating header provider, a stable principal, and explicit tenant membership.
 
@@ -35,9 +46,11 @@ A checkpoint does not make an external side effect atomic. The example's replace
 operation must accept an idempotency key derived from `taskId` and step number, or use
 its own transaction before advancing the checkpoint. Try two processes against the same
 database to observe scoped GetTask/SubscribeToTask/CancelTask from either replica.
+Start the second process with `PORT=8788 npm run durable`, retaining the same database,
+API key and callback encryption key in its environment.
 
 The callback outbox guarantees atomic state+enqueue and at-least-once delivery. Receivers
 must deduplicate `X-A2A-Delivery-Id`. A database backup includes encrypted callback secrets;
 it needs the separately retained encryption key to restore them. This is an opt-in
 prototype for durable execution coordination, not a promise that arbitrary code survives
-process loss. See the repository's OPERATIONS.md for qualification and failure boundaries.
+process loss. See [OPERATIONS.md](../../../OPERATIONS.md) for qualification and failure boundaries.

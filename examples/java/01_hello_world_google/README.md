@@ -31,7 +31,8 @@ src/main/java/com/example/hello/
 ### Build and Run
 
 ```bash
-cd java/01_hello_world_google
+# From the repository root
+cd examples/java/01_hello_world_google
 mvn clean package
 mvn exec:java
 ```

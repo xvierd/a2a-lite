@@ -25,7 +25,8 @@ This example demonstrates file handling using the official Google A2A SDK with:
 ## 🚀 Quick Start
 
 ```bash
-cd a2a-lite/examples/python/03_file_handling_google
+# From the repository root:
+cd examples/python/03_file_handling_google
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

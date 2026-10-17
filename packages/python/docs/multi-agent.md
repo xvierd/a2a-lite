@@ -34,7 +34,7 @@ async def plan_trip(destination: str):
 
 ## AgentNetwork API
 
-### `add(name, url)` / `remove(name)` / `get(name)`
+### `add(name, url, *, client_config=None)` / `remove(name)` / `get(name)`
 
 Manage the agent registry:
 
@@ -92,6 +92,23 @@ result = await agent.delegate("weather", "forecast", city="NYC")
 
 It returns the **parsed result** (not the raw A2A envelope), so you get the actual data back.
 
+## Authenticated Peers and Task Handles
+
+```python
+from a2a_lite import AgentNetwork, ClientConfig
+
+network = AgentNetwork()
+network.add("worker", "https://worker.example", client_config=ClientConfig(
+    headers={"X-API-Key": "your-key"},
+    tenant="team-a",  # the server must authorize this tenant
+))
+# The remote skill must return a Task (task=True, TaskContext or streaming).
+handle = await network.call("worker", "work", discover=True, return_handle=True)
+status = await handle.get_status()
+```
+
+`return_handle=True` requires a real Task response; a Message cannot supply a task ID. The handle retains the credentials and tenant used for its call. A sync/async `credential_provider(url)` can supply fresh headers for each request. Credentials remain scoped to the original origin unless `allowed_origins` explicitly permits another origin, and redirects are disabled. See the [deployment guide](production.md) for stable principals and key rotation.
+
 ## Example
 
-See [`examples/14_multi_agent_network.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/14_multi_agent_network.py) for a complete multi-agent example with weather, hotel, and planner agents.
+See [`examples/14_multi_agent_network.py`](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/14_multi_agent_network.py) for a complete multi-agent example with weather, hotel, and planner agents.

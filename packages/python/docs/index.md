@@ -2,7 +2,7 @@
 
 **Build A2A agents in 8 lines. Add enterprise features when you need them.**
 
-A2A Lite is a simplified wrapper around Google's [A2A Protocol](https://github.com/google/a2a) SDK. It lets you build interoperable AI agents with minimal boilerplate, then progressively add features like authentication, streaming, middleware, MCP tools, and multi-agent orchestration.
+A2A Lite 1.2.0 wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) for A2A protocol v1.0. Start with small agents, then add authentication, streaming, managed runtimes and durable state explicitly.
 
 ## Quick Start
 
@@ -61,7 +61,10 @@ curl -sS -X POST http://localhost:8787 \
 | Middleware | `@agent.middleware` | No |
 | Testing | `AgentTestClient` | No |
 | Authentication | `auth=` param | No (OAuth needs `[oauth]`) |
-| Task tracking | `task_store="memory"` | No |
+| Protocol tasks | `task=True` or a `TaskContext` parameter | No |
+| Managed runtime | `await agent.start()` / `RuntimeConfig` | No |
+| SQL state, events and callbacks | `PersistenceConfig` | `[sqlite]` or `[postgresql]` |
+| Checkpoint recovery | `recoverable=True` with managed persistence | SQL extra |
 | File/Data parts | Type hints | No |
 | MCP tools | `add_mcp_server()` | `[mcp]` |
 | Multi-agent | `AgentNetwork` | No |
@@ -70,16 +73,17 @@ curl -sS -X POST http://localhost:8787 \
 ## Optional Extras
 
 ```bash
-pip install a2a-lite[mcp]        # MCP tool integration
-pip install a2a-lite[openai]     # OpenAI skill decorator
-pip install a2a-lite[anthropic]  # Anthropic skill decorator
-pip install a2a-lite[oauth]      # OAuth2/JWT authentication
-pip install a2a-lite[docs]       # Documentation generation
+pip install 'a2a-lite[mcp]'        # MCP tool integration
+pip install 'a2a-lite[openai]'     # OpenAI skill decorator
+pip install 'a2a-lite[anthropic]'  # Anthropic skill decorator
+pip install 'a2a-lite[oauth]'      # OAuth2/JWT authentication
+pip install 'a2a-lite[docs]'       # Documentation generation
 ```
 
 ## Next Steps
 
 - [Progressive Levels](progressive-levels.md) - Learn features step by step
+- [Managed deployments](production.md) - Identity, limits, persistence and recovery guarantees
 - [CLI Reference](cli.md) - Command-line tools
 - [API Reference](api.md) - Full API docs
 - [Examples](examples.md) - Working code examples

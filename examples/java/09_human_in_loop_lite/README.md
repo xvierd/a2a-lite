@@ -2,6 +2,8 @@
 
 HITL workflow demonstration using the **real A2A Lite library**.
 
+The `task_id` in these skill results is an application interaction ID stored in a process-local map, not a protocol Task ID accepted by `GetTask`/`CancelTask`. The demo has no user ownership or durable workflow state; restarting loses pending confirmations. For real protocol IDs, authenticated ownership and PostgreSQL state, see [example 11](../11_production_path_lite/).
+
 ## Features
 
 - Multi-step workflows with state management
@@ -18,7 +20,9 @@ HITL workflow demonstration using the **real A2A Lite library**.
 ## Running
 
 ```bash
-./gradlew run
+# From the repository root; resolves the local 1.2.0 library via composite build
+cd examples/java
+./gradlew :09_human_in_loop_lite:run
 ```
 
 ## Workflow Example
