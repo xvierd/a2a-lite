@@ -30,7 +30,8 @@ This example demonstrates the two-phase confirmation pattern over the A2A protoc
 ## 🚀 Quick Start
 
 ```bash
-cd python/09_human_in_loop_lite
+# From the repository root:
+cd examples/python/09_human_in_loop_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -117,10 +118,9 @@ async def purchase(item: str, price: float, confirmed: bool = False) -> dict:
 
 ### 2. Why Not Mid-Execution Questions?
 
-A2A Lite has no mid-execution question API. The two-phase pattern is
-stateless and works over plain `SendMessage`: every decision point is a
-new call carrying the confirmation as a parameter. The client (or an
-orchestrating agent) owns the review step.
+This example uses a stateless two-phase pattern over plain `SendMessage`: each decision is a new call carrying confirmation as a parameter. The client (or an orchestrating agent) owns the review step.
+
+For a persistent protocol Task, inject `TaskContext`, call `await task.update("input-required", "Please confirm")` and return. The authorized caller can continue the same `taskId` with a new message; the handler starts again with that input. See [paused-task continuation](../../../packages/python/docs/production.md#recovery-is-explicit). Neither pattern keeps a Python coroutine suspended across a restart. A production approval flow must also bind the decision to the authorized user and the original action details.
 
 ---
 

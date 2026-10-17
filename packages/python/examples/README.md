@@ -2,6 +2,8 @@
 
 Progressive examples demonstrating A2A Lite features from simple to advanced.
 
+The [learning-to-production example](../../../examples/python/12_production_path/README.md) covers the 1.2.0 managed runtime, real Task IDs, credentials and durable restart path.
+
 ## Examples
 
 | # | File | Description | Features |
@@ -47,7 +49,7 @@ uv run examples/01_hello_world.py
 python examples/04_multi_agent/run_demo.py
 
 # Test a running agent (A2A v1.0 card + SendMessage)
-a2a-lite test http://localhost:8787 hello -p name=World
+a2a-lite test http://localhost:8787 greet -p name=World
 a2a-lite doctor http://localhost:8787
 ```
 
@@ -56,7 +58,8 @@ a2a-lite doctor http://localhost:8787
 Playable multi-agent A2A demo with web UI (not in this folder):
 
 ```bash
-cd ../../../examples/python/11_battleship_lite
+# From the repository root:
+cd examples/python/11_battleship_lite
 pip install -e ../../../packages/python
 python agent.py               # http://localhost:8790/
 # python arena.py             # http://localhost:8793/?mode=arena
@@ -72,22 +75,22 @@ Most examples only need the core `a2a-lite` package. Some require extras:
 
 ```bash
 # For MCP tools (example 13)
-pip install a2a-lite[mcp]
+pip install 'a2a-lite[mcp]'
 
 # For OpenAI (examples 05, 15)
-pip install a2a-lite[openai]
+pip install 'a2a-lite[openai]'
 
 # For Anthropic (example 16)
-pip install a2a-lite[anthropic]
+pip install 'a2a-lite[anthropic]'
 
 # For Bedrock (example 17)
-pip install a2a-lite[bedrock]
+pip install 'a2a-lite[bedrock]'
 
 # For experimental gRPC (agent.run_grpc / build_grpc_server)
-pip install a2a-lite[grpc]
+pip install 'a2a-lite[grpc]'
 ```
 
-## Notes (v1.0)
+## Protocol Notes (A2A v1.0)
 
 - Agent cards are at `/.well-known/agent-card.json` with `supportedInterfaces`.
 - Wire methods are `SendMessage` / `SendStreamingMessage` (not `message/send`).

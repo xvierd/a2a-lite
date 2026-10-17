@@ -72,3 +72,10 @@ Coordination adapters are opt-in references, not a certification. Arbitrary inte
 - [Python publication](https://github.com/xvierd/a2a-lite/actions/runs/39070676912) and [npm publication](https://github.com/xvierd/a2a-lite/actions/runs/39070678731) succeeded from that exact merge. Clean installations from both public registries passed CLI/import and authenticated Message/Task/stream checks. Python also passed durable restart and credential rotation; npm passed rotated task ownership and rejected anonymous calls. [Python release evidence](../tests/evidence/2026-10-17-1.2.0/python-release.json) confirms exact wheel/sdist hashes against the workflow artifact; [npm release evidence](../tests/evidence/2026-10-17-1.2.0/npm-release.json) confirms tarball integrity, signatures and provenance for the merge commit.
 - Java 1.2.0 library, sources, Javadoc, POM and Gradle metadata were generated and inspected locally. POM/metadata carry Jetty core/EE10 12.1.14 and Jackson 2.22.3 platform alignment. Java has not been published.
 - Fresh access checks still show no GitHub `workflow` scope and no Maven Central/GPG repository secrets. Workflow drafts remain inactive; these are external prerequisites, not failed package tests.
+
+## Post-release documentation alignment
+
+- [x] Align the Spanish README, assistant reference and language/example guides with 1.2.0 behavior and the actual publication status.
+- [x] Check changed snippets, local links and release instructions; keep this documentation correction separate from package publication.
+
+Validation: local links across all 62 tracked Markdown files; Python constructor signatures and affected snippets, including sync/async test clients and stable authentication; 23 TypeScript snippets under strict type checking plus the executable learning path; Java shell/JSON examples, SSE reader and Gradle task resolution. `git diff --check` passes. This pass changes Markdown only; PyPI/npm remain 1.2.0 and Java publication remains pending.

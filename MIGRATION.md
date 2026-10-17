@@ -141,7 +141,7 @@ Basic skill registration remains compatible. Review the 1.2.0 identity, runtime-
 
 ### Java
 
-Update the coordinates in your build file:
+Java 1.2.0 has been validated from source but is not yet published to Maven Central. Use the [local composite-build examples](examples/java/README.md) until publication. The target coordinates are:
 
 ```groovy
 dependencies {

@@ -11,7 +11,9 @@ File handling agent using the **real A2A Lite library**.
 ## Running
 
 ```bash
-./gradlew run
+# From the repository root; resolves the local 1.2.0 library via composite build
+cd examples/java
+./gradlew :03_file_handling_lite:run
 ```
 
 Server starts on port 8789.

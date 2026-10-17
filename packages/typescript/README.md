@@ -3,11 +3,11 @@
 [![npm](https://img.shields.io/npm/v/a2a-lite?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/a2a-lite)
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
-> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [google/a2a-js](https://github.com/a2aproject/a2a-js) SDK. Perfect for courses, POCs, and demos.
+> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [a2aproject/a2a-js](https://github.com/a2aproject/a2a-js) SDK. Perfect for courses, POCs, and demos.
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
-Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple API and tested A2A1.0 JSON-RPC/HTTP+JSON interoperability.
+Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple API and tested A2A 1.0 JSON-RPC/HTTP+JSON interoperability.
 
 > **v1.2.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
 > - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
@@ -49,11 +49,11 @@ import { Agent } from 'a2a-lite';
 
 const agent = new Agent({ name: 'Bot', description: 'My bot' });
 
-agent.skill('greet', async ({ name }: { name: string }) =>
+agent.skill('greet', async ({ name }) =>
   `Hello, ${name}!`
 );
 
-agent.run();
+await agent.run();
 ```
 
 ---
@@ -86,7 +86,7 @@ progress and terminal state reach the protocol store. Ordinary skills continue r
 Messages. Cancellation and execution deadlines abort `TaskContext.signal`; handlers must
 cooperate with that signal. Timeouts cannot terminate arbitrary JavaScript or undo its side effects.
 
-`start()` and `run()` return an `AgentRuntime` with `url`, `stats`, `closed` and idempotent
+Await `start()` or `run()` to obtain an `AgentRuntime` with `url`, `stats`, `closed` and idempotent
 `stop()`. The library installs no process signal handlers and never calls `process.exit`.
 The application owns SIGINT/SIGTERM handling. Shutdown stops admission, aborts active skills,
 waits for their terminal state to settle, then closes MCP and persistence resources within
@@ -144,8 +144,10 @@ can consume that callback without affecting request handling.
 ### PostgreSQL, transactional delivery and replica coordination
 
 ```typescript
-import { createPostgresPersistence, migratePostgresRuntime } from 'a2a-lite';
+import { Agent, APIKeyAuth, createPostgresPersistence, migratePostgresRuntime } from 'a2a-lite';
 
+const apiKey = process.env.API_KEY;
+if (!apiKey) throw new Error('Set API_KEY to a private application credential');
 // Operator step AFTER: DATABASE_URL=... npx a2a-db upgrade
 await migratePostgresRuntime({ connectionString: process.env.DATABASE_URL! });
 const persistence = await createPostgresPersistence({
@@ -154,6 +156,7 @@ const persistence = await createPostgresPersistence({
   delivery: {}, // optional transactional outbox; bounded retries and worker leases
   execution: {}, // optional PostgreSQL leases, scoped journal and remote cancellation
 });
+const auth = new APIKeyAuth({ identities: { [apiKey]: 'service' } });
 const agent = new Agent({ name: 'Durable', description: 'Persistent tasks', profile: 'durable', auth, persistence });
 ```
 
@@ -242,25 +245,27 @@ const agent = new Agent({
   description: 'Does math'
 });
 
-agent.skill('add', async ({ a, b }: { a: number; b: number }) =>
-  a + b
+agent.skill('add', async ({ a, b }) =>
+  Number(a) + Number(b)
 );
 
-agent.skill('multiply', async ({ a, b }: { a: number; b: number }) =>
-  a * b
+agent.skill('multiply', async ({ a, b }) =>
+  Number(a) * Number(b)
 );
 
-agent.run(); // Listening on http://localhost:8787
+await agent.run(); // Listening on http://localhost:8787
 ```
 
 ### 2. Test it (no HTTP needed)
+
+In a test, reuse the agent definition without calling `run()`:
 
 ```typescript
 import { AgentTestClient } from 'a2a-lite';
 
 const client = new AgentTestClient(agent);
 const result = await client.call('add', { a: 2, b: 3 });
-expect(result).toBe(5);
+expect(result.data).toBe(5);
 ```
 
 ---
@@ -270,15 +275,15 @@ expect(result).toBe(5);
 ### Skills
 
 ```typescript
-agent.skill('greet', async ({ name }: { name: string }) =>
+agent.skill('greet', async ({ name }) =>
   `Hello, ${name}!`
 );
 
 // With description and tags
-agent.skill('greet', async ({ name }) => `Hello, ${name}!`, {
+agent.skill('greet', {
   description: 'Greet someone by name',
   tags: ['greeting']
-});
+}, async ({ name }) => `Hello, ${name}!`);
 ```
 
 ### Streaming
@@ -286,11 +291,11 @@ agent.skill('greet', async ({ name }) => `Hello, ${name}!`, {
 Use `async function*` to stream responses:
 
 ```typescript
-agent.skill('chat', async function* ({ message }) {
-  for (const word of message.split(' ')) {
+agent.skill('chat', { streaming: true }, async function* ({ message }) {
+  for (const word of String(message).split(' ')) {
     yield word + ' ';
   }
-}, { streaming: true });
+});
 ```
 
 ### Middleware
@@ -317,7 +322,7 @@ import { Agent, APIKeyAuth, BearerAuth } from 'a2a-lite';
 const agent = new Agent({
   name: 'SecureBot',
   description: 'A secure bot',
-  auth: new APIKeyAuth({ keys: new Set(['secret-key']) }),
+  auth: new APIKeyAuth({ keys: ['secret-key'] }),
 });
 
 // Bearer token with custom validator
@@ -330,14 +335,20 @@ const agent2 = new Agent({
 });
 ```
 
+`valid(token)` represents your application's token verification, including signature,
+issuer, audience and expiry checks. For durable ownership across API-key rotation,
+use the stable `identities` mapping shown above.
+
 ### File Handling
 
-Accept files and return rich artifacts:
+Convert inline file data explicitly; JSON parameters do not preserve class instances:
 
 ```typescript
-import { FilePart, Artifact } from 'a2a-lite';
+import { FilePart } from 'a2a-lite';
 
-agent.skill('analyze', async ({ file }: { file: FilePart }) => {
+// Call with params: { filename: 'note.txt', raw: Buffer.from('Hello').toString('base64') }
+agent.skill('analyze', async ({ filename, raw }) => {
+  const file = FilePart.fromA2A({ filename, raw });
   const content = await file.readText();
   return { name: file.name, size: content.length };
 });
@@ -349,7 +360,7 @@ agent.skill('analyze', async ({ file }: { file: FilePart }) => {
 agent.onStartup(() => console.log('Agent starting'));
 agent.onShutdown(() => console.log('Agent stopping'));
 agent.onComplete((skill, result) => console.log(`Completed: ${skill}`));
-agent.onError((e) => ({ error: e.message }));
+agent.onError(async (e) => ({ error: e.message }));
 ```
 
 ---
@@ -365,7 +376,7 @@ const client = new AgentTestClient(agent);
 
 // Regular call
 const result = await client.call('greet', { name: 'World' });
-expect(result).toBe('Hello, World!');
+expect(result.data).toBe('Hello, World!');
 
 // Streaming (collects all chunks)
 const results = await client.stream('chat', { message: 'hello world' });
@@ -376,7 +387,9 @@ const skills = client.listSkills();
 const card = client.getAgentCard();
 ```
 
-`AgentTestClient` returns a `TestResult` with `.data`, `.text`, and `.json()`.
+`AgentTestClient.call()` returns a `TestResult` with `.data`, `.text`, and `.json()`.
+`stream()` collects handler output directly; use a real HTTP client to test SSE,
+authentication and injected task contexts together.
 
 ---
 
@@ -386,7 +399,7 @@ const card = client.getAgentCard();
 const agent = new Agent({
   name: 'Bot',              // Required
   description: '...',       // Required
-  version: '1.0.0',         // Optional, default "1.0.0"
+  version: '1.0.0',         // Your agent's version; default "1.0.0", independent of the library
   url: undefined,           // Optional, auto-detected
   auth: undefined,          // Optional: APIKeyAuth, BearerAuth
   corsOrigins: ['...'],     // Optional: CORS allowed origins
@@ -396,10 +409,13 @@ const agent = new Agent({
 ## Run Options
 
 ```typescript
-agent.run({
+const runtime = await agent.run({
   host: '0.0.0.0',          // Default
   port: 8787,               // Default
 });
+
+// In the host application's shutdown path:
+await runtime.stop();
 ```
 
 ---
@@ -408,7 +424,7 @@ agent.run({
 
 ### TaskHandle -- track remote tasks
 
-When delegating to a remote agent, you can get back a `TaskHandle` that includes the A2A task ID alongside the result. This is useful for polling or cancelling long-running tasks.
+When delegating to a remote agent, you can get back a `TaskHandle` that includes the A2A task ID alongside the result. The remote skill must return a Task, for example with `{ task: true }`; a plain Message has no task ID. Use `returnImmediately: true` to obtain the handle while work is still running.
 
 ```typescript
 import { Agent, AgentNetwork, TaskHandle, getRemoteTask, cancelRemoteTask } from 'a2a-lite';
@@ -416,9 +432,9 @@ import { Agent, AgentNetwork, TaskHandle, getRemoteTask, cancelRemoteTask } from
 const network = new AgentNetwork();
 network.add('data', 'http://localhost:8787');
 
-const agent = new Agent({ name: 'Orchestrator', network });
+const agent = new Agent({ name: 'Orchestrator', description: 'Delegate data requests', network });
 
-agent.skill('process', async ({ query }: { query: string }) => {
+agent.skill('process', async ({ query }) => {
   // Get a TaskHandle instead of just the result
   const handle = await agent.delegate('data', 'fetch', { query }, { returnHandle: true }) as TaskHandle;
   console.log(`Task ID: ${handle.taskId}`);
@@ -435,19 +451,19 @@ Use convenience methods directly on the handle, or via the network by name:
 ```typescript
 // Poll status directly on the handle
 const status = await handle.getStatus();
-const status2 = await handle.getStatus(15);  // custom timeout in seconds
+const status2 = await handle.getStatus(15_000);  // custom timeout in milliseconds
 
 // Or poll via network name
 const status3 = await network.getTask('data', handle.taskId);
-const status4 = await network.getTask('data', handle.taskId, 15);
+const status4 = await network.getTask('data', handle.taskId, 15_000);
 
 // Cancel directly on the handle
 await handle.cancel();
-await handle.cancel(15);
+await handle.cancel(15_000);
 
 // Or cancel via network name
 await network.cancelTask('data', handle.taskId);
-await network.cancelTask('data', handle.taskId, 15);
+await network.cancelTask('data', handle.taskId, 15_000);
 ```
 
 Low-level functions are also available:
@@ -464,11 +480,13 @@ When calling a remote streaming agent, consume its chunks as they arrive:
 ```typescript
 import { streamRemoteSkill } from 'a2a-lite';
 
+network.add('story', 'http://localhost:8788');
+
 // Via agent.delegate with stream: true
-agent.skill('display', async ({ topic }: { topic: string }) => {
+agent.skill('display', async ({ topic }) => {
   const chunks: string[] = [];
-  const stream = agent.delegate('story', 'tellStory', { topic }, { stream: true }) as AsyncGenerator<string>;
-  for await (const chunk of await stream) {
+  const stream = await agent.delegate('story', 'tellStory', { topic }, { stream: true });
+  for await (const chunk of stream) {
     process.stdout.write(chunk);
     chunks.push(chunk);
   }
@@ -476,7 +494,7 @@ agent.skill('display', async ({ topic }: { topic: string }) => {
 });
 
 // Or directly
-for await (const chunk of streamRemoteSkill('http://localhost:8787', 'tellStory', { topic: 'dragons' })) {
+for await (const chunk of streamRemoteSkill('http://localhost:8788', 'tellStory', { topic: 'dragons' })) {
   process.stdout.write(chunk);
 }
 ```
@@ -505,13 +523,21 @@ const result = await agent.delegate('data', 'fetch', { query: 'hello' }, { disco
 ```typescript
 import { setTaskPushNotification } from 'a2a-lite';
 
+const credentials = {
+  credentialProvider: async () => ({ 'X-API-Key': await readCurrentKey() }),
+};
+network.add('worker', 'https://worker.example', credentials);
+// The remote process skill must return a Task and require authentication.
 const handle = await agent.delegate('worker', 'process', { data: '...' }, { returnHandle: true }) as TaskHandle;
 
 // Register webhook for this specific task
 await handle.subscribe('https://my-app.com/webhook', 'secret-token');
 
-// Or directly
-await setTaskPushNotification('http://localhost:8787', handle.taskId, 'https://my-app.com/webhook');
+// Or directly, with the same authenticated owner and configuration ID
+await setTaskPushNotification(
+  handle.agentUrl, handle.taskId, 'https://my-app.com/webhook',
+  'secret-token', 10_000, handle.taskId, credentials
+);
 
 // Retrieve / remove
 const config = await handle.getPushConfig();

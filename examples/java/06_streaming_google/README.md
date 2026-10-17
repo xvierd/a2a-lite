@@ -66,8 +66,8 @@ Each line is a JSON-RPC-style envelope whose `result` has exactly one key:
 | `statusUpdate` | `{"taskId", "contextId", "status": {"state": "TASK_STATE_*", "timestamp", "message": {...}}}` | Working progress, completion, failure |
 | `artifactUpdate` | `{"taskId", "artifact": {"artifactId", "name", "parts": [{"text": ...}]}, "append": true, "lastChunk": false}` | Incremental result chunks |
 
-There is **no `final` field** — closing the stream signals terminality. Task
-states use the v1.0 enum form: `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`,
+There is **no `final` field**. Inspect the Task state to distinguish completion
+from failure; a network disconnect alone does not prove either. Task states use the v1.0 enum form: `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`,
 `TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`.
 
 ### Endpoints
@@ -82,6 +82,8 @@ Every RPC response carries the `A2A-Version: 1.0` header.
 ## Building
 
 ```bash
+# From the repository root
+cd examples/java/06_streaming_google
 mvn clean package
 ```
 
@@ -170,7 +172,7 @@ data: {"result":{"statusUpdate":{"taskId":"...","contextId":"...","status":{"sta
 
 ### Using JavaScript (fetch + ReadableStream)
 
-`EventSource` cannot POST, so consume the stream with `fetch`:
+`EventSource` cannot POST, so consume the stream with `fetch`. This parser handles the example's single-line `data:` events and buffers network chunks that split UTF-8 characters or JSON lines:
 
 ```javascript
 const response = await fetch('/', {
@@ -190,19 +192,26 @@ const response = await fetch('/', {
   })
 });
 
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
 const reader = response.body.getReader();
 const decoder = new TextDecoder();
+let pending = '';
 while (true) {
   const { done, value } = await reader.read();
-  if (done) break; // stream close = terminal
-  for (const line of decoder.decode(value).split('\n')) {
-    if (line.startsWith('data: ')) {
-      const event = JSON.parse(line.slice(6));
-      if (event.result.task) console.log('Task:', event.result.task.id);
-      if (event.result.statusUpdate) console.log('Status:', event.result.statusUpdate.status.state);
-      if (event.result.artifactUpdate) process.stdout.write(event.result.artifactUpdate.artifact.parts[0].text);
-    }
+  pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+  let newline;
+  while ((newline = pending.indexOf('\n')) >= 0) {
+    const line = pending.slice(0, newline).replace(/\r$/, '');
+    pending = pending.slice(newline + 1);
+    if (!line.startsWith('data: ')) continue;
+    const event = JSON.parse(line.slice(6));
+    if (event.error) throw new Error(event.error.message);
+    const result = event.result ?? {};
+    if (result.task) console.log('Task:', result.task.id);
+    if (result.statusUpdate) console.log('Status:', result.statusUpdate.status.state);
+    if (result.artifactUpdate) console.log(result.artifactUpdate.artifact.parts[0].text);
   }
+  if (done) break;
 }
 ```
 

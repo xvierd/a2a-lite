@@ -33,7 +33,8 @@ Compare to Google SDK: **~374 lines → 75% reduction!**
 ## 🚀 Quick Start
 
 ```bash
-cd python/05_auth_lite
+# From the repository root:
+cd examples/python/05_auth_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -76,7 +77,7 @@ curl -X POST http://localhost:8790/ \
   -H "Authorization: Bearer valid-token-abc" \
   -d '{"jsonrpc": "2.0", "method": "SendMessage", "id": "1", "params": {"message": {"messageId": "msg-3", "role": "ROLE_USER", "parts": [{"text": "{\"skill\": \"whoami\"}"}]}}}'
 
-# Expected: {"user": "bearer_user_valid-t...", "scheme": "bearer"}
+# Parsed result: {"identity": "bearer_user_1", "scopes": [], "authenticated": true}
 ```
 
 ---
@@ -116,25 +117,28 @@ from a2a_lite.auth import AuthResult
 
 agent = Agent(
     name="SecureAgent",
+    description="Authenticated skills",
     auth=APIKeyAuth(keys=["secret-key-123"])  # One line!
 )
 
 @agent.skill("whoami")
 async def whoami(auth: AuthResult) -> dict:
-    return {"user": auth.identity, "scheme": auth.scheme}
+    return {"user": auth.user_id, "scopes": sorted(auth.scopes)}
 ```
 
 ---
 
-## 🔐 Security Features (Same as Google SDK!)
+## 🔐 Authentication Behavior
 
 | Feature | A2A Lite Implementation |
 |---------|------------------------|
 | **Key Hashing** | SHA-256 automatic |
-| **Timing Safe** | Uses `hmac.compare_digest` |
+| **Stable Identity** | `APIKeyAuth(principals={key: user_id})` preserves ownership during key rotation |
 | **Multiple Schemes** | `APIKeyAuth`, `BearerAuth`, `CompositeAuth` |
 | **Context Injection** | Type-hint `auth: AuthResult` |
-| **Error Handling** | Automatic 401/403 responses |
+| **Error Handling** | Invalid HTTP credentials return 401; skill permission failures use protocol errors |
+
+Configured authentication protects every protocol operation, including the demo's `public_info` skill. Omitting an `AuthResult` parameter does not make a skill public. Agent-card discovery remains public. These hardcoded credentials are for local demonstrations; see the [deployment guide](../../../packages/python/docs/production.md) for namespaces, tenant authorization and durable profiles.
 
 ---
 
@@ -147,6 +151,7 @@ from a2a_lite import Agent, APIKeyAuth
 
 agent = Agent(
     name="SecureAgent",
+    description="API key protected skills",
     auth=APIKeyAuth(keys=["secret-key"])
 )
 ```
@@ -156,10 +161,15 @@ agent = Agent(
 ```python
 from a2a_lite.auth import BearerAuth
 
+demo_tokens = {"example-token": "alice"}
 agent = Agent(
-    auth=BearerAuth(secret="jwt-secret")
+    name="BearerAgent",
+    description="Opaque bearer token demonstration",
+    auth=BearerAuth(validator=demo_tokens.get),
 )
 ```
+
+The validator returns a stable user ID or `None`. For signed JWTs, use `OAuth2Auth(issuer=..., audience=...)` with the `[oauth]` extra.
 
 ### Level 3: Multiple Schemes
 
@@ -167,9 +177,11 @@ agent = Agent(
 from a2a_lite.auth import CompositeAuth
 
 agent = Agent(
+    name="MultipleSchemes",
+    description="API key or bearer authentication",
     auth=CompositeAuth([
         APIKeyAuth(keys=["key1"]),
-        BearerAuth(secret="jwt-secret")
+        BearerAuth(validator=demo_tokens.get)
     ])
 )
 ```
@@ -181,8 +193,7 @@ from a2a_lite.auth import AuthResult
 
 @agent.skill("profile")
 async def get_profile(auth: AuthResult) -> dict:
-    # auth.identity, auth.scheme, auth.permissions
-    return {"user": auth.identity}
+    return {"user": auth.user_id, "scopes": sorted(auth.scopes)}
 ```
 
 ---

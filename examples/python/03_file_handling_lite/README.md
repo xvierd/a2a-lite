@@ -21,7 +21,8 @@ This example demonstrates how to handle file uploads, process binary data, and r
 ## 🚀 Quick Start
 
 ```bash
-cd python/03_file_handling_lite
+# From the repository root:
+cd examples/python/03_file_handling_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

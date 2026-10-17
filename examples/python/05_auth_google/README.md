@@ -35,7 +35,8 @@ This example demonstrates how to implement authentication in A2A agents using th
 ## 🚀 Quick Start
 
 ```bash
-cd python/05_auth_google
+# From the repository root:
+cd examples/python/05_auth_google
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

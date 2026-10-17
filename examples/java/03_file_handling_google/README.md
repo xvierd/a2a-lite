@@ -37,7 +37,8 @@ File Support:
 ## Build
 
 ```bash
-cd 03_file_handling_google
+# From the repository root
+cd examples/java/03_file_handling_google
 mvn clean package
 ```
 
@@ -210,8 +211,8 @@ Access the agent card at: `http://localhost:8789/.well-known/agent-card.json`
 The v1.0 agent card includes:
 - Agent metadata (name, description, version)
 - `supportedInterfaces` with the endpoint URL, `protocolBinding: JSONRPC` and `protocolVersion: 1.0`
-- Capabilities including file handling support
-- Skill definitions with `id`, `name`, `description`, `tags` and input schemas
+- An example-specific `fileHandling` capability extension (not a standard A2A field)
+- Skill definitions with `id`, `name`, `description`, `tags` and example-specific input schemas
 - Supported MIME types and max file size
 
 ## Comparison with A2A Lite

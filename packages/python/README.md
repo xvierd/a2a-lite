@@ -3,15 +3,15 @@
 [![PyPI](https://img.shields.io/pypi/v/a2a-lite?label=PyPI&logo=pypi&logoColor=white)](https://pypi.org/project/a2a-lite/)
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
-> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before diving into the full [google/a2a-python](https://github.com/a2aproject/a2a-python) SDK. Perfect for courses, POCs, and demos.
+> **Start by learning A2A, then add deployment guarantees explicitly.** A2A Lite provides a small API over the official [A2A Python SDK](https://github.com/a2aproject/a2a-python), with authenticated runtimes, durable state and opt-in recovery when you need them. See the [deployment guide](docs/production.md) for supported guarantees and limits.
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
-Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API. 100% protocol-compatible.
+Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API for A2A v1.0.
 
 > **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
 > - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
-> - **gRPC (experimental, opt-in):** `pip install a2a-lite[grpc]` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
+> - **gRPC (experimental, opt-in):** `pip install 'a2a-lite[grpc]'` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
 > - **No v0.3 compatibility.** See [MIGRATION.md](../../MIGRATION.md).
 
 ```python
@@ -52,14 +52,14 @@ uv add a2a-lite
 ### Optional extras
 
 ```bash
-pip install a2a-lite[sqlite]     # single-host persistent learning examples
-pip install a2a-lite[postgresql] # managed durable state/events/callbacks
-pip install a2a-lite[grpc]       # experimental gRPC transport
-pip install a2a-lite[oauth]      # OAuth2 / JWT (PyJWT)
-pip install a2a-lite[mcp]        # MCP tool client
-pip install a2a-lite[openai]     # OpenAI skill helper
-pip install a2a-lite[anthropic]  # Anthropic skill helper
-pip install a2a-lite[bedrock]    # AWS Bedrock skill helper
+pip install 'a2a-lite[sqlite]'     # single-host persistent learning examples
+pip install 'a2a-lite[postgresql]' # managed durable state/events/callbacks
+pip install 'a2a-lite[grpc]'       # experimental gRPC transport
+pip install 'a2a-lite[oauth]'      # OAuth2 / JWT (PyJWT)
+pip install 'a2a-lite[mcp]'        # MCP tool client
+pip install 'a2a-lite[openai]'     # OpenAI skill helper
+pip install 'a2a-lite[anthropic]'  # Anthropic skill helper
+pip install 'a2a-lite[bedrock]'    # AWS Bedrock skill helper
 ```
 
 ---
@@ -219,7 +219,7 @@ Long-running operations with progress updates:
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Bot", description="A bot", task_store="memory")
+agent = Agent(name="Bot", description="A bot")
 
 @agent.skill("process")
 async def process(data: str, task: TaskContext) -> str:
@@ -248,13 +248,14 @@ Other auth providers:
 ```python
 from a2a_lite.auth import BearerAuth, OAuth2Auth
 
-# Bearer/JWT
+# Demo opaque bearer token; use OAuth2Auth below for JWT verification.
+demo_tokens = {"example-token": "alice"}
 agent = Agent(
     name="Bot", description="A bot",
-    auth=BearerAuth(secret="your-jwt-secret"),
+    auth=BearerAuth(validator=demo_tokens.get),
 )
 
-# OAuth2 (requires: pip install a2a-lite[oauth])
+# OAuth2 (requires: pip install 'a2a-lite[oauth]')
 agent = Agent(
     name="Bot", description="A bot",
     auth=OAuth2Auth(issuer="https://auth.example.com", audience="my-api"),
@@ -268,7 +269,7 @@ from a2a_lite.auth import AuthResult
 
 @agent.skill("whoami")
 async def whoami(auth: AuthResult) -> dict:
-    return {"user": auth.identity, "scheme": auth.scheme}
+    return {"user": auth.user_id, "scopes": sorted(auth.scopes)}
 ```
 
 ### Level 8 — CORS & Production Mode
@@ -282,6 +283,8 @@ agent = Agent(
 )
 ```
 
+`production=True` enables warnings; it does not select an authenticated or durable runtime profile. Use `RuntimeConfig` and the [deployment guide](docs/production.md) for those guarantees.
+
 ### Level 10 — Multi-Agent Communication
 
 #### TaskHandle — track remote tasks
@@ -294,7 +297,7 @@ from a2a_lite import Agent, AgentNetwork, TaskHandle
 network = AgentNetwork()
 network.add("data", "http://localhost:8787")
 
-agent = Agent(name="Orchestrator", network=network)
+agent = Agent(name="Orchestrator", description="Delegates to specialist agents", network=network)
 
 @agent.skill("process")
 async def process(query: str) -> str:
@@ -538,9 +541,11 @@ Agent(
     version: str = "1.0.0",
     url: str = None,                    # Override auto-detected URL
     auth: AuthProvider = None,          # Authentication provider
-    task_store: str | TaskStore = None, # "memory" or custom TaskStore
+    task_store: str | TaskStore = None, # Optional local application mirror
     cors_origins: List[str] = None,     # CORS allowed origins
     production: bool = False,           # Enable production warnings
+    runtime: RuntimeConfig = None,      # Profile and resource limits
+    persistence: PersistenceConfig = None, # Managed SQL state/events/recovery
 )
 ```
 
@@ -556,9 +561,10 @@ Agent(
 | `@agent.on_shutdown` | Register shutdown hook |
 | `@agent.on_error` | Register error handler |
 | `agent.run(port=8787)` | Start HTTP server (JSON-RPC + REST + agent card) |
+| `await agent.start()` | Start an embedded HTTP runtime; returns a handle with `ready`, `stats` and `stop()` |
 | `agent.get_app()` | Get the ASGI app (for custom deployment) |
 | `agent.build_agent_card(...)` | Build the v1.0 agent card (`grpc_url=` adds a GRPC interface) |
-| `agent.build_grpc_server(...)` | **Experimental** — build a `grpc.aio` server (`a2a-lite[grpc]`) |
+| `agent.build_grpc_server(...)` | **Experimental** — build a managed gRPC server; await `start()` and `stop()` (`a2a-lite[grpc]`) |
 | `agent.run_grpc(port=50051)` | **Experimental** — run gRPC only (standalone; pair with `run()` for HTTP) |
 | `agent.delegate(...)` / `AgentNetwork` | Call remote agents over A2A |
 
@@ -570,6 +576,8 @@ Agent(
     description: str = None,      # Human-readable description
     tags: List[str] = None,       # Categorization tags
     streaming: bool = False,      # Enable streaming
+    task: bool = False,           # Return a real protocol Task
+    recoverable: bool = False,    # Opt into checkpoint recovery with managed persistence
 )
 ```
 
@@ -578,7 +586,8 @@ Agent(
 | Provider | Usage |
 |----------|-------|
 | `APIKeyAuth(keys=[...])` | API key auth (keys hashed with SHA-256) |
-| `BearerAuth(secret=...)` | JWT/Bearer token auth |
+| `APIKeyAuth(principals={key: user_id})` | Stable task ownership across API key rotation |
+| `BearerAuth(validator=...)` | Validate an opaque token and return a user ID or `None` |
 | `OAuth2Auth(issuer=..., audience=...)` | OAuth2 auth (requires `a2a-lite[oauth]`) |
 | `NoAuth()` | No auth (default) |
 

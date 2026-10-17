@@ -2,7 +2,7 @@
 
 > **Multi-skill calculator agent using Google's official A2A Python SDK.**
 
-This example demonstrates a complete, production-ready calculator agent with 5 arithmetic skills using the official Google A2A SDK. It shows how to properly implement:
+This example demonstrates a calculator demonstration agent with 5 arithmetic skills using the official Google A2A SDK. It shows how to properly implement:
 
 - **AgentCard** with multiple skills (add, subtract, multiply, divide, power)
 - **Custom AgentExecutor** with `execute()` and `cancel()` methods
@@ -30,7 +30,8 @@ This example demonstrates a complete, production-ready calculator agent with 5 a
 ### 1. Install Dependencies
 
 ```bash
-cd a2a-lite/examples/python/02_calculator_google
+# From the repository root:
+cd examples/python/02_calculator_google
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt

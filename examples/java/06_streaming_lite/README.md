@@ -4,16 +4,21 @@ Streaming demonstration using the **real A2A Lite library**.
 
 ## Note on Streaming
 
-True streaming in A2A requires the official A2A SDK with SSE (Server-Sent Events) support.
+This particular example registers regular `chat`, `count` and `progress` skills that return complete results. Its agent card does not advertise streaming; the console message suggesting a separate SDK server is required is outdated.
 
-A2A Lite provides:
-- `SkillConfig.withStreaming()` to mark skills as streaming-enabled
-- Automatic streaming capability flags in the agent card
+A2A Lite 1.2.0 already supports real SSE in standalone mode. Register a streaming skill and return a `StreamingHandler.StreamResult`:
 
-For full streaming implementation, use the A2A SDK integration mode (see 06_streaming_google).
+```java
+agent.skill("stream", SkillConfig.withStreaming(), params ->
+    StreamingHandler.fromIterator(List.of("one", "two", "three").iterator()));
+```
+
+Import `com.a2alite.streaming.StreamingHandler` and `java.util.List` for this snippet. The runnable [production path example](../11_production_path_lite/) includes this skill and a client that consumes its ordered chunks. The [manual streaming example](../06_streaming_google/) implements SSE itself and does not use the official SDK.
 
 ## Running
 
 ```bash
-./gradlew run
+# From the repository root; resolves the local 1.2.0 library via composite build
+cd examples/java
+./gradlew :06_streaming_lite:run
 ```

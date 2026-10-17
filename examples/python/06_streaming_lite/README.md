@@ -33,7 +33,8 @@ Compare to Google SDK: **~364 lines → 79% reduction!**
 ## 🚀 Quick Start
 
 ```bash
-cd python/06_streaming_lite
+# From the repository root:
+cd examples/python/06_streaming_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

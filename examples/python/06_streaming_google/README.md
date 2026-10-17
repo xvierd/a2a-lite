@@ -37,7 +37,8 @@ This example demonstrates how to implement streaming skills using the **real** G
 ## 🚀 Quick Start
 
 ```bash
-cd python/06_streaming_google
+# From the repository root:
+cd examples/python/06_streaming_google
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

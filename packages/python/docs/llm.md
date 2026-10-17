@@ -5,9 +5,9 @@ A2A Lite provides decorators that wrap skills to call LLM APIs. The actual API c
 ## Installation
 
 ```bash
-pip install a2a-lite[openai]     # For OpenAI
-pip install a2a-lite[anthropic]  # For Anthropic
-pip install a2a-lite[bedrock]    # For AWS Bedrock
+pip install 'a2a-lite[openai]'     # For OpenAI
+pip install 'a2a-lite[anthropic]'  # For Anthropic
+pip install 'a2a-lite[bedrock]'    # For AWS Bedrock
 # Ollama uses httpx (already included)
 ```
 
@@ -146,6 +146,6 @@ The decorators look for the user's input in skill parameters by checking these k
 
 ## Examples
 
-- [`examples/15_llm_openai.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/15_llm_openai.py) — OpenAI with streaming
-- [`examples/16_llm_anthropic.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/16_llm_anthropic.py) — Anthropic integration
-- [`examples/17_llm_bedrock.py`](https://github.com/a2a-lite/a2a-lite/blob/main/packages/python/examples/17_llm_bedrock.py) — AWS Bedrock integration
+- [`examples/15_llm_openai.py`](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/15_llm_openai.py) — OpenAI with streaming
+- [`examples/16_llm_anthropic.py`](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/16_llm_anthropic.py) — Anthropic integration
+- [`examples/17_llm_bedrock.py`](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/17_llm_bedrock.py) — AWS Bedrock integration

@@ -32,7 +32,8 @@ Compare to Google SDK: **~377 lines (main.py) → 70% reduction!**
 ## 🚀 Quick Start
 
 ```bash
-cd python/08_llm_integration_lite
+# From the repository root:
+cd examples/python/08_llm_integration_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -42,7 +43,7 @@ python agent.py
 ```
 
 The provider package is only needed at call time:
-`pip install a2a-lite[openai]` (default) or `a2a-lite[anthropic]`
+`pip install 'a2a-lite[openai]'` (default) or `a2a-lite[anthropic]`
 (select with `LLM_PROVIDER=anthropic`, model with `LLM_MODEL`).
 
 ---

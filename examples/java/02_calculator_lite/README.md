@@ -5,17 +5,16 @@ Multi-skill calculator using the **real A2A Lite library**.
 ## Building
 
 ```bash
-cd ../../../packages/java
-./gradlew publishToMavenLocal
-
-cd examples/java/02_calculator_lite
-./gradlew build
+# From the repository root; resolves the local 1.2.0 library via composite build
+cd examples/java
+./gradlew :02_calculator_lite:build
 ```
 
 ## Running
 
 ```bash
-./gradlew run
+# From examples/java
+./gradlew :02_calculator_lite:run
 ```
 
 ## API

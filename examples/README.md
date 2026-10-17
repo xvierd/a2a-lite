@@ -1,6 +1,6 @@
-# A2A Examples: Google SDK vs A2A Lite
+# A2A Examples: SDK, Protocol and Lite
 
-> **Ejemplos COMPLETOS y FUNCIONALES comparando Google A2A SDK con A2A Lite.**
+> **Ejemplos comparando A2A Lite con el SDK oficial de Python y con implementaciones manuales del protocolo en Java.** La sección de validación detalla qué se compiló y ejecutó; las integraciones LLM requieren configuración del proveedor.
 >
 > Migrados a **A2A protocol v1.0**: Python `a2a-sdk 1.2.2`, TypeScript `@a2a-js/sdk 1.3.0`, Java `org.a2aproject.sdk 1.4.0.Final`.
 
@@ -29,7 +29,7 @@ pip install a2a-lite
 
 ## 📊 Comparación Rápida
 
-| Ejemplo | Google SDK (main.py) | A2A Lite (agent.py) | Reducción |
+| Ejemplo Python | SDK oficial (main.py) | A2A Lite (agent.py) | Reducción |
 |---------|----------------------|---------------------|-----------|
 | **Hello World** | ~203 líneas | ~35 líneas | **83%** |
 | **Calculator** | ~343 líneas | ~69 líneas | **80%** |
@@ -60,13 +60,16 @@ examples/
 │   ├── 08_llm_integration_lite/       # A2A Lite - LLM
 │   ├── 09_human_in_loop_lite/         # A2A Lite - Human-in-the-loop
 │   ├── 10_persistence_lite/           # A2A Lite - TaskStore + Push
-│   └── 11_battleship_lite/            # A2A Lite - Batalla naval (UI + arena)
+│   ├── 11_battleship_lite/            # A2A Lite - Batalla naval (UI + arena)
+│   └── 12_production_path/            # Message → Task → auth → persistencia
 ├── typescript/                        # Ejemplos TypeScript
-│   └── 10_persistence_lite/           # A2A Lite - Persistencia
+│   ├── 10_persistence_lite/           # A2A Lite - Persistencia de aplicación
+│   └── 11_production_path/            # Ruta progresiva y PostgreSQL
 └── java/                              # Ejemplos Java
     ├── 01_hello_world_google/         # (+ versiones _lite de 01, 02, 03,
     ├── ...                            #   05, 06, 08, 09, 10)
-    └── 10_persistence_lite/
+    ├── 10_persistence_lite/
+    └── 11_production_path_lite/
 ```
 
 ---
@@ -107,11 +110,13 @@ no reemplazan los adaptadores de persistencia del protocolo de esta ruta.
 
 ## 🚀 Ejecución
 
+Los comandos siguientes parten del directorio `examples/` del repositorio.
+
 ### Showcase: Batalla naval (recomendado para “ver” A2A)
 
 ```bash
 cd python/11_battleship_lite
-pip install -e ../../packages/python   # checkout local
+pip install -e ../../../packages/python   # checkout local
 python agent.py    # humano vs bot → http://localhost:8790/
 # python arena.py  # bot vs bot    → http://localhost:8793/?mode=arena
 ```
@@ -222,11 +227,11 @@ await updater.complete()                                 # o failed()/cancel()
 - Necesitas control TOTAL del ciclo de vida de tareas
 - Requieres personalización profunda de handlers
 - Trabajas con streaming complejo o gRPC
-- Necesitas integración enterprise completa
+- Necesitas integrar directamente los componentes del SDK en tu arquitectura
 
 ### A2A Lite Cuando:
 - Quieres construir agentes RÁPIDAMENTE
-- No quieres preocuparte por infraestructura
+- Quieres empezar sin infraestructura y agregarla con el perfil durable
 - Prefieres decoradores sobre clases abstractas
 - Necesitas auth, streaming, LLMs sin boilerplate
 
@@ -239,7 +244,7 @@ En la revisión del 2026-10-17, los seis ejemplos Python con SDK oficial pasaron
 - ✅ Construcción de la aplicación con las APIs actuales del SDK
 - ✅ Consulta de la agent card
 
-La suite del paquete Python verifica JSON-RPC, REST y gRPC con el SDK actualizado. Esta revisión no ejecutó llamadas a proveedores LLM externos ni el flujo completo de cada demo. Los ocho ejemplos Java Lite compilan y pasan sus builds, y el ejemplo TypeScript de persistencia pasa `typecheck` con SDK 1.3.0.
+La suite del paquete Python verifica JSON-RPC, REST y gRPC con el SDK actualizado. Esta revisión no ejecutó llamadas a proveedores LLM externos ni el flujo completo de cada demo. Los nueve ejemplos Java Lite y los seis ejemplos Java que implementan el protocolo manualmente compilan. Los ejemplos TypeScript de persistencia y ruta progresiva pasan `typecheck` con SDK 1.3.0. La [evidencia de 1.2.0](../tests/evidence/2026-10-17-1.2.0/README.md) registra además interoperabilidad, caída de procesos y restauración.
 
 ---
 

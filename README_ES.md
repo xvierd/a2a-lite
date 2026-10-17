@@ -16,7 +16,9 @@
 
 A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) para darte una API simple basada en decoradores para el **protocolo A2A v1.0**. La [matriz de características](#matriz-de-caracteristicas) detalla las funciones disponibles y las limitaciones de cada transporte.
 
-> **SDKs de referencia (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.4.0.Final`. La última [especificación estable de A2A es 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); las agent cards y la cabecera `A2A-Version` siguen usando `1.0`, según las [reglas de versionado](https://a2a-protocol.org/latest/specification/#36-versioning). El registro básico de skills no cambia; 1.1.0 refuerza la autenticación, la propiedad de tareas y la entrega de callbacks. Los agentes v0.3 siguen sin estar soportados. Consulta [MIGRATION.md](MIGRATION.md) para los cambios de SDK y los pasos de migración.
+> **SDKs de referencia (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.4.0.Final`. La última [especificación estable de A2A es 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); las agent cards y la cabecera `A2A-Version` siguen usando `1.0`, según las [reglas de versionado](https://a2a-protocol.org/latest/specification/#36-versioning). La versión 1.2.0 agrega runtime administrado, identidades y tenants autorizados, persistencia PostgreSQL y modos explícitos de entrega y recuperación. El registro básico de skills se conserva. Los agentes v0.3 siguen sin estar soportados. Consulta [MIGRATION.md](MIGRATION.md) para los cambios de SDK y los pasos de migración.
+
+> **Aprende con un agente pequeño y agrega capacidades según las necesitas.** El perfil `learning` funciona sin base de datos. `authenticated` exige identidad verificada y `durable` requiere almacenamiento compatible. Python y npm 1.2.0 están publicados; Java 1.2.0 está validado desde código fuente y su publicación en Maven Central sigue pendiente. Consulta [OPERATIONS.md](OPERATIONS.md) para límites y recuperación, y la [evidencia de 1.2.0](tests/evidence/2026-10-17-1.2.0/README.md) para resultados medidos.
 
 ## Por que A2A Lite?
 
@@ -92,7 +94,7 @@ agent.run();
 </tr>
 </table>
 
-Eso es todo. Un agente A2A completamente compatible, descubrible por cualquier cliente A2A.
+El agente publica su AgentCard A2A v1.0. Los clientes deben usar uno de los transportes que anuncia; consulta la matriz de características para sus límites.
 
 ## Instalacion
 
@@ -109,10 +111,12 @@ npm install a2a-lite
 ```
 
 ### Java (Gradle)
+
+La coordenada 1.2.0 corresponde al código de este repositorio; aún no está publicada en Maven Central. Para ejecutarla ahora, usa los [ejemplos con compilación local](examples/java/README.md). Los consumidores Maven deben aplicar los BOM indicados en la [guía Java](packages/java/README.md#installation).
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.1.0'
-    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.javalin:javalin:7.2.3'   // Java 17+
 }
 ```
 
@@ -189,12 +193,12 @@ async def resumir(doc: FilePart) -> str:
 
 ### Nivel 6 — Seguimiento de Tareas
 
-Operaciones de larga duracion con actualizaciones de progreso.
+Operaciones de larga duración con actualizaciones de progreso. `TaskContext` usa el ID real del protocolo y no requiere un `task_store` adicional. Para una skill sin contexto que deba devolver una Task consultable, usa `@agent.skill("nombre", task=True)`.
 
 ```python
 from a2a_lite import TaskContext
 
-agent = Agent(name="Bot", description="Un bot", task_store="memory")
+agent = Agent(name="Bot", description="Un bot")
 
 @agent.skill("procesar")
 async def procesar(datos: str, task: TaskContext) -> str:
@@ -206,7 +210,7 @@ async def procesar(datos: str, task: TaskContext) -> str:
 
 ### Nivel 7 — Autenticacion
 
-API key, Bearer/JWT y OAuth2 — todos opcionales, todos hasheados en memoria con SHA-256.
+API key, Bearer y OAuth2 son opcionales en el perfil de aprendizaje. OAuth2 verifica la firma y los claims del JWT. Para rotar una API key sin cambiar la propiedad de las tareas, asigna ambas claves a una identidad estable.
 
 ```python
 from a2a_lite import Agent, APIKeyAuth
@@ -214,22 +218,29 @@ from a2a_lite import Agent, APIKeyAuth
 agent = Agent(
     name="BotSeguro",
     description="Un bot seguro",
-    auth=APIKeyAuth(keys=["clave-secreta"]),
+    auth=APIKeyAuth(principals={"clave-actual": "alumno", "clave-nueva": "alumno"}),
 )
 ```
 
-### Nivel 8 — Modo Produccion
+### Nivel 8 — Runtime administrado y persistencia
 
-Control de CORS y verificaciones de seguridad para produccion.
+Elige el perfil y configura límites de ejecución antes de aceptar tráfico:
 
 ```python
+from a2a_lite import Agent, APIKeyAuth, RuntimeConfig
+
 agent = Agent(
     name="Bot",
-    description="Un bot",
+    description="Un bot autenticado",
+    auth=APIKeyAuth(principals={"clave-de-ejemplo": "alumno"}),
+    runtime=RuntimeConfig(profile="authenticated", max_concurrent_tasks=32),
     cors_origins=["https://miapp.com"],
-    production=True,
 )
 ```
+
+Para embeberlo en otra aplicación, usa `runtime = await agent.start()` y cierra el runtime con `await runtime.stop()` en un bloque `finally`. La aplicación controla las señales del proceso. El perfil `durable` requiere configurar `PersistenceConfig`, ejecutar migraciones y conservar las claves de cifrado fuera de la base de datos; no basta con activar una bandera de producción.
+
+Los recorridos de [Python](examples/python/12_production_path/README.md), [TypeScript](examples/typescript/11_production_path/README.md) y [Java](examples/java/11_production_path_lite/README.md) muestran Message → Task → streaming → autenticación → persistencia. La cancelación es cooperativa y los efectos externos requieren idempotencia propia.
 
 ---
 
@@ -262,7 +273,7 @@ import { AgentTestClient } from 'a2a-lite';
 
 const client = new AgentTestClient(agent);
 const result = await client.call('saludar', { nombre: 'Mundo' });
-expect(result).toBe('Hola, Mundo!');
+expect(result.data).toBe('Hola, Mundo!');
 ```
 
 </td>
@@ -270,7 +281,7 @@ expect(result).toBe('Hola, Mundo!');
 
 ```java
 var client = new AgentTestClient(agent);
-assertThat(client.call("saludar", Map.of("nombre", "Mundo")))
+assertThat(client.call("saludar", Map.of("nombre", "Mundo")).getData())
     .isEqualTo("Hola, Mundo!");
 ```
 
@@ -306,14 +317,14 @@ Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre l
 
 - **Transporte JSON-RPC** — Python, TypeScript, Java.
 - **Transporte REST (HTTP+JSON)** — Python y TypeScript; Java actualmente sirve y anuncia solo JSON-RPC.
-- **Transporte gRPC** — Python **experimental** (`pip install a2a-lite[grpc]`, `agent.run_grpc()`); TypeScript/Java planeado.
+- **Transporte gRPC** — Python **experimental** (`pip install 'a2a-lite[grpc]'`, `agent.run_grpc()`); TypeScript/Java planeado.
 - **Streaming SSE y ciclo de vida de tareas** — Python, TypeScript y el servidor Java Javalin usan los handlers oficiales para streaming, consulta y cancelación de tareas.
 - **Push notifications por tarea** (`TaskPushNotificationConfig`) y **`securitySchemes` en la agent card** — en los tres lenguajes.
 - **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planeado.
 - Agent card servida en **`/.well-known/agent-card.json`** (la ruta antigua `agent.json` ya no existe).
 - **Sin compatibilidad con v0.3** — los clientes lite detectan cards 0.3 y fallan con un error claro.
 
-¿Migras desde una versión anterior? El registro básico de skills no cambia; revisa los cambios de autenticación, push y TaskHandle de 1.1.0. Consulta [MIGRATION.md](MIGRATION.md) para breaking changes, pasos por lenguaje y tablas de equivalencia SDK 0.3 → 1.x.
+¿Migras desde una versión anterior? El registro básico de skills no cambia; revisa los cambios de autenticación, push y TaskHandle de 1.1.0 y los perfiles, límites e identidades de 1.2.0. Consulta [MIGRATION.md](MIGRATION.md) para breaking changes, pasos por lenguaje y tablas de equivalencia SDK 0.3 → 1.x.
 
 ---
 
@@ -328,8 +339,8 @@ Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre l
 | Transporte gRPC | ✅ experimental² | 🔜 planeado | 🔜 planeado |
 | `securitySchemes` en la agent card | ✅ | ✅ | ✅ |
 | Signed Agent Cards | 🔜 planeado | ✅ experimental | 🔜 planeado |
-| `ListTasks` | 🔜 planeado | 🔜 planeado | 🔜 planeado |
-| Multi-tenancy | 🔜 planeado | 🔜 planeado | 🔜 planeado |
+| `ListTasks` filtrado por propietario | ✅ | ✅ | ✅ |
+| Tenants autorizados | ✅ | ✅ | ✅ |
 | Compatibilidad v0.3 | ❌ | ❌ | ❌ |
 | **API Lite** | | | |
 | Habilidades basicas | `@agent.skill()` | `agent.skill()` | `agent.skill()` |
@@ -359,6 +370,11 @@ Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre l
 | `get/cancel` de tareas remotas | ✅ | ✅ | ✅ |
 | Streaming SSE del lado cliente | ✅ | ✅ | ✅ |
 | Push notifications por tarea | ✅ | ✅ | ✅ |
+| Inicio/cierre administrado y health probes | ✅ | ✅ | ✅ |
+| Persistencia PostgreSQL del protocolo | ✅ | ✅ | ✅ |
+| Outbox durable de callbacks | ✅ | ✅ | ✅ |
+
+Las garantías de persistencia, entrega y coordinación requieren habilitar el adaptador y las opciones documentadas. La entrega de callbacks es al menos una vez: el receptor debe deduplicar. Con coordinación durable activa, una skill ordinaria interrumpida pasa a fallida tras expirar su lease; la recuperación con checkpoints depende del contrato de cada lenguaje. Estas capacidades no certifican disponibilidad ni capacidad de producción.
 
 > **Nota sobre v0.3:** a2a-lite 1.0 no interopera con agentes A2A 0.3 (decision explicita — sin modo compatibilidad). Los clientes lite detectan cards 0.3 y fallan con un error claro. Consulta [MIGRATION.md](MIGRATION.md).
 >
@@ -406,7 +422,7 @@ Docs: [`examples/python/11_battleship_lite/README.md`](examples/python/11_battle
 
 ### Google SDK vs A2A Lite — comparacion lado a lado
 
-El directorio [`examples/`](examples/) contiene pares completos y ejecutables del mismo agente escrito con el SDK oficial y con A2A Lite (todos migrados a A2A v1.0 / SDK 1.x): hello world, calculadora, manejo de archivos, auth, streaming, integracion LLM, human-in-the-loop, persistencia, mas el [showcase de batalla naval](examples/python/11_battleship_lite/). Consulta [examples/README.md](examples/README.md).
+El directorio [`examples/`](examples/) compara ejemplos del SDK de Python e implementaciones manuales del protocolo en Java con A2A Lite. También incluye aprobación humana, almacenamiento de aplicación, la ruta progresiva durable y el [showcase de batalla naval](examples/python/11_battleship_lite/). Las guías identifican simulaciones, requisitos de proveedores y límites de cada demo; consulta [examples/README.md](examples/README.md).
 
 ### Python
 

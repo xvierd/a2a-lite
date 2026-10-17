@@ -23,7 +23,8 @@ Compare to Google SDK: **~223 lines → 70% less code!**
 ## 🚀 Quick Start
 
 ```bash
-cd python/02_calculator_lite
+# From the repository root:
+cd examples/python/02_calculator_lite
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -191,14 +192,15 @@ async def divide(a: float, b: float) -> dict:
 
 ### 2. Auto-Generated Schemas
 
-Visit `http://localhost:8788/.well-known/agent-card.json` to see:
+Use `agent.get_tool_schemas()` to export an OpenAI-compatible tool schema:
 
 ```json
 {
-  "skills": [
-    {
+  "type": "function",
+  "function": {
       "name": "add",
-      "inputSchema": {
+      "description": "Add two numbers.",
+      "parameters": {
         "type": "object",
         "properties": {
           "a": {"type": "number"},
@@ -206,12 +208,11 @@ Visit `http://localhost:8788/.well-known/agent-card.json` to see:
         },
         "required": ["a", "b"]
       }
-    }
-  ]
+  }
 }
 ```
 
-Generated automatically from `async def add(a: float, b: float)`!
+Generated automatically from `async def add(a: float, b: float)`. The A2A agent card advertises skill IDs, descriptions and media modes; it does not contain `inputSchema` fields.
 
 ### 3. Built-in TestClient
 

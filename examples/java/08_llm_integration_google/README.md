@@ -45,16 +45,19 @@ approach, see [`packages/java`](../../../packages/java).
 ### Build
 
 ```bash
-cd java/08_llm_integration_google
+# From the repository root
+cd examples/java/08_llm_integration_google
 mvn clean package
 ```
+
+Provider calls below use your credentials and can incur charges. Select a model currently available to your account; live provider calls are not part of the repository verification. The Lite comparison is a simulation, not a feature-equivalent provider client.
 
 ### Run with OpenAI
 
 ```bash
 export OPENAI_API_KEY="your-openai-key"
 export LLM_PROVIDER="openai"
-export LLM_MODEL="gpt-4"
+export LLM_MODEL="<supported-openai-model-for-your-account>"
 java -jar target/llm-agent-google-1.0.0.jar
 ```
 
@@ -63,7 +66,7 @@ java -jar target/llm-agent-google-1.0.0.jar
 ```bash
 export ANTHROPIC_API_KEY="your-anthropic-key"
 export LLM_PROVIDER="anthropic"
-export LLM_MODEL="claude-3-sonnet-20240229"
+export LLM_MODEL="<supported-anthropic-model-for-your-account>"
 java -jar target/llm-agent-google-1.0.0.jar
 ```
 
@@ -188,6 +191,6 @@ See [../08_llm_integration_lite/](../08_llm_integration_lite/) for comparison.
 |--------|-----------------------------|----------|
 | **Code Lines** | ~765 lines | ~120 lines |
 | **Reduction** | Baseline | **~84% less code** |
-| **Memory** | Manual implementation | Built-in |
-| **Tool Registration** | Complex registry | Simple builder |
-| **LLM Client** | Custom implementation | Pre-built providers |
+| **Memory** | Example-managed sessions | Example-managed local map |
+| **Tool Registration** | Explicit registry | Keyword matching in the example |
+| **LLM Client** | Custom HTTP provider client | Simulated responses; no provider request |

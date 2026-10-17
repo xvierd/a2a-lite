@@ -1,47 +1,47 @@
 # Persistence Lite — A2A Lite (Java)
 
-Shows how to plug a **TaskStore** and a **PushNotifier** into an A2A Lite agent without changing the agent's business logic.
+Shows the legacy application-level **TaskStore** and completion-hook **PushNotifier** APIs.
+
+This example's regular skills return Messages and do not create persisted protocol Tasks. Replacing `com.a2alite.TaskStore` alone does not persist SDK tasks, ownership, subscriptions or delivery queues. Use [example 11](../11_production_path_lite/) and `JdbcProtocolBackend` for that coherent boundary.
 
 ## What it demonstrates
 
 | Concept | Implementation |
 |---|---|
-| Task persistence | `InMemoryTaskStore` (swap for Redis/JDBC in prod) |
+| Legacy application store | `InMemoryTaskStore`; configured here, not exercised by these regular skills |
 | Dev notifications | `LogPushNotifier` — events logged to console |
-| Prod notifications | `WebhookPushNotifier` — events POSTed as signed JSON |
+| Operator-configured notifications | `WebhookPushNotifier` — JSON POSTs, optionally HMAC signed; no durable outbox |
 | Skills | `echo` (trivial) and `slowSum` (long-running) |
 
 ## Prerequisites
 
 - Java 17+
-- A2A Lite published to local Maven (see below)
+- Repository checkout; Gradle resolves the unpublished 1.2.0 library through the composite build
 
 ## Building
 
 ```bash
-# 1. Publish the library to local Maven
-cd ../../../packages/java
-./gradlew publishToMavenLocal
-
-# 2. Build and run the example
-cd examples/java/10_persistence_lite
-./gradlew run
+# From the repository root
+cd examples/java
+./gradlew :10_persistence_lite:build
 ```
 
 ## Running
 
+Run these commands from `examples/java`.
+
 ### Development mode (log notifications to console)
 
 ```bash
-./gradlew run
+./gradlew :10_persistence_lite:run
 ```
 
-### Production mode (send notifications to a webhook)
+### Webhook mode (sends real requests to your configured endpoint)
 
 ```bash
 WEBHOOK_URL=https://example.com/hook \
 WEBHOOK_SECRET=my-secret \
-./gradlew run
+./gradlew :10_persistence_lite:run
 ```
 
 When `WEBHOOK_URL` is set the agent sends a JSON POST to that URL after every skill
@@ -98,7 +98,7 @@ curl -X POST http://localhost:8787/ \
 
 ## Swapping the TaskStore
 
-Replace `InMemoryTaskStore` with any class implementing `com.a2alite.TaskStore`:
+For application-level tasks, replace `InMemoryTaskStore` with a class implementing `com.a2alite.TaskStore`. This is separate from `.protocolBackend(...)`:
 
 ```java
 TaskStore taskStore = new MyRedisTaskStore(redisClient);

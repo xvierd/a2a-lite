@@ -1,17 +1,20 @@
 # 10 — Persistence Lite: Pluggable TaskStore + PushNotifier
 
 Shows how to wire an explicit `protocolTaskStore` and a `pushNotifier` into
-an A2A Lite agent.
+an A2A Lite 1.2.0 agent. Both stores in this example are in memory and reset on
+restart. Its two ordinary skills return Messages, so they do not create queryable
+protocol Tasks. For real task IDs and PostgreSQL persistence, continue with the
+[progressive production example](../11_production_path/README.md).
 
 ## What this example demonstrates
 
 | Feature | Where |
 |---|---|
 | `InMemoryTaskStore` passed as `protocolTaskStore` | Agent config |
-| `LogPushNotifier` (dev) / `WebhookPushNotifier` (prod) | `buildPushNotifier()` |
+| `LogPushNotifier` (console) / `WebhookPushNotifier` (webhook) | `buildPushNotifier()` |
 | HMAC-signed webhook payload | `WEBHOOK_SECRET` env var |
 | Two skills: `echo` (fast) + `slowSum` (async) | `agent.skill(...)` |
-| Startup/shutdown hooks for observability | `agent.onShutdown(...)` |
+| Registered shutdown hook | `agent.onShutdown(...)`; invoked by managed runtime shutdown |
 
 ## Run in dev mode
 
@@ -30,6 +33,19 @@ dependency tree, avoiding incompatible duplicate SDK types from symlinked instal
 
 The `LogPushNotifier` will print every completion event to stdout.
 
+The library does not install process signal handlers. To invoke the registered
+shutdown hook, replace the example's final `agent.run(...)` with application-owned
+shutdown handling:
+
+```typescript
+const runtime = await agent.run({ port: 8790 });
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    void runtime.stop().catch(console.error);
+  });
+}
+```
+
 ## Run with a real webhook
 
 ```bash
@@ -42,16 +58,21 @@ Every time a skill finishes, the agent POSTs a JSON payload to your webhook:
 
 `WebhookPushNotifier` accepts public HTTP(S) destinations, rejects private/reserved
 addresses and does not follow redirects. Use a public HTTPS callback for the signed
-production example. Protocol per-task subscriptions separately require a real A2A
-task and use the SDK's user-scoped configuration API and v1.0 notification envelope.
+webhook. Protocol per-task subscriptions separately require an authenticated owner,
+a real A2A task and a public HTTPS callback. They use the SDK's owner/tenant-scoped
+configuration API and v1.0 notification envelope.
 
 ```json
 {
   "skill": "slowSum",
   "result": { "sum": 7, "delayMs": 1000 },
-  "timestamp": "2025-01-01T12:00:00.000Z"
+  "status": "completed",
+  "timestamp": 1760000000,
+  "agent": "PersistenceLiteAgent"
 }
 ```
+
+`timestamp` is Unix time in seconds.
 
 When `WEBHOOK_SECRET` is set, the request also carries an
 `X-A2A-Signature: sha256=<hex>` header you can verify with HMAC-SHA256.
@@ -80,14 +101,23 @@ curl -s -X POST http://localhost:8790/ \
 The key pattern is:
 
 ```typescript
-const myStore = new MyRedisTaskStore({ ... }); // implements SDK TaskStore
+import { Agent } from 'a2a-lite';
+import type { TaskStore } from '@a2a-js/sdk/server';
 
-const agent = new Agent({
-  protocolTaskStore: myStore,
-  // ...
-});
+function createAgent(protocolTaskStore: TaskStore) {
+  return new Agent({
+    name: 'CustomStore',
+    description: 'An application-provided protocol store',
+    protocolTaskStore,
+  });
+}
 ```
 
 Replace `new SdkTaskStore()` with any object that satisfies
-`@a2a-js/sdk/server`'s `TaskStore` interface and the SDK layer will use it
-transparently.
+`@a2a-js/sdk/server`'s `TaskStore` interface. Its load/save/list operations must
+preserve the SDK's owner and tenant scope; an unscoped store can expose other users'
+tasks. This is separate from the Lite `taskStore` compatibility mirror used by
+`TaskContext`. Register a skill with `{ task: true, taskContext: true }` to persist
+its real protocol task ID and progress. A custom `protocolTaskStore` alone does not
+satisfy the `durable` profile: use the supported `ProtocolPersistence` adapter as
+shown in [example 11](../11_production_path/README.md).
