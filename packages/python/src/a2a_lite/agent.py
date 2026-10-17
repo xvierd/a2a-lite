@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
 import uvicorn
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks import InMemoryPushNotificationConfigStore, InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -26,7 +27,8 @@ from a2a.types import (
 from .decorators import SkillDefinition
 from .executor import LiteAgentExecutor
 from .middleware import MiddlewareChain
-from .push_notifications import PushNotificationMiddleware, TaskPushRegistry
+from .push_notifications import ProtocolPushSender, create_push_http_client, validate_callback_url
+from .server import AuthenticatedContextBuilder, LiteRequestHandler, ProtocolMiddleware
 from .streaming import is_generator_function
 from .utils import _is_or_subclass, extract_function_schemas
 
@@ -157,7 +159,7 @@ class Agent:
         self._push_notifier = self.push_notifier
 
         # Per-task push notification registry (always created)
-        self.push_registry = TaskPushRegistry()
+        self.push_registry = InMemoryPushNotificationConfigStore()
 
     def skill(
         self,
@@ -690,15 +692,21 @@ class Agent:
             auth_provider=self._auth,
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
-            push_registry=self.push_registry,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
         _protocol_store = self.protocol_task_store if self.protocol_task_store is not None else InMemoryTaskStore()
-        return DefaultRequestHandler(
+        push_http_client = create_push_http_client()
+        return LiteRequestHandler(
             agent_executor=executor,
             task_store=_protocol_store,
             agent_card=agent_card,
+            push_http_client=push_http_client,
+            push_config_store=self.push_registry,
+            push_sender=ProtocolPushSender(
+                push_http_client, self.push_registry, push_url_validator=validate_callback_url
+            ),
+            push_url_validator=validate_callback_url,
         )
 
     def _build_app(self, host: str = "localhost", port: int = 8787):
@@ -716,11 +724,22 @@ class Agent:
 
         from starlette.applications import Starlette
 
+        @asynccontextmanager
+        async def lifespan(app):
+            try:
+                yield
+            finally:
+                # The SDK owns background task producers and subscribers, even
+                # after a returnImmediately response has reached the client.
+                await request_handler.aclose()
+
         app = Starlette(
             routes=create_agent_card_routes(agent_card)
-            + create_jsonrpc_routes(request_handler, rpc_url="/")
-            + create_rest_routes(request_handler)
+            + create_jsonrpc_routes(request_handler, rpc_url="/", context_builder=AuthenticatedContextBuilder())
+            + create_rest_routes(request_handler, context_builder=AuthenticatedContextBuilder()),
+            lifespan=lifespan,
         )
+        app.add_middleware(ProtocolMiddleware, auth_provider=self._auth)
 
         # Add CORS middleware if configured
         if self.cors_origins is not None:
@@ -732,10 +751,6 @@ class Agent:
                 allow_methods=["*"],
                 allow_headers=["*"],
             )
-
-        # Wrap with per-task push notification middleware (outermost layer
-        # so it intercepts push-notification JSON-RPC methods before anything else)
-        app = PushNotificationMiddleware(app, self.push_registry)
 
         return app
 
@@ -757,7 +772,7 @@ class Agent:
             port: Port for the gRPC server.
 
         Returns:
-            A grpc.aio.Server with the A2AService registered. Await
+            A managed server exposing the grpc.aio.Server API. Await
             server.start() / server.stop() to manage its lifecycle.
         """
         try:
@@ -771,12 +786,22 @@ class Agent:
 
         display_host = "localhost" if host == "0.0.0.0" else host
         agent_card = self.build_agent_card(display_host, port, grpc_url=f"{display_host}:{port}")
+        # This server only exposes gRPC; do not advertise unavailable HTTP ports.
+        grpc_interface = agent_card.supported_interfaces[-1]
+        del agent_card.supported_interfaces[:]
+        agent_card.supported_interfaces.append(grpc_interface)
+        agent_card.capabilities.extended_agent_card = True
         request_handler = self._build_request_handler(agent_card)
+        request_handler.extended_agent_card = agent_card
 
-        server = grpc.aio.server()
-        a2a_pb2_grpc.add_A2AServiceServicer_to_server(GrpcHandler(request_handler), server)
+        from .grpc import AuthenticatedGrpcContextBuilder, AuthInterceptor, ManagedGrpcServer
+
+        server = grpc.aio.server(interceptors=[AuthInterceptor(self._auth)])
+        a2a_pb2_grpc.add_A2AServiceServicer_to_server(
+            GrpcHandler(request_handler, context_builder=AuthenticatedGrpcContextBuilder()), server
+        )
         server.add_insecure_port(f"{host}:{port}")
-        return server
+        return ManagedGrpcServer(server, request_handler)
 
     def run_grpc(  # pragma: no cover
         self,
@@ -787,9 +812,8 @@ class Agent:
 
         Standalone transport: it does NOT serve the HTTP app, so the
         well-known agent card endpoint is not available here (the card is
-        reachable over gRPC via GetExtendedAgentCard, and the card's
-        JSONRPC/HTTP+JSON interfaces are only live if you also run
-        agent.run() in parallel).
+        reachable over gRPC via GetExtendedAgentCard and advertises only
+        the running gRPC interface).
 
         Requires: pip install a2a-lite[grpc]
 
@@ -809,35 +833,28 @@ class Agent:
             # time, so the server must be built inside the coroutine.
             server = self.build_grpc_server(host, port)
 
-            # Run startup hooks
-            for hook in self._on_startup:
-                if asyncio.iscoroutinefunction(hook):
-                    await hook()
-                else:
-                    hook()
-
-            await server.start()
             try:
+                for hook in self._on_startup:
+                    if asyncio.iscoroutinefunction(hook):
+                        await hook()
+                    else:
+                        hook()
+                await server.start()
                 await server.wait_for_termination()
-            except asyncio.CancelledError:
-                await server.stop(grace=2)
-                raise
+            finally:
+                try:
+                    await server.stop(grace=2)
+                finally:
+                    for hook in self._on_shutdown:
+                        if asyncio.iscoroutinefunction(hook):
+                            await hook()
+                        else:
+                            hook()
 
         try:
             asyncio.run(_serve())
         except KeyboardInterrupt:
             pass
-        finally:
-            # Run shutdown hooks
-            async def _run_shutdown():
-                for hook in self._on_shutdown:
-                    if asyncio.iscoroutinefunction(hook):
-                        await hook()
-                    else:
-                        hook()
-
-            if self._on_shutdown:
-                asyncio.run(_run_shutdown())
 
     def get_tool_schemas(self, format: str = "openai") -> list[dict]:
         """

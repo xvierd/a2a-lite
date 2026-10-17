@@ -179,6 +179,16 @@ class TestDoctor:
         assert "REST" in result.stdout
         assert "gRPC" in result.stdout
 
+    @pytest.mark.parametrize(
+        ("sdk_version", "expected_exit"),
+        [("1.1.2", 1), ("1.2.1", 1), ("1.2.2", 0), ("1.3.0", 0), ("2.0.0", 1)],
+    )
+    def test_doctor_sdk_version_boundaries(self, monkeypatch, sdk_version, expected_exit):
+        monkeypatch.setattr("a2a_lite.cli.importlib_metadata.version", lambda name: sdk_version)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == expected_exit
+        assert ">=1.2.2,<2.0" in result.stdout
+
     def test_doctor_unsupported_sdk_exits_1(self, monkeypatch):
         """Doctor exits 1 when a2a-sdk is outside the supported range."""
         monkeypatch.setattr("a2a_lite.cli.importlib_metadata.version", lambda name: "0.30.0")

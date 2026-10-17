@@ -339,7 +339,7 @@ The SDK handles streaming based on the JSON-RPC method:
 ## 📝 Requirements
 
 ```
-a2a-sdk[http-server]>=1.1.2,<2.0
+a2a-sdk[http-server]>=1.2.2,<2.0
 uvicorn[standard]>=0.23.0
 anyio>=4.0.0
 httpx>=0.27.0

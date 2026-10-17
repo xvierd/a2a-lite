@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,10 @@ class TaskHandle:
     task_id: str
     result: Any
     _agent_url: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id:
+            raise ValueError("The remote agent returned a message without a task ID; task tracking is unavailable.")
 
     def __str__(self) -> str:
         return str(self.result)
@@ -372,10 +378,7 @@ async def _call_remote_skill(
                 task_id = message_result.get("taskId")
         if not task_id:
             task_id = rpc_result.get("id")
-    if not task_id:
-        task_id = uuid4().hex
-
-    return _extract_result(data), task_id
+    return _extract_result(data), task_id or ""
 
 
 _TERMINAL_STATES = {
@@ -557,13 +560,16 @@ def _extract_result(response: dict[str, Any]) -> Any:
     return result
 
 
-async def get_remote_task(agent_url: str, task_id: str, timeout: float = 10.0) -> dict:
+async def get_remote_task(
+    agent_url: str, task_id: str, timeout: float = 10.0, *, headers: dict[str, str] | None = None
+) -> dict:
     """Fetch the current status of a remote task.
 
     Args:
         agent_url: Base URL of the remote agent.
         task_id: The task ID to query.
         timeout: Request timeout in seconds.
+        headers: Authentication headers for the remote agent (not the callback).
 
     Returns:
         The task status dict from the remote agent.
@@ -578,7 +584,7 @@ async def get_remote_task(agent_url: str, task_id: str, timeout: float = 10.0) -
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
         response.raise_for_status()
         data = response.json()
 
@@ -592,13 +598,16 @@ async def get_remote_task(agent_url: str, task_id: str, timeout: float = 10.0) -
     return data.get("result", {})
 
 
-async def cancel_remote_task(agent_url: str, task_id: str, timeout: float = 10.0) -> dict:
+async def cancel_remote_task(
+    agent_url: str, task_id: str, timeout: float = 10.0, *, headers: dict[str, str] | None = None
+) -> dict:
     """Request cancellation of a remote task.
 
     Args:
         agent_url: Base URL of the remote agent.
         task_id: The task ID to cancel.
         timeout: Request timeout in seconds.
+        headers: Authentication headers for the remote agent (not the callback).
 
     Returns:
         The cancellation response dict from the remote agent.
@@ -613,7 +622,7 @@ async def cancel_remote_task(agent_url: str, task_id: str, timeout: float = 10.0
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
         response.raise_for_status()
         data = response.json()
 
@@ -633,6 +642,8 @@ async def set_task_push_notification(
     webhook_url: str,
     token: str | None = None,
     timeout: float = 10.0,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """Register a webhook URL for a specific remote task.
 
@@ -642,6 +653,7 @@ async def set_task_push_notification(
         webhook_url: The webhook URL to receive notifications.
         token: Optional bearer token for authenticating the webhook call.
         timeout: Request timeout in seconds.
+        headers: Authentication headers for the remote agent (not the callback).
 
     Returns:
         The JSON-RPC result dict from the remote agent.
@@ -654,13 +666,17 @@ async def set_task_push_notification(
         "id": uuid4().hex,
         "params": {
             "taskId": task_id,
+            "id": task_id,
             "url": webhook_url,
             "token": token,
         },
     }
 
+    if token:
+        request_body["params"]["authentication"] = {"scheme": "Bearer", "credentials": token}
+
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
         response.raise_for_status()
         data = response.json()
 
@@ -678,6 +694,8 @@ async def get_task_push_notification(
     agent_url: str,
     task_id: str,
     timeout: float = 10.0,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """Get the registered webhook config for a remote task.
 
@@ -685,6 +703,7 @@ async def get_task_push_notification(
         agent_url: Base URL of the remote agent.
         task_id: The task ID to query.
         timeout: Request timeout in seconds.
+        headers: Authentication headers for the remote agent (not the callback).
 
     Returns:
         The JSON-RPC result dict from the remote agent.
@@ -695,11 +714,11 @@ async def get_task_push_notification(
         "jsonrpc": "2.0",
         "method": "GetTaskPushNotificationConfig",
         "id": uuid4().hex,
-        "params": {"taskId": task_id},
+        "params": {"taskId": task_id, "id": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
         response.raise_for_status()
         data = response.json()
 
@@ -717,6 +736,8 @@ async def delete_task_push_notification(
     agent_url: str,
     task_id: str,
     timeout: float = 10.0,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """Remove the webhook registration for a remote task.
 
@@ -724,6 +745,7 @@ async def delete_task_push_notification(
         agent_url: Base URL of the remote agent.
         task_id: The task ID to remove the webhook for.
         timeout: Request timeout in seconds.
+        headers: Authentication headers for the remote agent (not the callback).
 
     Returns:
         The JSON-RPC result dict from the remote agent.
@@ -734,11 +756,11 @@ async def delete_task_push_notification(
         "jsonrpc": "2.0",
         "method": "DeleteTaskPushNotificationConfig",
         "id": uuid4().hex,
-        "params": {"taskId": task_id},
+        "params": {"taskId": task_id, "id": task_id},
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0"})
+        response = await client.post(agent_url, json=request_body, headers={"A2A-Version": "1.0", **(headers or {})})
         response.raise_for_status()
         data = response.json()
 
@@ -783,8 +805,7 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
             data,
         )
 
-    interfaces = data.get("supportedInterfaces", [])
-    interface_url = interfaces[0].get("url", agent_url) if interfaces else agent_url
+    interface_url = _select_jsonrpc_url(data, agent_url)
 
     capabilities = data.get("capabilities", {})
     skills_raw = data.get("skills", [])
@@ -800,3 +821,18 @@ async def discover(agent_url: str, timeout: float = 10.0) -> AgentCardInfo:
         supports_push=capabilities.get("pushNotifications", False),
         raw=data,
     )
+
+
+def _select_jsonrpc_url(card: dict, fallback: str) -> str:
+    """Select a supported JSON-RPC binding instead of assuming card order."""
+    from .errors import RemoteAgentError
+
+    for interface in card.get("supportedInterfaces", []):
+        if not isinstance(interface, dict) or interface.get("protocolBinding") != "JSONRPC":
+            continue
+        if not re.fullmatch(r"1\.0(?:\.\d+)?", str(interface.get("protocolVersion", ""))):
+            continue
+        url = interface.get("url", "")
+        if isinstance(url, str) and urlsplit(url).scheme in ("http", "https") and urlsplit(url).hostname:
+            return url
+    raise RemoteAgentError(f"Agent at {fallback} has no supported A2A 1.0 JSON-RPC interface", card)

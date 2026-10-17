@@ -211,7 +211,7 @@ a2a-lite doctor http://localhost:8787
 **Local checks:**
 
 - Versions: `a2a-lite`, `a2a-sdk`, Python
-- SDK range: `a2a-sdk >= 1.1.2, < 2.0`
+- SDK range: `a2a-sdk >= 1.2.2, < 2.0`
 - Features: JSON-RPC, REST, gRPC (if `a2a-lite[grpc]` / `grpc` installed)
 - Optional extras: `mcp`, `openai`, `anthropic`, `bedrock` (`boto3`), `oauth` (`jwt`)
 

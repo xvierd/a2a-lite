@@ -271,6 +271,10 @@ class TestAgentDelegate:
 
 
 class TestTaskHandle:
+    def test_message_only_response_cannot_create_handle(self):
+        with pytest.raises(ValueError, match="without a task ID"):
+            TaskHandle(task_id="", result="message", _agent_url="http://test")
+
     def test_fields(self):
         handle = TaskHandle(task_id="abc123", result={"key": "value"}, _agent_url="http://test:8787")
         assert handle.task_id == "abc123"
@@ -436,6 +440,35 @@ class TestAgentCardInfo:
 
 
 class TestDiscover:
+    def test_selects_jsonrpc_instead_of_first_interface(self):
+        from a2a_lite.orchestration import _select_jsonrpc_url
+
+        card = {
+            "supportedInterfaces": [
+                {"url": "localhost:50051", "protocolBinding": "GRPC", "protocolVersion": "1.0"},
+                {"url": "https://agent.example/rest", "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"},
+                {"url": "https://agent.example/rpc", "protocolBinding": "JSONRPC", "protocolVersion": "1.0.1"},
+            ]
+        }
+        assert _select_jsonrpc_url(card, "https://agent.example") == "https://agent.example/rpc"
+
+    @pytest.mark.parametrize(
+        "binding,version", [("GRPC", "1.0"), ("HTTP+JSON", "1.0"), ("JSONRPC", "0.3"), ("JSONRPC", "2.0")]
+    )
+    def test_rejects_unsupported_interface(self, binding, version):
+        from a2a_lite.errors import RemoteAgentError
+        from a2a_lite.orchestration import _select_jsonrpc_url
+
+        with pytest.raises(RemoteAgentError, match="no supported"):
+            _select_jsonrpc_url(
+                {
+                    "supportedInterfaces": [
+                        {"url": "https://agent.example", "protocolBinding": binding, "protocolVersion": version}
+                    ]
+                },
+                "https://agent.example",
+            )
+
     @pytest.mark.asyncio
     async def test_discover_fetches_card(self):
         card_data = {

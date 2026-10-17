@@ -2,6 +2,7 @@
 Integration tests using httpx to test running agents.
 """
 
+import asyncio
 import json
 from uuid import uuid4
 
@@ -580,3 +581,120 @@ def test_single_skill_auto_dispatch():
     data = response.json()
     result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
     assert "Echo:" in result_text
+
+
+def test_rest_send_uses_a2a_json_media_type(calculator_agent):
+    """The HTTP+JSON binding uses the media type clarified by A2A 1.0.1."""
+    from starlette.testclient import TestClient
+
+    with TestClient(calculator_agent.get_app()) as client:
+        response = client.post(
+            "/message:send",
+            headers={"A2A-Version": "1.0", "Content-Type": "application/a2a+json"},
+            json={
+                "message": {
+                    "role": "ROLE_USER",
+                    "messageId": uuid4().hex,
+                    "parts": [{"text": json.dumps({"skill": "add", "params": {"a": 5, "b": 3}})}],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/a2a+json"
+    assert json.loads(response.json()["message"]["parts"][0]["text"]) == 8
+
+
+def test_rest_missing_task_uses_status_error(calculator_agent):
+    """REST transcodes protocol errors into a google.rpc.Status response."""
+    from starlette.testclient import TestClient
+
+    with TestClient(calculator_agent.get_app()) as client:
+        response = client.get("/tasks/nonexistent", headers={"A2A-Version": "1.0"})
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/a2a+json"
+    error = response.json()["error"]
+    assert error["code"] == 404
+    assert error["status"] == "NOT_FOUND"
+    assert error["details"][0]["@type"] == "type.googleapis.com/google.rpc.ErrorInfo"
+    assert error["details"][0]["reason"] == "TASK_NOT_FOUND"
+
+
+async def test_app_shutdown_drains_background_skill():
+    """ASGI shutdown cancels SDK work left running by returnImmediately."""
+    from httpx import ASGITransport, AsyncClient
+
+    agent = Agent(name="Background", description="Background work")
+    started = asyncio.Event()
+    finished = asyncio.Event()
+    release = asyncio.Event()
+
+    @agent.skill("work", streaming=True)
+    async def work():
+        started.set()
+        try:
+            await release.wait()
+            yield "done"
+        finally:
+            finished.set()
+
+    app = agent.get_app()
+    try:
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
+                response = await client.post(
+                    "/",
+                    headers={"A2A-Version": "1.0"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": "background-work",
+                        "method": "SendMessage",
+                        "params": {
+                            "configuration": {"returnImmediately": True},
+                            "message": {
+                                "role": "ROLE_USER",
+                                "messageId": uuid4().hex,
+                                "parts": [{"text": json.dumps({"skill": "work", "params": {}})}],
+                            },
+                        },
+                    },
+                )
+                assert response.status_code == 200
+                assert "task" in response.json()["result"]
+                await asyncio.wait_for(started.wait(), timeout=1)
+                assert not finished.is_set()
+
+        assert finished.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=1)
+
+
+async def test_delegate_handles_reference_real_tasks_and_reject_message_only(monkeypatch):
+    import httpx
+
+    remote = Agent(name="Remote", description="Messages and tasks")
+
+    @remote.skill("message")
+    async def message():
+        return "done"
+
+    @remote.skill("task", streaming=True)
+    async def task():
+        yield "done"
+
+    app = remote.get_app()
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.ASGITransport(app), **kwargs)
+    )
+    caller = Agent(name="Caller", description="Delegates")
+    async with app.router.lifespan_context(app):
+        handle = await caller.delegate("http://remote/", "task", return_handle=True)
+        stored = await handle.get_status()
+        assert stored["id"] == handle.task_id
+        assert stored["status"]["state"] == "TASK_STATE_COMPLETED"
+        assert await caller.delegate("http://remote/", "message") == "done"
+        with pytest.raises(ValueError, match="without a task ID"):
+            await caller.delegate("http://remote/", "message", return_handle=True)

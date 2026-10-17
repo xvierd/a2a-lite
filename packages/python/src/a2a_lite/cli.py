@@ -22,8 +22,8 @@ app = typer.Typer(
 )
 console = Console()
 
-# Supported a2a-sdk range: >=1.1.2,<2.0
-SDK_MIN_VERSION = (1, 1, 2)
+# Supported a2a-sdk range: >=1.2.2,<2.0
+SDK_MIN_VERSION = (1, 2, 2)
 SDK_MAX_MAJOR = 2
 
 MIGRATION_HINT = "https://a2a-protocol.org/latest/"
@@ -31,10 +31,9 @@ MIGRATION_HINT = "https://a2a-protocol.org/latest/"
 
 def _card_url(card: dict, fallback: str) -> str:
     """Extract the agent URL from a v1.0 agent card (supportedInterfaces)."""
-    interfaces = card.get("supportedInterfaces", [])
-    if interfaces and isinstance(interfaces[0], dict):
-        return interfaces[0].get("url", fallback)
-    return fallback
+    from .orchestration import _select_jsonrpc_url
+
+    return _select_jsonrpc_url(card, fallback)
 
 
 def _is_v03_card(card: dict) -> bool:
@@ -77,7 +76,7 @@ async def _fetch_card(url: str, timeout: float = 10.0) -> dict:
 
 
 def _parse_version(version: str) -> tuple[int, ...]:
-    """Parse a version string like '1.1.2' into a comparable int tuple."""
+    """Parse a version string like '1.2.2' into a comparable int tuple."""
     parts = []
     for piece in version.split("."):
         digits = ""
@@ -91,7 +90,7 @@ def _parse_version(version: str) -> tuple[int, ...]:
 
 
 def _sdk_version_supported(version: str) -> bool:
-    """Check an a2a-sdk version against the supported range >=1.1.2,<2.0."""
+    """Check an a2a-sdk version against the supported range >=1.2.2,<2.0."""
     parsed = _parse_version(version)
     return parsed >= SDK_MIN_VERSION and parsed[0] < SDK_MAX_MAJOR
 
@@ -623,7 +622,7 @@ def doctor(
             Panel(
                 "[bold red]a2a-sdk is not installed.[/]\n\n"
                 "Install it with:\n"
-                '  pip install "a2a-sdk[http-server]>=1.1.2,<2.0"',
+                '  pip install "a2a-sdk[http-server]>=1.2.2,<2.0"',
                 title="Incompatible SDK",
                 border_style="red",
             )
@@ -635,7 +634,7 @@ def doctor(
                 f"[bold yellow]a2a-sdk {sdk_version} is outside the supported range "
                 f">={'.'.join(map(str, SDK_MIN_VERSION))},<{SDK_MAX_MAJOR}.0.[/]\n\n"
                 "a2a-lite 1.0 targets A2A protocol v1.0. Please upgrade:\n"
-                '  pip install "a2a-sdk[http-server]>=1.1.2,<2.0"',
+                '  pip install "a2a-sdk[http-server]>=1.2.2,<2.0"',
                 title="Incompatible SDK",
                 border_style="yellow",
             )

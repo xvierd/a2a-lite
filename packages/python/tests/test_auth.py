@@ -231,7 +231,8 @@ class TestAuthIntegration:
 
         # The response should contain an auth error, not the skill result
         result_text = data.get("result", {}).get("message", {}).get("parts", [{}])[0].get("text", "")
-        assert "error" in result_text.lower() or "auth" in result_text.lower() or "key" in result_text.lower()
+        assert response.status_code == 401
+        assert data["error"] == "Authentication required"
         assert "secret: hello" not in result_text
 
     def test_authenticated_request_succeeds(self):
@@ -526,6 +527,22 @@ class TestAPIKeyAuthEdgeCases:
 
 
 class TestOAuth2Auth:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("claims", [{}, {"sub": ""}, {"sub": None}, {"sub": 12}, {"email": " "}])
+    async def test_missing_identity_rejected(self, monkeypatch, claims):
+        from unittest.mock import MagicMock
+
+        jwt = pytest.importorskip("jwt")
+
+        from a2a_lite.auth import OAuth2Auth
+
+        auth = OAuth2Auth(issuer="https://auth.example.com", audience="test")
+        auth._jwks_client = MagicMock()
+        monkeypatch.setattr(jwt, "decode", lambda *args, **kwargs: claims)
+        result = await auth.authenticate(AuthRequest(headers={"Authorization": "Bearer test-token"}))
+        assert not result.authenticated
+        assert "identity" in result.error
+
     def test_scheme(self):
         from a2a_lite.auth import OAuth2Auth
 

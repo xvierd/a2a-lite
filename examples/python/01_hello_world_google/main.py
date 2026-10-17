@@ -1,7 +1,7 @@
 """
 Hello World Agent - Google A2A Python SDK (Official), A2A protocol v1.0
 
-A complete working example using the official a2a-sdk package (1.1.x).
+A complete working example using the official a2a-sdk package (1.2.x).
 This implements a simple greeting agent that responds to text messages.
 
 Key 1.x changes vs 0.3:
@@ -13,7 +13,7 @@ Key 1.x changes vs 0.3:
   a2a.helpers.new_text_message().
 
 Installation:
-    pip install "a2a-sdk[http-server]>=1.1.2,<2.0"
+    pip install "a2a-sdk[http-server]>=1.2.2,<2.0"
 
 Usage:
     python main.py

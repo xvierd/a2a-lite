@@ -13,7 +13,7 @@ Key v1.0 pieces:
   route factories - no Starlette middleware needed.
 - Non-streaming executor: exactly ONE Message per request.
 
-SDK: a2a-sdk[http-server]>=1.1.2
+SDK: a2a-sdk[http-server]>=1.2.2
 
 Wire format (v1.0 JSON-RPC):
   {"jsonrpc": "2.0", "id": "1", "method": "SendMessage",
