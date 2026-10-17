@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "description": "Canonical authenticated principal encoding. ownerKey is needed only where the SDK does not separately partition tenants. Authorization must validate membership before deriving these keys.",
+  "vectors": [
+    {
+      "namespace": null,
+      "userId": "alice",
+      "tenant": "",
+      "principalKey": "alice",
+      "ownerKey": "alice"
+    },
+    {
+      "namespace": "https://issuer.example",
+      "userId": "alice",
+      "tenant": "",
+      "principalKey": "a2a:v1:WyJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYWxpY2UiXQ",
+      "ownerKey": "a2a:v1:WyJodHRwczovL2lzc3Vlci5leGFtcGxlIiwiYWxpY2UiXQ"
+    },
+    {
+      "namespace": "https://other.example",
+      "userId": "alice",
+      "tenant": "",
+      "principalKey": "a2a:v1:WyJodHRwczovL290aGVyLmV4YW1wbGUiLCJhbGljZSJd",
+      "ownerKey": "a2a:v1:WyJodHRwczovL290aGVyLmV4YW1wbGUiLCJhbGljZSJd"
+    },
+    {
+      "namespace": null,
+      "userId": "a2a:v1:literal",
+      "tenant": "",
+      "principalKey": "a2a:v1:W251bGwsImEyYTp2MTpsaXRlcmFsIl0",
+      "ownerKey": "a2a:v1:W251bGwsImEyYTp2MTpsaXRlcmFsIl0"
+    },
+    {
+      "namespace": "equipo",
+      "userId": "José 👩🏽‍💻",
+      "tenant": "",
+      "principalKey": "a2a:v1:WyJlcXVpcG8iLCJKb3PDqSDwn5Gp8J-PveKAjfCfkrsiXQ",
+      "ownerKey": "a2a:v1:WyJlcXVpcG8iLCJKb3PDqSDwn5Gp8J-PveKAjfCfkrsiXQ"
+    },
+    {
+      "namespace": null,
+      "userId": " alice ",
+      "tenant": "",
+      "principalKey": " alice ",
+      "ownerKey": " alice "
+    },
+    {
+      "namespace": null,
+      "userId": "alice",
+      "tenant": "team-a",
+      "principalKey": "alice",
+      "ownerKey": "a2a:v1:WyJvd25lciIsInRlYW0tYSIsImFsaWNlIl0"
+    },
+    {
+      "namespace": null,
+      "userId": "alice",
+      "tenant": "team-b",
+      "principalKey": "alice",
+      "ownerKey": "a2a:v1:WyJvd25lciIsInRlYW0tYiIsImFsaWNlIl0"
+    },
+    {
+      "namespace": "issuer",
+      "userId": "alice",
+      "tenant": "team-a",
+      "principalKey": "a2a:v1:WyJpc3N1ZXIiLCJhbGljZSJd",
+      "ownerKey": "a2a:v1:WyJvd25lciIsInRlYW0tYSIsImEyYTp2MTpXeUpwYzNOMVpYSWlMQ0poYkdsalpTSmQiXQ"
+    }
+  ]
+}
