@@ -13,18 +13,14 @@
  *   agent.run();
  */
 
-import express, { Express } from 'express';
-import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
+import express, { Express, type ErrorRequestHandler } from 'express';
+import { DefaultRequestHandler, InMemoryTaskStore, ServerCallContext } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/server/express';
-import type {
-  AgentCard,
-  AgentSkill,
-  AgentCapabilities,
-  AgentInterface,
-  SecurityScheme,
-  SecurityRequirement,
-} from '@a2a-js/sdk';
+import { AgentCard } from '@a2a-js/sdk';
+import type { AgentSkill, AgentCapabilities, AgentInterface, SecurityScheme, SecurityRequirement } from '@a2a-js/sdk';
 
+import { boundedTaskStore } from './bounded-task-store.js';
+import { RuntimeControl, startRuntime, type AgentRuntime } from './runtime.js';
 import { LiteAgentExecutor } from './executor.js';
 import type {
   AgentConfig,
@@ -39,8 +35,10 @@ import { type PushNotifier, TaskPushRegistry } from './push-notifications.js';
 import { InMemoryTaskStore as LiteTaskStore } from './tasks.js';
 import { NoAuth } from './auth.js';
 import { createHttpAuthentication } from './http-auth.js';
+import { authorizedHandler } from './authorization.js';
 import { ProtocolPushStore, ProtocolPushSender } from './protocol-push.js';
 import type { AgentNetwork } from './orchestration.js';
+import { bindRemoteOptions, type RemoteCallOptions } from './remote-auth.js';
 import { callRemoteSkill, streamRemoteSkill, discoverAgent } from './orchestration.js';
 
 export class Agent {
@@ -67,8 +65,12 @@ export class Agent {
   private production: boolean;
   private mcpServers: string[] = [];
   private mcpServerUrls: string[] = [];
+  private config: AgentConfig;
+  private running?: AgentRuntime;
+  private starting = false;
 
   constructor(config: AgentConfig) {
+    this.config = config;
     this.name = config.name;
     this.description = config.description;
     this.version = config.version ?? '1.0.0';
@@ -154,6 +156,8 @@ export class Agent {
       inputSchema: {},
       outputSchema: {},
       isStreaming,
+      taskMode: config.task ?? needsTaskContext,
+      checkpoint: config.checkpoint,
       needsTaskContext,
       needsInteraction,
       taskContextParam,
@@ -249,13 +253,13 @@ export class Agent {
     target: string,
     skill: string,
     params?: Record<string, unknown>,
-    options?: { timeout?: number; returnHandle?: boolean; discover?: boolean; stream: true },
+    options?: RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream: true },
   ): Promise<AsyncGenerator<string>>;
   async delegate(
     target: string,
     skill: string,
     params?: Record<string, unknown>,
-    options?: { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: false },
+    options?: RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: false },
   ): Promise<unknown>;
   /** @deprecated Use the options-object overload instead. */
   async delegate(target: string, skill: string, params?: Record<string, unknown>, timeout?: number): Promise<unknown>;
@@ -263,7 +267,9 @@ export class Agent {
     target: string,
     skill: string,
     params: Record<string, unknown> = {},
-    timeoutOrOptions?: number | { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: boolean },
+    timeoutOrOptions?:
+      | number
+      | (RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: boolean }),
   ): Promise<unknown | AsyncGenerator<string>> {
     let timeout = 30000;
     let returnHandle = false;
@@ -290,9 +296,14 @@ export class Agent {
       url = resolved;
     }
 
+    const credentials = bindRemoteOptions(
+      { ...this.network?.getCredentials(target), ...(typeof timeoutOrOptions === 'object' ? timeoutOrOptions : {}) },
+      url,
+    );
+
     // Optionally discover the agent card and validate the skill exists
     if (discover) {
-      const card = await discoverAgent(url, timeout);
+      const card = await discoverAgent(url, timeout, credentials);
       const skillExists = card.skills.some((s) => s.id === skill || s.name === skill);
       if (!skillExists) {
         const available = card.skills.map((s) => s.id).join(', ');
@@ -306,16 +317,16 @@ export class Agent {
 
     // Streaming mode — return an async generator
     if (stream) {
-      return streamRemoteSkill(url, skill, params, timeout);
+      return streamRemoteSkill(url, skill, params, timeout, credentials);
     }
 
     if (returnHandle) {
       // For direct URLs, import the internal helper indirectly via callRemoteSkill pattern
       const { callRemoteSkillWithHandle } = await import('./orchestration.js');
-      return callRemoteSkillWithHandle(url, skill, params, timeout);
+      return callRemoteSkillWithHandle(url, skill, params, timeout, credentials);
     }
 
-    return callRemoteSkill(url, skill, params, timeout);
+    return callRemoteSkill(url, skill, params, timeout, credentials);
   }
 
   /**
@@ -454,6 +465,18 @@ export class Agent {
    */
   buildApp(host = 'localhost', port = 8787): Express {
     const app = express();
+    const profile = this.config.profile ?? 'learning';
+    if (profile !== 'learning' && (this.auth instanceof NoAuth || this.auth.getScheme().anonymous === true))
+      throw new Error('Authenticated profiles require an authentication provider without anonymous fallback.');
+    if (profile === 'durable' && !this.config.persistence?.durable)
+      throw new Error('Durable profile requires configured persistent protocol stores.');
+    const control = new RuntimeControl(this.config.limits, this.config.telemetry);
+    app.locals.a2aControl = control;
+    app.get('/health/live', (_req, res) => res.json({ status: 'live' }));
+    app.get('/health/ready', async (_req, res) => {
+      const ready = !control.stats.closing && (!this.config.persistence || (await this.config.persistence.ready()));
+      res.status(ready ? 200 : 503).json({ ready });
+    });
 
     // CORS must run before auth and SDK handlers, including for preflight requests.
     if (this.corsOrigins) {
@@ -498,6 +521,15 @@ export class Agent {
       });
     }
 
+    const protocolTaskStore = boundedTaskStore(
+      this.config.persistence?.taskStore ?? this.protocolTaskStore ?? new InMemoryTaskStore(),
+      {
+        maxHistory: control.limits.maxTaskHistory,
+        maxBytes: control.limits.maxTaskBytes,
+        maxTasks: !this.config.persistence && !this.protocolTaskStore ? control.limits.maxStoredTasks : undefined,
+      },
+    );
+
     // Create the executor that bridges to our skills
     const executor = new LiteAgentExecutor({
       skills: this.skills,
@@ -507,25 +539,70 @@ export class Agent {
       authProvider: this.auth,
       taskStore: this.taskStore,
       mcpServers: this.mcpServers,
+      executionTimeoutMs: control.limits.executionTimeoutMs,
+      maxExecutions: control.limits.maxConcurrentRequests,
+      maxTaskHistory: control.limits.maxTaskHistory,
+      executionCoordinator: this.config.persistence?.execution,
+      maxEventsPerExecution: control.limits.maxEventsPerExecution,
+      maxOutputBytes: control.limits.maxOutputBytes,
+      waitForTerminal: async (id, request) => {
+        const context = new ServerCallContext({ user: request.context.user, tenant: request.context.tenant });
+        const until = Date.now() + control.limits.shutdownGraceMs;
+        while (Date.now() < until) {
+          const task = await protocolTaskStore.load(id, context);
+          if (task?.status && [3, 4, 5, 7].includes(task.status.state)) return;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error('Task shutdown settlement deadline exceeded');
+      },
     });
+
+    app.locals.a2aClose = async () => {
+      try {
+        await executor.close();
+      } finally {
+        await this.config.persistence?.close();
+      }
+    };
 
     // Create the SDK's request handler
     const agentCard = this.buildAgentCard(host, port);
-    const pushStore = new ProtocolPushStore();
-    const requestHandler = new DefaultRequestHandler(
-      agentCard,
-      this.protocolTaskStore ?? new InMemoryTaskStore(),
-      executor,
-      undefined,
-      pushStore,
-      new ProtocolPushSender(pushStore),
+    app.locals.a2aCard = agentCard;
+    const pushStore = new ProtocolPushStore(
+      this.config.persistence?.pushStore ?? this.config.protocolPushStore,
+      control.limits.maxPushConfigsPerTask,
+    );
+    const requestHandler = authorizedHandler(
+      new DefaultRequestHandler(
+        agentCard,
+        protocolTaskStore,
+        executor,
+        this.config.persistence?.execution?.eventBusManager,
+        pushStore,
+        this.config.persistence?.pushSender ?? new ProtocolPushSender(pushStore),
+      ),
+      this.config.persistence?.execution,
     );
 
     // Mount SDK handlers — agent card at the A2A v1.0 well-known path
-    app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
+    app.use(
+      '/.well-known/agent-card.json',
+      agentCardHandler({
+        // SDK1.3's Express card handler JSON.stringify's its provider directly.
+        // Its protobuf oneofs therefore need the SDK wire serializer here.
+        agentCardProvider: async () =>
+          Object.assign({}, await requestHandler.getAgentCard(), { toJSON: () => AgentCard.toJSON(agentCard) }),
+      }),
+    );
 
-    const authentication = createHttpAuthentication(this.auth);
+    const authentication = createHttpAuthentication(this.auth, profile !== 'learning');
     app.use('/', authentication.middleware);
+    app.use(express.json({ limit: control.limits.bodyLimitBytes, type: ['application/json', 'application/a2a+json'] }));
+    app.use((req, res, next) => {
+      // AgentTestClient's direct Express invocation has no socket lifecycle.
+      if (typeof res.once === 'function') control.middleware(req, res, next);
+      else next();
+    });
 
     // Scope JSON-RPC's content-type guard to its endpoint so REST can accept application/a2a+json.
     app.post(
@@ -533,6 +610,7 @@ export class Agent {
       jsonRpcHandler({
         requestHandler,
         userBuilder: authentication.userBuilder,
+        contextBuilder: authentication.contextBuilder,
       }),
     );
 
@@ -542,69 +620,62 @@ export class Agent {
       restHandler({
         requestHandler,
         userBuilder: authentication.userBuilder,
+        contextBuilder: authentication.contextBuilder,
       }),
     );
 
+    app.use(((error, _req, res, _next) => {
+      const status = (error as { type?: string }).type === 'entity.too.large' ? 413 : 400;
+      if (!res.headersSent)
+        res.status(status).json({ error: status === 413 ? 'Request body too large' : 'Invalid request body' });
+    }) as ErrorRequestHandler);
     return app;
   }
 
   /**
    * Start the A2A server.
    */
-  async run(options: { host?: string; port?: number; logLevel?: string } = {}): Promise<void> {
+  async start(options: { host?: string; port?: number; logLevel?: string } = {}): Promise<AgentRuntime> {
+    if (this.starting || this.running) throw new Error('Agent already started');
+    this.starting = true;
     const { host = '0.0.0.0', port = 8787 } = options;
-
-    // Run startup hooks
-    for (const hook of this.onStartupHooks) {
-      await hook();
-    }
-
-    // Production mode warning
-    if (this.production) {
-      const urlStr = this.url ?? `http://${host}:${port}`;
-      if (!urlStr.startsWith('https://')) {
-        console.warn(
-          'WARNING: Running in production mode over HTTP. ' + 'Consider using HTTPS for secure communication.',
-        );
-      }
-    }
-
-    const displayHost = host === '0.0.0.0' ? 'localhost' : host;
-    const app = this.buildApp(displayHost, port);
-
-    const server = app.listen(port, host, () => {
-      console.log(`
-┌─────────────────────────────────────────────────┐
-│  🚀 A2A Lite Agent Started                      │
-├─────────────────────────────────────────────────┤
-│  ${this.name} v${this.version}
-│  ${this.description}
-│
-│  Skills:
-${Array.from(this.skills.values())
-  .map((s) => `│    • ${s.name}: ${s.description}${s.isStreaming ? ' [streaming]' : ''}`)
-  .join('\n')}
-│
-│  Endpoints:
-│    • Agent Card: http://${displayHost}:${port}/.well-known/agent-card.json
-│    • JSON-RPC:   http://${displayHost}:${port}/
-│    • REST:       http://${displayHost}:${port}/message:send
-└─────────────────────────────────────────────────┘
-      `);
-    });
-
-    // Handle shutdown
-    const shutdown = async () => {
-      console.log('\nShutting down...');
-      for (const hook of this.onShutdownHooks) {
-        await hook();
-      }
-      server.close();
-      process.exit(0);
+    let app: Express | undefined;
+    let closed = false;
+    const closeResources = async () => {
+      if (closed) return;
+      closed = true;
+      const results = await Promise.allSettled([
+        app?.locals.a2aClose?.(),
+        ...this.onShutdownHooks.map(async (hook) => hook()),
+      ]);
+      this.running = undefined;
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
     };
+    try {
+      app = this.buildApp(host, port);
+      if (this.config.persistence && !(await this.config.persistence.ready()))
+        throw new Error('Protocol storage is not ready; apply SDK migrations before startup.');
+      for (const hook of this.onStartupHooks) await hook();
+      const runtime = await startRuntime(app, host, port, app.locals.a2aControl as RuntimeControl, closeResources);
+      if (port === 0 && !this.url)
+        for (const endpoint of (app.locals.a2aCard as AgentCard).supportedInterfaces) endpoint.url = runtime.url;
+      this.config.persistence?.start?.();
+      this.running = runtime;
+      return runtime;
+    } catch (error) {
+      await closeResources();
+      throw error;
+    } finally {
+      this.starting = false;
+    }
+  }
 
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+  /** Start a managed runtime. CLI callers may install their own signal handlers. */
+  async run(options: { host?: string; port?: number; logLevel?: string } = {}): Promise<AgentRuntime> {
+    const runtime = await this.start(options);
+    console.log(`A2A Lite ${this.name} listening at ${runtime.url}`);
+    return runtime;
   }
 
   /**

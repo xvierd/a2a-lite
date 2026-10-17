@@ -107,6 +107,7 @@ export {
 export {
   AgentNetwork,
   callRemoteSkill,
+  callRemoteSkillWithHandle,
   streamRemoteSkill,
   TaskHandle,
   getRemoteTask,
@@ -117,6 +118,7 @@ export {
   deleteTaskPushNotification,
 } from './orchestration.js';
 export type { AgentCardInfo } from './orchestration.js';
+export type { RemoteCallOptions, CredentialProvider } from './remote-auth.js';
 
 // Push notifications (optional)
 export { PushNotifier, LogPushNotifier, WebhookPushNotifier, TaskPushRegistry } from './push-notifications.js';
@@ -139,3 +141,12 @@ export type {
 // LLM (optional — requires peer deps)
 export { openaiSkill, anthropicSkill, ollamaSkill, bedrockSkill } from './llm.js';
 export type { OpenAISkillConfig, AnthropicSkillConfig, OllamaSkillConfig, BedrockSkillConfig } from './llm.js';
+
+export type { AgentRuntime, RuntimeLimits, RuntimeStats, TelemetryObserver } from './runtime.js';
+
+export { createPostgresPersistence, migratePostgresRuntime } from './persistence.js';
+export type { ProtocolPersistence, PostgresPersistenceOptions } from './persistence.js';
+
+export type { DurableDeliveryOptions, DurableDelivery, DeliveryStatus } from './postgres-delivery.js';
+
+export type { DistributedExecution, DistributedExecutionOptions, ExecutionLease } from './postgres-execution.js';

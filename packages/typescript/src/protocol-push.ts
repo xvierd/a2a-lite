@@ -34,12 +34,23 @@ function authenticatedOwner(context: ServerCallContext): string {
 }
 
 /** Use the SDK's tenant/owner/config scoping and validate callbacks on every registration path. */
-export class ProtocolPushStore extends InMemoryPushNotificationStore {
-  constructor() {
-    super(authenticatedOwner);
+export class ProtocolPushStore implements PushNotificationStore {
+  private readonly writes = new Map<string, Promise<void>>();
+  constructor(
+    private readonly backend: PushNotificationStore = new InMemoryPushNotificationStore(authenticatedOwner),
+    private readonly maxConfigs = 8,
+  ) {}
+
+  async load(taskId: string, context: ServerCallContext): Promise<TaskPushNotificationConfig[]> {
+    authenticatedOwner(context);
+    return this.backend.load(taskId, context);
+  }
+  async delete(taskId: string, context: ServerCallContext, configId?: string): Promise<void> {
+    authenticatedOwner(context);
+    return this.backend.delete(taskId, context, configId);
   }
 
-  override async save(taskId: string, context: ServerCallContext, config: TaskPushNotificationConfig): Promise<void> {
+  async save(taskId: string, context: ServerCallContext, config: TaskPushNotificationConfig): Promise<void> {
     authenticatedOwner(context);
     if (!configSchema.safeParse(config).success) {
       throw new RequestMalformedError('Invalid push notification configuration.');
@@ -50,7 +61,22 @@ export class ProtocolPushStore extends InMemoryPushNotificationStore {
     } catch {
       throw new RequestMalformedError('Push notification URL must use HTTPS and resolve only to public addresses.');
     }
-    await super.save(taskId, context, config);
+    const key = JSON.stringify([context.tenant, context.user?.userName, taskId]);
+    const previous = this.writes.get(key) ?? Promise.resolve();
+    const write = previous
+      .catch(() => {})
+      .then(async () => {
+        const configs = await this.backend.load(taskId, context);
+        if (!configs.some((existing) => existing.id === config.id) && configs.length >= this.maxConfigs)
+          throw new RequestMalformedError('Push notification configuration limit reached.');
+        await this.backend.save(taskId, context, config);
+      });
+    this.writes.set(key, write);
+    try {
+      await write;
+    } finally {
+      if (this.writes.get(key) === write) this.writes.delete(key);
+    }
   }
 }
 
@@ -79,7 +105,8 @@ export class ProtocolPushSender implements PushNotificationSender {
             const headers: Record<string, string> = { 'Content-Type': contentType };
             if (config.authentication?.scheme && config.authentication.credentials) {
               headers.Authorization = `${config.authentication.scheme} ${config.authentication.credentials}`;
-            } else if (config.token) {
+            }
+            if (config.token) {
               headers['X-A2A-Notification-Token'] = config.token;
             }
             try {

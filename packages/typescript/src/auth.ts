@@ -53,12 +53,26 @@ export class NoAuth implements AuthProvider {
  */
 export class APIKeyAuth implements AuthProvider {
   private keyHashes: Set<string>;
+  private identities = new Map<string, Pick<AuthResult, 'userId' | 'namespace' | 'authorizedTenants'>>();
   private header: string;
   private queryParam?: string;
 
-  constructor(options: { keys: string[]; header?: string; queryParam?: string }) {
+  constructor(options: {
+    keys?: string[];
+    identities?: Record<string, string | Pick<AuthResult, 'userId' | 'namespace' | 'authorizedTenants'>>;
+    header?: string;
+    queryParam?: string;
+  }) {
     // Store only hashes of keys for security
-    this.keyHashes = new Set(options.keys.map((k) => createHash('sha256').update(k).digest('hex')));
+    this.keyHashes = new Set((options.keys ?? []).map((k) => createHash('sha256').update(k).digest('hex')));
+    for (const [key, identity] of Object.entries(options.identities ?? {})) {
+      const hash = this.hashKey(key);
+      const claims = typeof identity === 'string' ? { userId: identity } : identity;
+      if (typeof claims.userId !== 'string' || !claims.userId.trim())
+        throw new Error('API key identity must be nonempty.');
+      this.identities.set(hash, claims);
+      this.keyHashes.add(hash);
+    }
     this.header = options.header ?? 'X-API-Key';
     this.queryParam = options.queryParam;
   }
@@ -77,6 +91,7 @@ export class APIKeyAuth implements AuthProvider {
         return {
           authenticated: true,
           userId: `api-key:${hash.slice(0, 16)}`,
+          ...this.identities.get(hash),
           scopes: new Set(['*']),
         };
       }
@@ -91,6 +106,7 @@ export class APIKeyAuth implements AuthProvider {
           return {
             authenticated: true,
             userId: `api-key:${hash.slice(0, 16)}`,
+            ...this.identities.get(hash),
             scopes: new Set(['*']),
           };
         }
@@ -131,10 +147,13 @@ export class APIKeyAuth implements AuthProvider {
  *     }
  *   });
  */
-export class BearerAuth implements AuthProvider {
-  private validator: (token: string) => Promise<string | null> | string | null;
+type VerifiedIdentity = Pick<AuthResult, 'userId' | 'namespace' | 'authorizedTenants' | 'scopes'>;
+type TokenValidator = (token: string) => Promise<string | VerifiedIdentity | null> | string | VerifiedIdentity | null;
 
-  constructor(options: { validator: (token: string) => Promise<string | null> | string | null }) {
+export class BearerAuth implements AuthProvider {
+  private validator: TokenValidator;
+
+  constructor(options: { validator: TokenValidator }) {
     this.validator = options.validator;
   }
 
@@ -156,14 +175,11 @@ export class BearerAuth implements AuthProvider {
     }
 
     const token = authHeader.slice(7);
-    const userId = await this.validator(token);
+    const identity = await this.validator(token);
+    const claims = typeof identity === 'string' ? { userId: identity } : identity;
 
-    if (userId) {
-      return {
-        authenticated: true,
-        userId,
-        scopes: new Set(['*']),
-      };
+    if (claims && typeof claims.userId === 'string' && claims.userId.trim()) {
+      return { authenticated: true, scopes: new Set(['*']), ...claims };
     }
 
     return {
@@ -212,6 +228,9 @@ export class CompositeAuth implements AuthProvider {
 
   getScheme(): Record<string, unknown> {
     return {
+      anonymous: this.providers.some(
+        (provider) => provider instanceof NoAuth || provider.getScheme().anonymous === true,
+      ),
       oneOf: this.providers.map((p) => p.getScheme()),
     };
   }
@@ -222,6 +241,7 @@ export interface OAuth2Config {
   audience: string;
   jwksUri?: string;
   algorithms?: string[];
+  authorizedTenants?: readonly string[];
 }
 
 /**
@@ -248,6 +268,7 @@ export class OAuth2Auth implements AuthProvider {
   readonly audience: string;
   readonly jwksUri: string;
   readonly algorithms: string[];
+  private readonly authorizedTenants?: readonly string[];
   private _jwksClient: unknown = null;
 
   constructor(options: OAuth2Config) {
@@ -255,6 +276,7 @@ export class OAuth2Auth implements AuthProvider {
     this.audience = options.audience;
     this.jwksUri = options.jwksUri ?? `${options.issuer}/.well-known/jwks.json`;
     this.algorithms = options.algorithms ?? ['RS256'];
+    this.authorizedTenants = options.authorizedTenants;
   }
 
   async authenticate(request: AuthRequest): Promise<AuthResult> {
@@ -294,6 +316,8 @@ export class OAuth2Auth implements AuthProvider {
       return {
         authenticated: true,
         userId,
+        namespace: this.issuer,
+        authorizedTenants: this.authorizedTenants,
         scopes,
       };
     } catch (error) {

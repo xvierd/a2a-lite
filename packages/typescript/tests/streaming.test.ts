@@ -131,7 +131,7 @@ describe('streamRemoteSkill()', () => {
     expect(body.method).toBe('SendStreamingMessage');
     expect(body.params.message.role).toBe('ROLE_USER');
     expect(body.params.message.parts[0].text).toBe(JSON.stringify({ skill: 'doWork', params: { x: 1 } }));
-    expect((init.headers as Record<string, string>)['A2A-Version']).toBe('1.0');
+    expect(new Headers(init.headers).get('A2A-Version')).toBe('1.0');
   });
 
   it('handles chunked delivery across multiple reads', async () => {

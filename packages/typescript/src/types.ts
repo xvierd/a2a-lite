@@ -33,6 +33,8 @@ export interface AgentConfig {
    * instead of its internal InMemoryTaskStore.  Useful for persistence
    * across restarts (e.g. a Redis-backed store).
    */
+  persistence?: import('./persistence.js').ProtocolPersistence;
+  protocolPushStore?: import('@a2a-js/sdk/server').PushNotificationStore;
   protocolTaskStore?: import('@a2a-js/sdk/server').TaskStore;
   /**
    * Push notifier called after every skill completion.
@@ -42,6 +44,9 @@ export interface AgentConfig {
   network?: import('./orchestration.js').AgentNetwork;
   corsOrigins?: string[];
   production?: boolean;
+  profile?: 'learning' | 'authenticated' | 'durable';
+  limits?: import('./runtime.js').RuntimeLimits;
+  telemetry?: import('./runtime.js').TelemetryObserver;
   mcpServers?: string[]; // MCP server URLs
 }
 
@@ -50,6 +55,10 @@ export interface SkillConfig {
   description?: string;
   tags?: string[];
   streaming?: boolean;
+  /** Return an A2A Task even for a non-streaming skill. */
+  task?: boolean;
+  /** Opt in to explicit checkpoints; arbitrary skill code is never automatically replayed. */
+  checkpoint?: boolean;
   taskContext?: boolean | string; // true or param name
   interaction?: boolean;
   mcp?: boolean | string; // true or param name
@@ -63,6 +72,8 @@ export interface SkillDefinition {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   isStreaming: boolean;
+  taskMode?: boolean;
+  checkpoint?: boolean;
   needsTaskContext: boolean;
   needsInteraction: boolean;
   taskContextParam?: string; // Name of the parameter that receives TaskContext
@@ -83,6 +94,9 @@ export interface AuthResult {
   /** Public access was allowed without verifying an identity (for example, NoAuth). */
   anonymous?: boolean;
   userId?: string;
+  namespace?: string;
+  /** Verified tenant membership. Omission permits only the default (empty) tenant. */
+  authorizedTenants?: readonly string[] | ReadonlySet<string>;
   scopes?: Set<string>;
   error?: string;
 }

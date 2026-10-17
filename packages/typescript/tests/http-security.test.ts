@@ -42,7 +42,10 @@ describe('authenticated SDK task and push isolation', () => {
     const agent = new Agent({
       name: 'OwnedTasks',
       description: 'Scoped protocol tests',
-      auth: new BearerAuth({ validator: (token) => (['alice', 'bob'].includes(token) ? token : null) }),
+      auth: new BearerAuth({
+        validator: (token) =>
+          ['alice', 'bob'].includes(token) ? { userId: token, authorizedTenants: ['', 'tenant-a', 'tenant-b'] } : null,
+      }),
     });
     agent.skill('count', { streaming: true }, async function* () {
       yield 'one';

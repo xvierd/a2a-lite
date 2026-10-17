@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { RemoteAgentError } from './errors.js';
 import { parseDiscoveryCard, selectJsonRpcInterface } from './discovery.js';
+import { remoteFetch, bindRemoteOptions, type RemoteCallOptions } from './remote-auth.js';
 
 /** A2A v1.0 version header — required: without it 1.x servers assume 0.3 and reject. */
 const A2A_VERSION_HEADERS = { 'A2A-Version': '1.0' } as const;
@@ -34,6 +35,7 @@ export class TaskHandle {
     public readonly taskId: string,
     public readonly result: unknown,
     public readonly agentUrl: string,
+    private readonly options: RemoteCallOptions = {},
   ) {}
 
   toString(): string {
@@ -41,33 +43,42 @@ export class TaskHandle {
   }
 
   async getStatus(timeout?: number): Promise<unknown> {
-    return getRemoteTask(this.agentUrl, this.taskId, timeout);
+    return getRemoteTask(this.agentUrl, this.taskId, timeout, this.options);
+  }
+
+  async get(timeout?: number): Promise<unknown> {
+    return this.getStatus(timeout);
   }
 
   async cancel(timeout?: number): Promise<unknown> {
-    return cancelRemoteTask(this.agentUrl, this.taskId, timeout);
+    return cancelRemoteTask(this.agentUrl, this.taskId, timeout, this.options);
   }
 
   async subscribe(webhookUrl: string, token?: string, timeout?: number, configId = this.taskId): Promise<unknown> {
-    return setTaskPushNotification(this.agentUrl, this.taskId, webhookUrl, token, timeout, configId);
+    return setTaskPushNotification(this.agentUrl, this.taskId, webhookUrl, token, timeout, configId, this.options);
   }
 
   async unsubscribe(timeout?: number, configId = this.taskId): Promise<unknown> {
-    return deleteTaskPushNotification(this.agentUrl, this.taskId, timeout, configId);
+    return deleteTaskPushNotification(this.agentUrl, this.taskId, timeout, configId, this.options);
   }
 
   async getPushConfig(timeout?: number, configId = this.taskId): Promise<unknown> {
-    return getTaskPushNotification(this.agentUrl, this.taskId, timeout, configId);
+    return getTaskPushNotification(this.agentUrl, this.taskId, timeout, configId, this.options);
   }
 }
 
-function remoteTaskHandle(taskId: string | undefined, result: unknown, agentUrl: string): TaskHandle {
+function remoteTaskHandle(
+  taskId: string | undefined,
+  result: unknown,
+  agentUrl: string,
+  options: RemoteCallOptions = {},
+): TaskHandle {
   if (!taskId) {
     throw new RemoteAgentError(
       'Remote agent returned a Message without a task ID; a task handle requires a real remote task.',
     );
   }
-  return new TaskHandle(taskId, result, agentUrl);
+  return new TaskHandle(taskId, result, agentUrl, bindRemoteOptions(options, agentUrl));
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +100,11 @@ export interface AgentCardInfo {
 // discoverAgent — fetch /.well-known/agent-card.json from a remote agent
 // ---------------------------------------------------------------------------
 
-export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<AgentCardInfo> {
+export async function discoverAgent(
+  agentUrl: string,
+  timeout = 30000,
+  options: RemoteCallOptions = {},
+): Promise<AgentCardInfo> {
   const base = agentUrl.replace(/\/$/, '');
   const url = `${base}/.well-known/agent-card.json`;
 
@@ -97,7 +112,7 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(url, {
+    const response = await remoteFetch(url, bindRemoteOptions(options, agentUrl), {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
@@ -136,12 +151,22 @@ export async function discoverAgent(agentUrl: string, timeout = 30000): Promise<
 // getRemoteTask / cancelRemoteTask — JSON-RPC helpers
 // ---------------------------------------------------------------------------
 
-export async function getRemoteTask(agentUrl: string, taskId: string, timeout = 30000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'GetTask', { id: taskId }, timeout);
+export async function getRemoteTask(
+  agentUrl: string,
+  taskId: string,
+  timeout = 30000,
+  options: RemoteCallOptions = {},
+): Promise<unknown> {
+  return sendJsonRpc(agentUrl, 'GetTask', { id: taskId }, timeout, options);
 }
 
-export async function cancelRemoteTask(agentUrl: string, taskId: string, timeout = 30000): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'CancelTask', { id: taskId }, timeout);
+export async function cancelRemoteTask(
+  agentUrl: string,
+  taskId: string,
+  timeout = 30000,
+  options: RemoteCallOptions = {},
+): Promise<unknown> {
+  return sendJsonRpc(agentUrl, 'CancelTask', { id: taskId }, timeout, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,12 +180,14 @@ export async function setTaskPushNotification(
   token?: string,
   timeout = 10000,
   configId = taskId,
+  options: RemoteCallOptions = {},
 ): Promise<unknown> {
   return sendJsonRpc(
     agentUrl,
     'CreateTaskPushNotificationConfig',
     { taskId, id: configId, url: webhookUrl, ...(token ? { token } : {}) },
     timeout,
+    options,
   );
 }
 
@@ -169,8 +196,9 @@ export async function getTaskPushNotification(
   taskId: string,
   timeout = 10000,
   configId = taskId,
+  options: RemoteCallOptions = {},
 ): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId, id: configId }, timeout);
+  return sendJsonRpc(agentUrl, 'GetTaskPushNotificationConfig', { taskId, id: configId }, timeout, options);
 }
 
 export async function deleteTaskPushNotification(
@@ -178,8 +206,9 @@ export async function deleteTaskPushNotification(
   taskId: string,
   timeout = 10000,
   configId = taskId,
+  options: RemoteCallOptions = {},
 ): Promise<unknown> {
-  return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId, id: configId }, timeout);
+  return sendJsonRpc(agentUrl, 'DeleteTaskPushNotificationConfig', { taskId, id: configId }, timeout, options);
 }
 
 async function sendJsonRpc(
@@ -187,19 +216,20 @@ async function sendJsonRpc(
   method: string,
   params: Record<string, unknown>,
   timeout: number,
+  options: RemoteCallOptions = {},
 ): Promise<unknown> {
   const requestBody = {
     jsonrpc: '2.0',
     method,
     id: uuidv4().replace(/-/g, ''),
-    params,
+    params: { ...params, ...(options.tenant ? { tenant: options.tenant } : {}) },
   };
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(agentUrl, {
+    const response = await remoteFetch(agentUrl, bindRemoteOptions(options, agentUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
@@ -231,6 +261,18 @@ async function sendJsonRpc(
 export class AgentNetwork {
   private agents: Map<string, string> = new Map();
   private cards: Map<string, AgentCardInfo> = new Map();
+  private credentials = new Map<string, RemoteCallOptions>();
+
+  getCredentials(name: string): RemoteCallOptions {
+    return { ...this.credentials.get(name) };
+  }
+
+  withCredentials(name: string, options: RemoteCallOptions): this {
+    const url = this.agents.get(name);
+    if (!url) throw new Error(`Agent '${name}' not found in network.`);
+    this.credentials.set(name, bindRemoteOptions(options, url));
+    return this;
+  }
 
   constructor(agents?: Record<string, string>) {
     if (agents) {
@@ -240,9 +282,11 @@ export class AgentNetwork {
     }
   }
 
-  add(name: string, url: string, options?: { autoDiscover?: boolean }): void {
+  add(name: string, url: string, options?: RemoteCallOptions & { autoDiscover?: boolean }): void {
     this.cards.delete(name);
     this.agents.set(name, url.replace(/\/$/, ''));
+    this.credentials.delete(name);
+    if (options) this.withCredentials(name, options);
     if (options?.autoDiscover) {
       // Fire-and-forget discovery; errors are silently ignored
       this.discover(name).catch(() => {});
@@ -255,6 +299,7 @@ export class AgentNetwork {
 
   remove(name: string): boolean {
     this.cards.delete(name);
+    this.credentials.delete(name);
     return this.agents.delete(name);
   }
 
@@ -271,7 +316,7 @@ export class AgentNetwork {
     if (!url) {
       throw new Error(`Agent '${name}' not found in network. Available: ${[...this.agents.keys()].join(', ')}`);
     }
-    const card = await discoverAgent(url);
+    const card = await discoverAgent(url, 30000, this.credentials.get(name));
     this.cards.set(name, card);
     return card;
   }
@@ -281,17 +326,18 @@ export class AgentNetwork {
     skill: string,
     params: Record<string, unknown> = {},
     timeout = 30000,
-    options?: { returnHandle?: boolean },
+    options?: RemoteCallOptions & { returnHandle?: boolean },
   ): Promise<unknown> {
     const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (!url) {
       throw new Error(`Agent '${name}' not found in network. Available: ${[...this.agents.keys()].join(', ')}`);
     }
 
-    const { result, taskId } = await callRemoteSkillInternal(url, skill, params, timeout);
+    const credentials = { ...this.credentials.get(name), ...options };
+    const { result, taskId } = await callRemoteSkillInternal(url, skill, params, timeout, credentials);
 
     if (options?.returnHandle) {
-      return remoteTaskHandle(taskId, result, url);
+      return remoteTaskHandle(taskId, result, url, credentials);
     }
     return result;
   }
@@ -306,7 +352,7 @@ export class AgentNetwork {
     if (!url) {
       throw new Error(`Agent '${name}' not found in network. Available: ${[...this.agents.keys()].join(', ')}`);
     }
-    yield* streamRemoteSkill(url, skill, params, timeout);
+    yield* streamRemoteSkill(url, skill, params, timeout, this.credentials.get(name));
   }
 
   async broadcast(
@@ -318,7 +364,13 @@ export class AgentNetwork {
     await Promise.all(
       [...this.agents.entries()].map(async ([name, url]) => {
         try {
-          const { result } = await callRemoteSkillInternal(this.cards.get(name)?.url ?? url, skill, params, timeout);
+          const { result } = await callRemoteSkillInternal(
+            this.cards.get(name)?.url ?? url,
+            skill,
+            params,
+            timeout,
+            this.credentials.get(name),
+          );
           results[name] = result;
         } catch (err) {
           results[name] = { error: (err as Error).message, type: (err as Error).constructor.name };
@@ -331,13 +383,13 @@ export class AgentNetwork {
   async getTask(name: string, taskId: string, timeout?: number): Promise<unknown> {
     const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (url === undefined) throw new Error(`Agent '${name}' not found in network.`);
-    return getRemoteTask(url, taskId, timeout);
+    return getRemoteTask(url, taskId, timeout, this.credentials.get(name));
   }
 
   async cancelTask(name: string, taskId: string, timeout?: number): Promise<unknown> {
     const url = this.cards.get(name)?.url ?? this.agents.get(name);
     if (url === undefined) throw new Error(`Agent '${name}' not found in network.`);
-    return cancelRemoteTask(url, taskId, timeout);
+    return cancelRemoteTask(url, taskId, timeout, this.credentials.get(name));
   }
 
   get size(): number {
@@ -354,8 +406,9 @@ export async function callRemoteSkill(
   skill: string,
   params: Record<string, unknown>,
   timeout = 30000,
+  options: RemoteCallOptions = {},
 ): Promise<unknown> {
-  const { result } = await callRemoteSkillInternal(agentUrl, skill, params, timeout);
+  const { result } = await callRemoteSkillInternal(agentUrl, skill, params, timeout, options);
   return result;
 }
 
@@ -364,9 +417,10 @@ export async function callRemoteSkillWithHandle(
   skill: string,
   params: Record<string, unknown>,
   timeout = 30000,
+  options: RemoteCallOptions = {},
 ): Promise<TaskHandle> {
-  const { result, taskId } = await callRemoteSkillInternal(agentUrl, skill, params, timeout);
-  return remoteTaskHandle(taskId, result, agentUrl);
+  const { result, taskId } = await callRemoteSkillInternal(agentUrl, skill, params, timeout, options);
+  return remoteTaskHandle(taskId, result, agentUrl, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +432,7 @@ async function callRemoteSkillInternal(
   skill: string,
   params: Record<string, unknown>,
   timeout: number,
+  options: RemoteCallOptions = {},
 ): Promise<{ result: unknown; taskId: string | undefined }> {
   const message = JSON.stringify({ skill, params });
   const requestBody = {
@@ -385,7 +440,10 @@ async function callRemoteSkillInternal(
     method: 'SendMessage',
     id: uuidv4().replace(/-/g, ''),
     params: {
+      ...(options.tenant ? { tenant: options.tenant } : {}),
+      ...(options.returnImmediately ? { configuration: { returnImmediately: true } } : {}),
       message: {
+        ...(options.taskId ? { taskId: options.taskId } : {}),
         role: 'ROLE_USER',
         parts: [{ text: message }],
         messageId: uuidv4().replace(/-/g, ''),
@@ -397,7 +455,7 @@ async function callRemoteSkillInternal(
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(agentUrl, {
+    const response = await remoteFetch(agentUrl, bindRemoteOptions(options, agentUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
@@ -436,6 +494,7 @@ export async function* streamRemoteSkill(
   skill: string,
   params: Record<string, unknown> = {},
   timeout = 30000,
+  options: RemoteCallOptions = {},
 ): AsyncGenerator<string> {
   const message = JSON.stringify({ skill, params });
   const requestBody = {
@@ -443,7 +502,10 @@ export async function* streamRemoteSkill(
     method: 'SendStreamingMessage',
     id: uuidv4().replace(/-/g, ''),
     params: {
+      ...(options.tenant ? { tenant: options.tenant } : {}),
+      ...(options.returnImmediately ? { configuration: { returnImmediately: true } } : {}),
       message: {
+        ...(options.taskId ? { taskId: options.taskId } : {}),
         role: 'ROLE_USER',
         parts: [{ text: message }],
         messageId: uuidv4().replace(/-/g, ''),
@@ -455,7 +517,7 @@ export async function* streamRemoteSkill(
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(agentUrl, {
+    const response = await remoteFetch(agentUrl, bindRemoteOptions(options, agentUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...A2A_VERSION_HEADERS },
       body: JSON.stringify(requestBody),
@@ -564,6 +626,7 @@ export async function* streamRemoteSkill(
         }
       }
     } finally {
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
   } finally {

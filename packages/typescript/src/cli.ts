@@ -39,7 +39,7 @@ function getVersion(): string {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     return pkg.version;
   } catch {
-    return '1.1.0';
+    return '1.2.0';
   }
 }
 
@@ -88,7 +88,8 @@ agent.skill('echo', async ({ message }: { message: string }) => {
   return { received: message, echoed: true };
 });
 
-agent.run();
+const runtime = await agent.run();
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { void runtime.stop(); });
 `,
   );
 
