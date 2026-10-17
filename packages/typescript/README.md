@@ -102,7 +102,8 @@ const auth = new APIKeyAuth({ identities: {
   'rotated-key': { userId: 'service', namespace: 'company', authorizedTenants: ['team-a'] },
 } });
 const agent = new Agent({ name: 'Secure', description: 'Stable ownership', profile: 'authenticated', auth });
-const network = new AgentNetwork().add('secure', 'https://agent.example', {
+const network = new AgentNetwork();
+network.add('secure', 'https://agent.example', {
   tenant: 'team-a',
   credentialProvider: async () => ({ 'X-API-Key': await readCurrentKey() }),
 });
