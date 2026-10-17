@@ -10,7 +10,7 @@ Scope: finish the six findings from the 2026-10-17 SDK maintenance review, verif
 - [x] Repair and validate Java release workflow; check signing prerequisites without exposing credentials.
 - [x] Update migration documentation and audit results.
 - [x] Run package suites, builds, lint/format/type checks and an independent review.
-- [ ] Commit focused changes, push a branch, and verify GitHub CI.
+- [x] Commit focused changes, push a branch, and verify GitHub CI.
 - [ ] Finish publication when release credentials are available.
 
 ## External dependency
@@ -29,3 +29,10 @@ GitHub repository secret names currently include only `NPM_TOKEN`; the Java work
 ## GitHub delivery constraint
 
 The HTTPS credential can push package code but GitHub rejects workflow changes because it lacks the `workflow` scope. The configured SSH agent (1Password) failed to sign. All four prepared workflow changes remain preserved in local branch `codex/a2a-sdk-upgrade-and-hardening` at `5021344`; branch `codex/a2a-runtime-upgrade` delivers the package changes and documentation with the existing CI definitions. Enabling the GitHub permission or authorizing SSH is required to deliver the workflow improvements.
+
+## Remote verification
+
+- [PR #5](https://github.com/xvierd/a2a-lite/pull/5) contains the package and documentation changes.
+- [CI](https://github.com/xvierd/a2a-lite/actions/runs/39064570880) passed on source commit `ff3b38f`: Python 3.10/3.11/3.12, Node 20/22 and Java 17/21.
+- [Python dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064641530) and [npm dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064643732) passed; publication was skipped.
+- Release 1.1.0 is prepared; no package was published by this work. Remaining workflow-permission and Java-credential requirements are above.
