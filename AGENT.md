@@ -2,13 +2,15 @@
 
 Quick reference for AI coding assistants implementing A2A agents.
 
-## Protocol Notes (A2A v1.0 — a2a-lite 1.0.0)
+## Protocol Notes (A2A v1.0 — SDK baseline checked 2026-10-17)
 
 - All three packages serve **A2A protocol v1.0**. There is **no v0.3 compatibility** — lite clients detect 0.3 agent cards and fail with a clear error.
+- The latest stable specification is **1.0.1**. Patch versions are documentation/specification revisions; keep **`1.0`** in agent cards and `A2A-Version`, independently of SDK or a2a-lite package versions.
 - Agent card is served at `GET /.well-known/agent-card.json` (the old `/.well-known/agent.json` is gone). Card shape: `supportedInterfaces` list, **no root-level `url`/`protocolVersion`**.
 - Wire: JSON-RPC methods `SendMessage`, `SendStreamingMessage`, `GetTask`, `CancelTask`, `CreateTaskPushNotificationConfig`, etc., with header `A2A-Version: 1.0`. Parts have **no `kind`/`type` discriminator** — a text part is `{"text": "..."}`. Roles/states are enum-style: `ROLE_USER`, `TASK_STATE_WORKING`, ...
-- SDK integration underneath (invisible to lite-API users): Python mounts `a2a-sdk` 1.1.2 **route factories** (`create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes`); TypeScript uses `@a2a-js/sdk` 1.0.1 **express handlers** (`jsonRpcHandler` / `restHandler` / `agentCardHandler`, requires Node >= 20); Java runs a hand-rolled Javalin JSON-RPC server and integrates `org.a2aproject.sdk` 1.1.0.Final through `AgentEmitter` (the 1.x replacement for `EventQueue` + `TaskUpdater`).
-- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.0.0`. The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
+- SDK integration underneath (invisible to lite-API users): Python mounts `a2a-sdk` 1.2.2 **route factories** (`create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes`); TypeScript uses `@a2a-js/sdk` 1.3.0 **express handlers** (`jsonRpcHandler` / `restHandler` / `agentCardHandler`, requires Node >= 20); Java connects its Javalin JSON-RPC adapter to the request handler and event runtime in `org.a2aproject.sdk` 1.4.0.Final through `AgentEmitter` (the 1.x replacement for `EventQueue` + `TaskUpdater`).
+- Java standalone `agent.run()` uses official SDK handlers for messaging, SSE, task lifecycle and push configuration over JSON-RPC. REST is not advertised. SDK task authorization must be configured separately for Quarkus (see `MIGRATION.md`). Dynamic push requires authentication and public HTTPS callbacks in every language.
+- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.1.0`. The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
 
 ## Core Pattern
 

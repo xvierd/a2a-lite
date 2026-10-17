@@ -14,9 +14,9 @@
 
 ---
 
-A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) para darte una API simple basada en decoradores que mantiene **100% de compatibilidad con el protocolo**.
+A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) para darte una API simple basada en decoradores para el **protocolo A2A v1.0**. La [matriz de características](#matriz-de-caracteristicas) detalla las funciones disponibles y las limitaciones de cada transporte.
 
-> **v1.0.0 — Protocolo A2A v1.0.** Los tres paquetes sirven ahora el **protocolo A2A v1.0** sobre los SDKs oficiales 1.x (`a2a-sdk 1.1.2`, `@a2a-js/sdk 1.0.1`, `a2a-java-sdk 1.1.0.Final`). v0.3 **no** es compatible — los agentes en 0.3 y 1.0 no pueden llamarse entre si. La API lite no cambia, asi que la mayoria de los agentes migran con solo actualizar la dependencia. Consulta [MIGRATION.md](MIGRATION.md) para los breaking changes y las tablas de equivalencia de los SDKs.
+> **SDKs de referencia (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.4.0.Final`. La última [especificación estable de A2A es 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); las agent cards y la cabecera `A2A-Version` siguen usando `1.0`, según las [reglas de versionado](https://a2a-protocol.org/latest/specification/#36-versioning). El registro básico de skills no cambia; 1.1.0 refuerza la autenticación, la propiedad de tareas y la entrega de callbacks. Los agentes v0.3 siguen sin estar soportados. Consulta [MIGRATION.md](MIGRATION.md) para los cambios de SDK y los pasos de migración.
 
 ## Por que A2A Lite?
 
@@ -111,7 +111,7 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.0.1'
+    implementation 'io.github.xvierd:a2a-lite:1.1.0'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -305,14 +305,15 @@ TypeScript (`npx a2a-lite`): `init`, `inspect`, `info`, `test`, `discover`, `doc
 Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre los SDKs oficiales 1.x:
 
 - **Transporte JSON-RPC** — Python, TypeScript, Java.
-- **Transporte REST (HTTP+JSON)** — Python y TypeScript (servido); Java anuncia el binding en la card pero hoy solo sirve JSON-RPC.
+- **Transporte REST (HTTP+JSON)** — Python y TypeScript; Java actualmente sirve y anuncia solo JSON-RPC.
 - **Transporte gRPC** — Python **experimental** (`pip install a2a-lite[grpc]`, `agent.run_grpc()`); TypeScript/Java planeado.
-- **Streaming SSE**, **push notifications por tarea** (`TaskPushNotificationConfig`) y **`securitySchemes` en la agent card** — en los tres lenguajes.
+- **Streaming SSE y ciclo de vida de tareas** — Python, TypeScript y el servidor Java Javalin usan los handlers oficiales para streaming, consulta y cancelación de tareas.
+- **Push notifications por tarea** (`TaskPushNotificationConfig`) y **`securitySchemes` en la agent card** — en los tres lenguajes.
 - **Signed Agent Cards** — TypeScript (experimental, `signAgentCard` / `verifyAgentCard`); Python/Java planeado.
 - Agent card servida en **`/.well-known/agent-card.json`** (la ruta antigua `agent.json` ya no existe).
 - **Sin compatibilidad con v0.3** — los clientes lite detectan cards 0.3 y fallan con un error claro.
 
-Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes solo necesitan actualizar la dependencia. Consulta [MIGRATION.md](MIGRATION.md) para breaking changes, pasos por lenguaje y tablas de equivalencia SDK 0.3 → 1.x.
+¿Migras desde una versión anterior? El registro básico de skills no cambia; revisa los cambios de autenticación, push y TaskHandle de 1.1.0. Consulta [MIGRATION.md](MIGRATION.md) para breaking changes, pasos por lenguaje y tablas de equivalencia SDK 0.3 → 1.x.
 
 ---
 
@@ -342,7 +343,7 @@ Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes 
 | Auth API Key | `APIKeyAuth` | `APIKeyAuth` | `APIKeyAuth` |
 | Bearer / JWT | `BearerAuth` | `BearerAuth` | `BearerAuth` |
 | OAuth2 | `OAuth2Auth` | `OAuth2Auth` | `OAuth2Auth` |
-| Auth compuesta | ✅ | ✅ | — |
+| Auth compuesta | ✅ | ✅ | ✅ |
 | AgentNetwork + `delegate()` | ✅ | ✅ | ✅ |
 | Skills LLM (OpenAI/Anthropic/Ollama/Bedrock) | ✅ | ✅ | ✅ |
 | Cliente MCP | ✅ | ✅ | — |
@@ -361,7 +362,7 @@ Migra desde a2a-lite 0.3.x? La API lite no cambia — la mayoria de los agentes 
 
 > **Nota sobre v0.3:** a2a-lite 1.0 no interopera con agentes A2A 0.3 (decision explicita — sin modo compatibilidad). Los clientes lite detectan cards 0.3 y fallan con un error claro. Consulta [MIGRATION.md](MIGRATION.md).
 >
-> ¹ **Java REST:** la agent card puede listar la interfaz `HTTP+JSON` por paridad de protocolo, pero el adaptador Javalin solo implementa JSON-RPC en `POST /` hoy.
+> ¹ **Java REST:** planeado. El adaptador Javalin sirve JSON-RPC en `POST /`; su agent card anuncia únicamente ese transporte implementado.
 >
 > ² **Python gRPC:** extra opcional (`a2a-lite[grpc]`). `agent.build_grpc_server()` / `agent.run_grpc()` sirven A2A por gRPC (standalone; combínalo con `agent.run()` si también quieres HTTP). No se activa solo con `agent.run()`.
 

@@ -2,7 +2,7 @@
 
 > **Ejemplos COMPLETOS y FUNCIONALES comparando Google A2A SDK con A2A Lite.**
 >
-> Migrados a **A2A protocol v1.0**: Python `a2a-sdk 1.1.2`, TypeScript `@a2a-js/sdk 1.0.1`, Java `org.a2aproject.sdk 1.1.0.Final`.
+> Migrados a **A2A protocol v1.0**: Python `a2a-sdk 1.2.2`, TypeScript `@a2a-js/sdk 1.3.0`, Java `org.a2aproject.sdk 1.4.0.Final`.
 
 ## ⚠️ IMPORTANTE: Instalación Correcta
 
@@ -10,7 +10,7 @@
 
 ```bash
 # Instalación CORRECTA (con soporte HTTP obligatorio)
-pip install "a2a-sdk[http-server]>=1.1.2,<2.0"
+pip install "a2a-sdk[http-server]>=1.2.2,<2.0"
 ```
 
 **NOTA**: Sin `[http-server]` el servidor NO funcionará.
@@ -107,7 +107,7 @@ Docs: [python/11_battleship_lite/README.md](python/11_battleship_lite/README.md)
 
 ```bash
 cd python/01_hello_world_google
-pip install "a2a-sdk[http-server]>=1.1.2,<2.0"
+pip install "a2a-sdk[http-server]>=1.2.2,<2.0"
 python main.py
 ```
 
@@ -219,11 +219,12 @@ await updater.complete()                                 # o failed()/cancel()
 
 ## ✅ Validación
 
-Todos los ejemplos han sido validados contra a2a-sdk 1.1.2:
-- ✅ Sintaxis Python correcta (`py_compile`)
-- ✅ Usan API real de `a2a-sdk` 1.x (route factories, helpers, tipos protobuf)
-- ✅ Wire v1.0 verificado en vivo (agent card, SendMessage, SendStreamingMessage)
-- ✅ Tests de los ejemplos lite en verde con `pytest`
+En la revisión del 2026-10-17, los seis ejemplos Python con SDK oficial pasaron con `a2a-sdk 1.2.2`:
+- ✅ Compilación de sintaxis (`py_compile`) e importación
+- ✅ Construcción de la aplicación con las APIs actuales del SDK
+- ✅ Consulta de la agent card
+
+La suite del paquete Python verifica JSON-RPC, REST y gRPC con el SDK actualizado. Esta revisión no ejecutó llamadas a proveedores LLM externos ni el flujo completo de cada demo. Los ocho ejemplos Java Lite compilan y pasan sus builds, y el ejemplo TypeScript de persistencia pasa `typecheck` con SDK 1.3.0.
 
 ---
 
@@ -231,4 +232,4 @@ Todos los ejemplos han sido validados contra a2a-sdk 1.1.2:
 
 - **A2A Protocol**: https://google.github.io/A2A/
 - **Python SDK**: https://github.com/a2aproject/a2a-python
-- **Instalación**: `pip install "a2a-sdk[http-server]>=1.1.2,<2.0"`
+- **Instalación**: `pip install "a2a-sdk[http-server]>=1.2.2,<2.0"`
