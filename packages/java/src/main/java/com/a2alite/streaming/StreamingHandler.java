@@ -1,7 +1,6 @@
 package com.a2alite.streaming;
 
 import java.util.Iterator;
-import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -25,7 +24,10 @@ public class StreamingHandler {
     /**
      * A streaming result that can be iterated over.
      */
-    public interface StreamResult extends Iterable<Object> {
+    public interface StreamResult extends Iterable<Object>, AutoCloseable {
+        @Override
+        default void close() {}
+
         /**
          * Check if this is a streaming result.
          */
@@ -41,61 +43,100 @@ public class StreamingHandler {
      * @return A StreamResult that can be iterated
      */
     public static StreamResult stream(Consumer<Consumer<Object>> producer) {
-        return () -> new Iterator<>() {
-            private final java.util.concurrent.LinkedBlockingQueue<Object> queue =
-                new java.util.concurrent.LinkedBlockingQueue<>();
-            private volatile boolean done = false;
-            private Object next = null;
-            private boolean started = false;
+        return new StreamResult() {
+            private boolean closed;
+            private final java.util.List<ProducerIterator> iterators = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-            private void ensureStarted() {
-                if (!started) {
-                    started = true;
-                    new Thread(() -> {
-                        try {
-                            producer.accept(chunk -> {
-                                try {
-                                    queue.put(chunk);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            });
-                        } finally {
-                            done = true;
-                            try {
-                                queue.put(new Sentinel());
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }
-                    }).start();
-                }
+            @Override
+            public synchronized Iterator<Object> iterator() {
+                var iterator = new ProducerIterator(producer);
+                if (closed) iterator.close();
+                iterators.add(iterator);
+                return iterator;
             }
 
             @Override
-            public boolean hasNext() {
-                ensureStarted();
-                if (next != null) return true;
-                try {
-                    next = queue.take();
-                    return !(next instanceof Sentinel);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-
-            @Override
-            public Object next() {
-                if (next == null) {
-                    if (!hasNext()) throw new java.util.NoSuchElementException();
-                }
-                Object result = next;
-                next = null;
-                return result;
+            public synchronized void close() {
+                closed = true;
+                iterators.forEach(ProducerIterator::close);
             }
         };
     }
+
+    private static final class ProducerIterator implements Iterator<Object> {
+        private final java.util.concurrent.BlockingQueue<Object> queue = new java.util.concurrent.ArrayBlockingQueue<>(256);
+        private final Consumer<Consumer<Object>> producer;
+        private volatile boolean closed;
+        private Thread thread;
+        private Object next;
+
+        ProducerIterator(Consumer<Consumer<Object>> producer) { this.producer = producer; }
+
+        private synchronized void start() {
+            if (thread != null || closed) return;
+            thread = new Thread(() -> {
+                try {
+                    producer.accept(chunk -> {
+                        if (closed) throw new java.util.concurrent.CancellationException();
+                        put(chunk);
+                    });
+                    put(new Sentinel());
+                } catch (Throwable error) {
+                    if (!closed) put(new Failure(error));
+                }
+            }, "a2a-lite-stream");
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        private void put(Object value) {
+            try {
+                queue.put(value);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (closed) return false;
+            start();
+            try {
+                if (next == null) next = queue.take();
+                if (next instanceof Sentinel) {
+                    close();
+                    return false;
+                }
+                if (next instanceof Failure failure) {
+                    close();
+                    throw new IllegalStateException("Streaming producer failed", failure.cause());
+                }
+                return true;
+            } catch (InterruptedException e) {
+                close();
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+
+        @Override
+        public Object next() {
+            if (!hasNext()) throw new java.util.NoSuchElementException();
+            Object value = next;
+            next = null;
+            return value;
+        }
+
+        synchronized void close() {
+            closed = true;
+            if (thread != null) thread.interrupt();
+            queue.clear();
+            queue.offer(new Sentinel());
+        }
+    }
+
+    private record Failure(Throwable cause) {}
 
     /**
      * Create a streaming result from an iterator.
@@ -118,7 +159,13 @@ public class StreamingHandler {
      * Create a streaming result from a Java Stream.
      */
     public static StreamResult fromStream(Stream<?> stream) {
-        return fromIterator(stream.iterator());
+        var result = fromIterator(stream.iterator());
+        return new StreamResult() {
+            @Override
+            public Iterator<Object> iterator() { return result.iterator(); }
+            @Override
+            public void close() { stream.close(); }
+        };
     }
 
     /**
@@ -133,8 +180,8 @@ public class StreamingHandler {
      */
     public static String collect(StreamResult result) {
         var sb = new StringBuilder();
-        for (var chunk : result) {
-            sb.append(chunk);
+        try (result) {
+            for (var chunk : result) sb.append(chunk);
         }
         return sb.toString();
     }

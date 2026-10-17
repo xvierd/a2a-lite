@@ -6,9 +6,16 @@
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
-Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API. 100% protocol-compatible.
+Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API and a standalone JSON-RPC adapter.
 
-> **v1.0.1 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.1.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.0.1`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.1.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.1.0`. See [MIGRATION.md](../../MIGRATION.md).
+
+The standalone Javalin server started by `agent.run()` uses the official SDK
+request handler for messages, SSE streaming, task retrieval/cancellation,
+subscriptions, task listing and push configuration. Requests must send
+`A2A-Version: 1.0`. The card advertises JSON-RPC and enables streaming when a
+streaming skill is registered. Protocol tasks and ownership are stored in memory
+for the lifetime of the server. REST and gRPC require a separate SDK integration.
 
 ```java
 var agent = Agent.builder()
@@ -29,7 +36,7 @@ agent.run();
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.0.1'
+    implementation 'io.github.xvierd:a2a-lite:1.1.0'
     implementation 'io.javalin:javalin:5.6.3'
 }
 ```
@@ -40,7 +47,7 @@ dependencies {
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 
 <dependency>
@@ -110,10 +117,10 @@ agent.skill("greet",
     params -> "Hello, " + params.get("name") + "!"
 );
 
-// Streaming
+// Streaming through the official SDK server integration
 agent.skill("stream",
     SkillConfig.withStreaming(),
-    params -> "Streaming result"
+    params -> StreamingHandler.fromIterator(List.of("Hello ", "World").iterator())
 );
 ```
 
@@ -294,20 +301,38 @@ AgentCardInfo namedCard = network.discoverNamed("data");
 ### Per-Task Push Notifications
 
 ```java
-TaskHandle handle = agent.delegateWithHandle("worker", "process", Map.of("data", "..."));
+var network = new AgentNetwork();
+network.add("worker", "https://worker.example/");
+network.withHeaders("https://worker.example/", Map.of("Authorization", "Bearer <token>"));
+TaskHandle handle = network.callWithHandle("worker", "process", Map.of("data", "..."), 30);
 
 // Register webhook for this specific task
 handle.subscribe("https://my-app.com/webhook");
 
 // Or via network
-network.setTaskPushNotification("http://localhost:8787", handle.getTaskId(), "https://my-app.com/webhook");
+network.setTaskPushNotification("https://worker.example/", handle.getTaskId(), "https://my-app.com/webhook");
 
 // Retrieve / remove
 Object config = handle.getPushConfig();
 handle.unsubscribe();
 ```
 
-The `TaskPushRegistry` is automatically created on every Agent and handles the v1.0 `CreateTaskPushNotificationConfig` / `GetTaskPushNotificationConfig` / `DeleteTaskPushNotificationConfig` JSON-RPC methods.
+Standalone push configuration is managed by the SDK and requires an authenticated
+identity that owns an existing protocol task. Each configuration ID is isolated;
+get/delete without an ID target the default configuration. Anonymous servers do
+not expose task callbacks. `TaskPushRegistry` remains a programmatic legacy API
+and does not back the HTTP endpoints.
+
+Client-supplied callback URLs must use HTTPS, contain no credentials or fragment,
+and resolve only to public addresses. Delivery revalidates DNS and pins those
+addresses through Apache HttpClient while preserving the original Host and TLS
+identity. Redirects are disabled. Notifications use `application/a2a+json` and the
+callback token uses `X-A2A-Notification-Token`. Server-configured
+`WebhookPushNotifier` URLs remain a separate trusted configuration.
+
+`callWithHandle` and `delegateWithHandle` require a real Task response. They fail
+clearly if the peer returns only a Message; use `call`/`delegate` for those replies.
+`withHeaders` applies headers only to the configured agent endpoint.
 
 ---
 
@@ -333,9 +358,27 @@ agent.run("localhost", 9000);          // Custom host and port
 
 ---
 
+## OAuth2 verification
+
+`OAuth2Auth` verifies JWT signatures using Nimbus JOSE + JWT (included), a trusted
+configured JWKS endpoint and an explicit asymmetric algorithm allowlist (`RS256`
+by default). It validates issuer, configured audience, expiry, optional `nbf`, and
+a nonempty string `sub`. Unsigned, tampered, expired or identity-less tokens are
+rejected; there is no parser-only fallback. Scopes come from token claims and
+remain empty when absent. Existing demos using fabricated tokens must switch to
+signed tokens from the configured issuer.
+
 ## Quarkus Integration
 
 For Quarkus applications, use CDI producer classes to integrate with the framework:
+
+The official SDK 1.4.0.Final denies task operations unless a
+`TaskAuthorizationProvider` is configured. Supply a provider for production;
+for development or a deliberately open single-user deployment, set
+`a2a.authorization.required=false`. This SDK setting applies to the Quarkus
+request handler; standalone `agent.run()` maps A2A Lite's configured
+`AuthProvider` identity to SDK task ownership. Configured providers must return a
+nonempty identity; `NoAuth` and composite anonymous fallbacks cannot register callbacks. See the [official authorization migration notes](https://a2aproject.github.io/a2a-java/posts/a2a-java-sdk-1-3-0-final-released/#2-fail-closed-authorization-default).
 
 ```java
 @ApplicationScoped
@@ -371,7 +414,7 @@ Everything maps directly to the underlying protocol — no magic, no lock-in.
 | A2A Lite | A2A Protocol |
 |----------|--------------|
 | `agent.skill()` | Agent Skills |
-| `SkillConfig.withStreaming()` | SSE Streaming |
+| `SkillConfig.withStreaming()` | SSE streaming in standalone and SDK integrations |
 | `APIKeyAuth` / `BearerAuth` | Security schemes |
 
 ---

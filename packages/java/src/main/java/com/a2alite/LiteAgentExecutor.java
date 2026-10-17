@@ -4,6 +4,7 @@ import com.a2alite.auth.AuthProvider;
 import com.a2alite.errors.A2ALiteException;
 import com.a2alite.errors.SkillNotFoundException;
 import com.a2alite.push.TaskPushRegistry;
+import com.a2alite.push.PublicWebhookClient;
 import com.a2alite.streaming.StreamingHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
@@ -16,17 +17,15 @@ import org.a2aproject.sdk.spec.TaskNotCancelableError;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TextPart;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,10 +50,11 @@ public class LiteAgentExecutor implements AgentExecutor {
     private final List<BiConsumer<String, Object>> completeHooks;
     private final AuthProvider authProvider;
     private final TaskPushRegistry pushRegistry;
+    private final Map<String, Execution> executions = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    private final PublicWebhookClient callbacks = new PublicWebhookClient();
+    private final Function<Exception, Object> errorHandler;
+    private final Map<String, SkillHandlerWithContext> contextualSkills;
 
     public LiteAgentExecutor(
             Map<String, SkillDefinition> skills,
@@ -72,6 +72,21 @@ public class LiteAgentExecutor implements AgentExecutor {
             AuthProvider authProvider,
             TaskPushRegistry pushRegistry
     ) {
+        this(skills, middlewares, completeHooks, authProvider, pushRegistry, null);
+    }
+
+    public LiteAgentExecutor(Map<String, SkillDefinition> skills, List<Middleware> middlewares,
+            List<BiConsumer<String, Object>> completeHooks, AuthProvider authProvider,
+            TaskPushRegistry pushRegistry, Function<Exception, Object> errorHandler) {
+        this(skills, middlewares, completeHooks, authProvider, pushRegistry, errorHandler, Map.of());
+    }
+
+    public LiteAgentExecutor(Map<String, SkillDefinition> skills, List<Middleware> middlewares,
+            List<BiConsumer<String, Object>> completeHooks, AuthProvider authProvider,
+            TaskPushRegistry pushRegistry, Function<Exception, Object> errorHandler,
+            Map<String, SkillHandlerWithContext> contextualSkills) {
+        this.contextualSkills = contextualSkills;
+        this.errorHandler = errorHandler;
         this.skills = skills;
         this.middlewares = middlewares;
         this.completeHooks = completeHooks;
@@ -81,6 +96,8 @@ public class LiteAgentExecutor implements AgentExecutor {
 
     @Override
     public void execute(RequestContext context, AgentEmitter emitter) throws A2AError {
+        var execution = new Execution(Thread.currentThread());
+        executions.put(context.getTaskId(), execution);
         String finalSkillName = null;
         try {
             // Extract message text
@@ -103,6 +120,17 @@ public class LiteAgentExecutor implements AgentExecutor {
                 params.put("message", text);
             }
 
+            if ((skillName == null || skillName.isEmpty()) && skills.size() == 1) {
+                skillName = skills.keySet().iterator().next();
+            }
+            var definition = skills.get(skillName);
+            boolean taskMode = context.getTask() != null
+                || (definition != null && (definition.isStreaming() || definition.needsTaskContext()))
+                || (context.getConfiguration() != null
+                    && (Boolean.TRUE.equals(context.getConfiguration().returnImmediately())
+                        || context.getConfiguration().taskPushNotificationConfig() != null));
+            if (taskMode) startTask(context, emitter, execution);
+
             // Build middleware context
             var ctx = new MiddlewareContext(
                 skillName != null ? skillName : "",
@@ -114,7 +142,7 @@ public class LiteAgentExecutor implements AgentExecutor {
             // Execute through middleware chain
             finalSkillName = skillName;
             final String hookedSkillName = finalSkillName;
-            MiddlewareNext finalHandler = () -> executeSkill(hookedSkillName, ctx.params());
+            MiddlewareNext finalHandler = () -> executeSkill(hookedSkillName, ctx.params(), context, emitter, execution);
 
             MiddlewareNext handler = finalHandler;
             for (int i = middlewares.size() - 1; i >= 0; i--) {
@@ -126,17 +154,16 @@ public class LiteAgentExecutor implements AgentExecutor {
             Object result = handler.call();
 
             if (result instanceof StreamingHandler.StreamResult streamResult) {
+                execution.stream = streamResult;
                 // Streaming skill: task first, then one status update per chunk
-                if (context.getTask() == null) {
-                    emitter.submit();
-                }
-                emitter.startWork();
+                if (!taskMode) startTask(context, emitter, execution);
                 for (var chunk : streamResult) {
+                    if (execution.canceled.get() || execution.outputFinished) break;
                     String chunkText = chunk instanceof String s ? s : String.valueOf(chunk);
                     emitter.updateStatus(TaskState.TASK_STATE_WORKING,
                         emitter.newAgentMessage(List.of(new TextPart(chunkText)), null));
                 }
-                emitter.complete();
+                if (!execution.canceled.get() && !execution.outputFinished) emitter.complete();
             } else {
                 // Non-streaming skill: a single agent message
                 String responseText;
@@ -145,8 +172,13 @@ public class LiteAgentExecutor implements AgentExecutor {
                 } else {
                     responseText = mapper.writeValueAsString(result);
                 }
-                emitter.sendMessage(responseText);
+                if (!execution.canceled.get() && !execution.outputFinished) {
+                    if (taskMode) emitter.complete(emitter.newAgentMessage(List.of(new TextPart(responseText)), null));
+                    else emitter.sendMessage(responseText);
+                }
             }
+
+            if (execution.canceled.get()) return;
 
             // Call completion hooks
             for (var hook : completeHooks) {
@@ -168,20 +200,50 @@ public class LiteAgentExecutor implements AgentExecutor {
             }
 
         } catch (Exception e) {
-            handleExecutionError(emitter, e);
+            if (!execution.canceled.get() && !execution.outputFinished) handleExecutionError(context, emitter, execution, e);
+        } finally {
+            if (execution.stream != null) execution.stream.close();
+            executions.remove(context.getTaskId(), execution);
         }
+    }
+
+    private void startTask(RequestContext context, AgentEmitter emitter, Execution execution) {
+        if (context.getTask() == null) {
+            emitter.addTask(emitter.taskBuilder()
+                .status(new org.a2aproject.sdk.spec.TaskStatus(TaskState.TASK_STATE_SUBMITTED))
+                .history(List.of(context.getMessage())).build());
+        } else {
+            emitter.addTask(context.getTask());
+        }
+        execution.taskStarted = true;
+        emitter.startWork();
     }
 
     @Override
     public void cancel(RequestContext context, AgentEmitter emitter) throws A2AError {
         org.a2aproject.sdk.spec.Task task = context.getTask();
 
-        if (task != null && (task.status().state() == TaskState.TASK_STATE_CANCELED ||
-                           task.status().state() == TaskState.TASK_STATE_COMPLETED)) {
+        if (task != null && task.status().state().isFinal()) {
             throw new TaskNotCancelableError();
         }
 
+        Execution execution = executions.get(context.getTaskId());
+        if (execution != null) execution.canceled.set(true);
         emitter.cancel();
+        if (execution != null) {
+            if (execution.stream != null) execution.stream.close();
+            execution.thread.interrupt();
+        }
+    }
+
+    private static final class Execution {
+        private final Thread thread;
+        private final AtomicBoolean canceled = new AtomicBoolean();
+        private volatile StreamingHandler.StreamResult stream;
+        private volatile boolean outputFinished;
+        private boolean taskStarted;
+
+        Execution(Thread thread) { this.thread = thread; }
     }
 
     /**
@@ -191,13 +253,17 @@ public class LiteAgentExecutor implements AgentExecutor {
      * @param emitter the agent emitter
      * @param e       the exception that caused the failure
      */
-    private void handleExecutionError(AgentEmitter emitter, Exception e) {
+    private void handleExecutionError(RequestContext context, AgentEmitter emitter, Execution execution, Exception e) {
         try {
-            Map<String, Object> errorResult;
-            if (e instanceof A2ALiteException a2aErr) {
+            if (!execution.taskStarted) startTask(context, emitter, execution);
+            Object errorResult;
+            if (errorHandler != null) {
+                errorResult = errorHandler.apply(e);
+            } else if (e instanceof A2ALiteException a2aErr) {
                 errorResult = a2aErr.toResponse();
             } else {
-                errorResult = Map.of("error", e.getMessage(), "type", e.getClass().getSimpleName());
+                errorResult = Map.of("error", e.getMessage() != null ? e.getMessage() : "Skill execution failed",
+                    "type", e.getClass().getSimpleName());
             }
             String errorJson = mapper.writeValueAsString(errorResult);
             Message errorMessage = emitter.newAgentMessage(List.of(new TextPart(errorJson)), null);
@@ -220,21 +286,16 @@ public class LiteAgentExecutor implements AgentExecutor {
 
         try {
             String body = mapper.writeValueAsString(event);
-            var requestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(config.url()))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .timeout(Duration.ofSeconds(10));
-            if (config.token() != null) {
-                requestBuilder.header("Authorization", "Bearer " + config.token());
-            }
-            httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
+            var headers = new HashMap<String, String>();
+            if (config.token() != null) headers.put("Authorization", "Bearer " + config.token());
+            callbacks.post(config.url(), body, headers);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Per-task push notification failed for task " + taskId + ": " + e.getMessage());
+            LOGGER.log(Level.WARNING, "Per-task push notification failed: " + e.getClass().getSimpleName());
         }
     }
 
-    private Object executeSkill(String skillName, Map<String, Object> params) throws Exception {
+    private Object executeSkill(String skillName, Map<String, Object> params, RequestContext request,
+                                AgentEmitter emitter, Execution execution) throws Exception {
         // Default to first skill only if there's exactly one
         if (skillName == null || skillName.isEmpty()) {
             if (skills.isEmpty()) {
@@ -252,6 +313,22 @@ public class LiteAgentExecutor implements AgentExecutor {
             throw new SkillNotFoundException(skillName, new ArrayList<>(skills.keySet()));
         }
 
+        var contextualHandler = contextualSkills.get(skillName);
+        if (contextualHandler != null) {
+            var task = new Task(request.getTaskId(), skillName, params, new TaskStatus(com.a2alite.TaskState.WORKING));
+            var context = new TaskContext(task);
+            context.onStatusChange(status -> {
+                if (execution.canceled.get() || execution.outputFinished) return;
+                var state = TaskState.valueOf("TASK_STATE_" + status.state().name());
+                var parts = status.message() == null ? List.<Part<?>>of() : List.<Part<?>>of(new TextPart(status.message()));
+                var metadata = status.progress() == null ? null : Map.<String, Object>of("progress", status.progress());
+                var message = parts.isEmpty() && metadata == null ? null : emitter.newAgentMessage(parts, metadata);
+                emitter.updateStatus(state, message);
+                execution.outputFinished = state.isFinal() || state == TaskState.TASK_STATE_INPUT_REQUIRED
+                    || state == TaskState.TASK_STATE_AUTH_REQUIRED;
+            });
+            return contextualHandler.handle(params, context);
+        }
         return skillDef.handler().handle(params);
     }
 

@@ -1,14 +1,54 @@
 package com.a2alite.server;
 
 import com.a2alite.Agent;
+import com.a2alite.SkillConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class JavalinServerAdapterTest {
+
+    @Test
+    void servedCardShouldAdvertiseImplementedStreaming() throws Exception {
+        var agent = Agent.builder().name("StreamingBot").description("SDK streaming").build();
+        agent.skill("stream", SkillConfig.withStreaming(), params -> "Hello");
+        int port;
+        try (var socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+        }
+
+        var adapter = new JavalinServerAdapter();
+        try {
+            adapter.start(agent, "127.0.0.1", port);
+            var request = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:" + port + "/.well-known/agent-card.json"))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+            var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            var card = new ObjectMapper().readTree(response.body());
+            assertThat(card.path("supportedInterfaces").size()).isEqualTo(1);
+            assertThat(card.path("supportedInterfaces").get(0).path("protocolBinding").asText())
+                .isEqualTo("JSONRPC");
+            assertThat(card.path("capabilities").path("streaming").asBoolean()).isTrue();
+            assertThat(agent.buildAgentCard("localhost", port).capabilities().streaming()).isTrue();
+            assertThat(agent.buildAgentCardJson("localhost", port).path("capabilities")
+                .path("streaming").asBoolean()).isTrue();
+        } finally {
+            adapter.stop();
+        }
+    }
 
     @Test
     void shouldInstantiateJavalinServerAdapter() {

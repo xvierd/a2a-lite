@@ -51,6 +51,28 @@ class AgentTest {
     }
 
     @Test
+    void shouldAdvertiseOnlyImplementedJsonRpcTransport() {
+        var agent = Agent.builder()
+            .name("TestBot")
+            .description("A test bot")
+            .url("https://agent.example.com")
+            .build();
+
+        var interfaces = agent.buildAgentCardJson("localhost", 9000)
+            .path("supportedInterfaces");
+        assertThat(interfaces.size()).isEqualTo(1);
+        assertThat(interfaces.get(0).path("protocolBinding").asText()).isEqualTo("JSONRPC");
+        assertThat(interfaces.get(0).path("url").asText()).isEqualTo("https://agent.example.com");
+        assertThat(interfaces.get(0).path("protocolVersion").asText()).isEqualTo("1.0");
+
+        var sdkInterfaces = agent.buildAgentCard("localhost", 9000).supportedInterfaces();
+        assertThat(sdkInterfaces).hasSize(1);
+        assertThat(sdkInterfaces.get(0).protocolBinding()).isEqualTo("JSONRPC");
+        assertThat(sdkInterfaces.get(0).url()).isEqualTo("https://agent.example.com");
+        assertThat(sdkInterfaces.get(0).protocolVersion()).isEqualTo("1.0");
+    }
+
+    @Test
     void shouldCallSkillViaTestClient() throws Exception {
         var agent = Agent.builder()
             .name("Bot")

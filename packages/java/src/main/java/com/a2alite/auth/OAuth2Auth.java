@@ -1,48 +1,79 @@
 package com.a2alite.auth;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * OAuth2/OIDC authentication provider.
+ * OAuth2/OIDC bearer authentication with mandatory JWKS signature verification.
  *
- * <p>Validates JWT bearer tokens against an OAuth2 provider's JWKS endpoint.
- *
- * <p><b>Note:</b> This implementation validates token structure and fetches
- * JWKS for verification. For full JWT cryptographic validation, add
- * {@code com.nimbusds:nimbus-jose-jwt} as a dependency.
- *
- * <pre>{@code
- * var auth = new OAuth2Auth("https://auth.company.com", "my-agent");
- * var agent = Agent.builder()
- *     .name("EnterpriseBot")
- *     .auth(auth)
- *     .build();
- * }</pre>
+ * <p>Verifies issuer, audience, expiry and subject after signature verification.
+ * Only configured asymmetric algorithms are accepted (RS256 by default).
+ * The JWKS endpoint is configuration and is never taken from a token.
  */
 public class OAuth2Auth implements AuthProvider {
+    private static final Set<String> SIGNATURE_ALGORITHMS = Set.of(
+        "RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+        "ES256", "ES384", "ES512", "EdDSA"
+    );
     private final String issuer;
     private final String audience;
     private final String jwksUri;
-    private final String[] algorithms;
-    private volatile Object jwksCache;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final DefaultJWTProcessor<SecurityContext> processor;
 
     public OAuth2Auth(String issuer, String audience) {
         this(issuer, audience, null, null);
     }
 
     public OAuth2Auth(String issuer, String audience, String jwksUri, String[] algorithms) {
+        if (issuer == null || issuer.isBlank()) throw new IllegalArgumentException("An OAuth2 issuer is required");
         this.issuer = issuer;
         this.audience = audience;
-        this.jwksUri = jwksUri != null ? jwksUri : issuer + "/.well-known/jwks.json";
-        this.algorithms = algorithms != null ? algorithms : new String[]{"RS256"};
+        this.jwksUri = jwksUri != null ? jwksUri : issuer.replaceAll("/+$", "") + "/.well-known/jwks.json";
+        String[] configured = algorithms != null ? algorithms : new String[]{"RS256"};
+        if (configured.length == 0 || Arrays.stream(configured).anyMatch(a -> a == null || !SIGNATURE_ALGORITHMS.contains(a))) {
+            throw new IllegalArgumentException("Use an explicit asymmetric JWT signature algorithm");
+        }
+        var allowed = Arrays.stream(configured).map(JWSAlgorithm::parse).collect(Collectors.toUnmodifiableSet());
+        try {
+            var endpoint = URI.create(this.jwksUri);
+            if (endpoint.getHost() == null || endpoint.getUserInfo() != null || endpoint.getFragment() != null
+                    || !("https".equals(endpoint.getScheme()) || "http".equals(endpoint.getScheme()))) {
+                throw new IllegalArgumentException("JWKS endpoint must be an HTTP(S) URL without credentials or a fragment");
+            }
+            // Bounded retrieval and cached rotation, without background threads.
+            var source = JWKSourceBuilder.<SecurityContext>create(
+                endpoint.toURL(), new DefaultResourceRetriever(5000, 5000, 100_000)
+            ).refreshAheadCache(false).retrying(false).build();
+            processor = new DefaultJWTProcessor<>();
+            processor.setJWSKeySelector(new JWSVerificationKeySelector<>(allowed, source));
+            processor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(
+                new HashSet<>(Arrays.asList(JOSEObjectType.JWT, new JOSEObjectType("at+jwt"), null))
+            ));
+            var claims = new DefaultJWTClaimsVerifier<SecurityContext>(
+                audience == null ? null : Set.of(audience), new JWTClaimsSet.Builder().issuer(issuer).build(),
+                Set.of("iss", "sub", "exp"), null
+            );
+            claims.setMaxClockSkew(30);
+            processor.setJWTClaimsSetVerifier(claims);
+        } catch (java.net.MalformedURLException e) {
+            throw new IllegalArgumentException("Invalid JWKS endpoint", e);
+        }
     }
 
     public String getIssuer() { return issuer; }
@@ -51,159 +82,38 @@ public class OAuth2Auth implements AuthProvider {
 
     @Override
     public AuthResult authenticate(AuthRequest request) {
-        String authHeader = request.headers().get("Authorization");
-        if (authHeader == null) {
-            authHeader = request.headers().get("authorization");
-        }
-
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        String header = request.headers().entrySet().stream()
+            .filter(entry -> "Authorization".equalsIgnoreCase(entry.getKey()))
+            .map(Map.Entry::getValue).findFirst().orElse(null);
+        if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
             return AuthResult.failure("Bearer token required");
         }
-
-        String token = authHeader.substring(7);
-
+        String token = header.substring(7).trim();
+        if (token.isEmpty() || token.length() > 65_536) return AuthResult.failure("Invalid bearer token");
         try {
-            // Try to use nimbus-jose-jwt if available
-            return validateWithNimbus(token);
-        } catch (ClassNotFoundException e) {
-            // Nimbus not available - try basic JWT parsing
-            return validateBasicJwt(token);
+            var signed = SignedJWT.parse(token);
+            // Check the JSON type before any library claim coercion.
+            Object rawSubject = signed.getPayload().toJSONObject().get("sub");
+            if (!(rawSubject instanceof String) || ((String) rawSubject).isBlank()) {
+                return AuthResult.failure("Token subject required");
+            }
+            JWTClaimsSet claims = processor.process(signed, null);
+            String subject = claims.getSubject();
+            if (subject == null || subject.isBlank()) return AuthResult.failure("Token subject required");
+            String scope = claims.getStringClaim("scope");
+            Set<String> scopes = scope == null || scope.isBlank() ? Set.of()
+                : Arrays.stream(scope.trim().split("\\s+")).collect(Collectors.toUnmodifiableSet());
+            return AuthResult.success(subject, scopes);
         } catch (Exception e) {
-            return AuthResult.failure("Token validation failed: " + e.getMessage());
-        }
-    }
-
-    private AuthResult validateWithNimbus(String token) throws ClassNotFoundException, Exception {
-        // Use reflection to avoid compile-time dependency on nimbus
-        var jwtClass = Class.forName("com.nimbusds.jwt.SignedJWT");
-        var parseMethod = jwtClass.getMethod("parse", String.class);
-        var jwt = parseMethod.invoke(null, token);
-
-        var getClaimsMethod = jwtClass.getMethod("getJWTClaimsSet");
-        var claims = getClaimsMethod.invoke(jwt);
-
-        var getSubjectMethod = claims.getClass().getMethod("getSubject");
-        var getIssuerMethod = claims.getClass().getMethod("getIssuer");
-        var getAudienceMethod = claims.getClass().getMethod("getAudience");
-
-        String subject = (String) getSubjectMethod.invoke(claims);
-        String iss = (String) getIssuerMethod.invoke(claims);
-        @SuppressWarnings("unchecked")
-        var aud = (java.util.List<String>) getAudienceMethod.invoke(claims);
-
-        // Validate issuer
-        if (!issuer.equals(iss)) {
-            return AuthResult.failure("Invalid issuer: " + iss);
-        }
-
-        // Validate audience
-        if (audience != null && (aud == null || !aud.contains(audience))) {
-            return AuthResult.failure("Invalid audience");
-        }
-
-        String userId = subject != null ? subject : "unknown";
-
-        // Try to get scopes
-        var getClaimMethod = claims.getClass().getMethod("getStringClaim", String.class);
-        String scopeStr = (String) getClaimMethod.invoke(claims, "scope");
-        Set<String> scopes = scopeStr != null
-            ? Set.of(scopeStr.split("\\s+"))
-            : Set.of("*");
-
-        return AuthResult.success(userId, scopes);
-    }
-
-    private AuthResult validateBasicJwt(String token) {
-        // Basic JWT parsing without cryptographic verification
-        String[] parts = token.split("\\.");
-        if (parts.length != 3) {
-            return AuthResult.failure("Invalid JWT format");
-        }
-
-        try {
-            var decoder = java.util.Base64.getUrlDecoder();
-            String payload = new String(decoder.decode(pad(parts[1])), StandardCharsets.UTF_8);
-
-            var claims = mapper.readTree(payload);
-
-            String iss = claims.has("iss") ? claims.get("iss").asText() : null;
-            String sub = claims.has("sub") ? claims.get("sub").asText() : null;
-
-            // Validate issuer
-            if (issuer != null && !issuer.equals(iss)) {
-                return AuthResult.failure("Invalid issuer: " + iss);
-            }
-
-            // Validate audience
-            if (audience != null) {
-                var aud = claims.get("aud");
-                if (aud == null) {
-                    return AuthResult.failure("Missing audience");
-                }
-                boolean audMatch;
-                if (aud.isArray()) {
-                    audMatch = false;
-                    for (var a : aud) {
-                        if (audience.equals(a.asText())) {
-                            audMatch = true;
-                            break;
-                        }
-                    }
-                } else {
-                    audMatch = audience.equals(aud.asText());
-                }
-                if (!audMatch) {
-                    return AuthResult.failure("Invalid audience");
-                }
-            }
-
-            // Check expiration
-            if (claims.has("exp")) {
-                long exp = claims.get("exp").asLong();
-                if (System.currentTimeMillis() / 1000 > exp) {
-                    return AuthResult.failure("Token expired");
-                }
-            }
-
-            String userId = sub != null ? sub : "unknown";
-            String scopeStr = claims.has("scope") ? claims.get("scope").asText() : null;
-            Set<String> scopes = scopeStr != null
-                ? Set.of(scopeStr.split("\\s+"))
-                : Set.of("*");
-
-            return AuthResult.success(userId, scopes);
-        } catch (Exception e) {
-            return AuthResult.failure("Failed to parse JWT: " + e.getMessage());
+            // Tokens, provider responses and parsing details may contain credentials.
+            return AuthResult.failure("Invalid bearer token");
         }
     }
 
     @Override
     public Map<String, Object> getScheme() {
-        return Map.of(
-            "type", "oauth2",
-            "flows", Map.of(
-                "authorizationCode", Map.of(
-                    "authorizationUrl", issuer + "/authorize",
-                    "tokenUrl", issuer + "/oauth/token",
-                    "scopes", Map.of()
-                )
-            )
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> decodePayload(String token) throws Exception {
-        var parts = token.split("\\.");
-        if (parts.length < 2) throw new IllegalArgumentException("Invalid JWT (need at least 2 parts)");
-        var bytes = Base64.getUrlDecoder().decode(pad(parts[1]));
-        return mapper.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
-    }
-
-    private static String pad(String s) {
-        return switch (s.length() % 4) {
-            case 2 -> s + "==";
-            case 3 -> s + "=";
-            default -> s;
-        };
+        return Map.of("type", "oauth2", "flows", Map.of("authorizationCode", Map.of(
+            "authorizationUrl", issuer + "/authorize", "tokenUrl", issuer + "/oauth/token", "scopes", Map.of()
+        )));
     }
 }
