@@ -14,6 +14,9 @@ import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
+import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.version.A2AVersionValidator;
 import org.a2aproject.sdk.spec.*;
 
@@ -32,23 +35,34 @@ import java.util.logging.Logger;
 final class SdkProtocol implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(SdkProtocol.class.getName());
     private final AgentCard card;
+    private final ProtocolBackend backend;
     private final DefaultRequestHandler handler;
     private final ValidatedPushStore configs;
-    private final ExecutorService workers = Executors.newCachedThreadPool();
-    private final ExecutorService consumers = Executors.newCachedThreadPool();
-    private final ExecutorService pushes = Executors.newCachedThreadPool();
+    private final ExecutorService workers = Executors.newCachedThreadPool(daemonThreads("a2a-lite-work"));
+    private final ExecutorService consumers = Executors.newCachedThreadPool(daemonThreads("a2a-lite-consumer"));
+    private final ExecutorService pushes = new java.util.concurrent.ThreadPoolExecutor(2, 2, 0L,
+        java.util.concurrent.TimeUnit.MILLISECONDS, new java.util.concurrent.ArrayBlockingQueue<>(128),
+        daemonThreads("a2a-lite-push"), new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+
+    private static java.util.concurrent.ThreadFactory daemonThreads(String name) {
+        return action -> { var thread = new Thread(action, name); thread.setDaemon(true); return thread; };
+    }
     private final ManagedProcessor processor;
 
     SdkProtocol(Agent agent, String host, int port) {
         card = agent.buildAgentCard(host, port);
-        var ownership = new TaskOwnership();
-        var tasks = new InMemoryTaskStore(ownership);
+        backend = agent.getProtocolBackend() == null ? new InMemoryProtocolBackend(agent.getRuntimeOptions().limits()) : agent.getProtocolBackend();
+        var ownership = java.util.Objects.requireNonNull(backend.authorization(), "Backend authorization required");
+        var tasks = java.util.Objects.requireNonNull(backend.tasks(), "Backend task store required");
+        java.util.Objects.requireNonNull(backend.taskStates(), "Backend task state provider required");
+        java.util.Objects.requireNonNull(backend.pushConfigs(), "Backend push store required");
+        if (!backend.ready()) throw new IllegalStateException("Protocol backend unavailable");
         var bus = new MainEventBus();
-        var queues = new InMemoryQueueManager(tasks, bus);
+        var queues = java.util.Objects.requireNonNull(backend.queues(bus), "Backend queue manager required");
         var callbacks = new PublicWebhookClient();
-        configs = new ValidatedPushStore(callbacks);
+        configs = new ValidatedPushStore(backend.pushConfigs(), callbacks, agent.getRuntimeOptions().limits().maxPushConfigsPerTask());
         PushNotificationSender sender = (event, task) -> {
-            if (task == null) return;
+            if (task == null || backend.durableNotifications()) return;
             for (var config : configs.getInfo(new ListTaskPushNotificationConfigsParams(task.id())).configs()) {
                 try {
                     var headers = new HashMap<String, String>();
@@ -67,10 +81,11 @@ final class SdkProtocol implements AutoCloseable {
         processor = new ManagedProcessor(bus, tasks, sender, queues);
         processor.setPushNotificationExecutor(pushes);
         handler = DefaultRequestHandler.builder()
-            .agentExecutor(agent.getExecutor()).taskStore(tasks).queueManager(queues)
+            .agentExecutor(backend.executor(agent.getExecutor())).taskStore(tasks).queueManager(queues)
             .pushConfigStore(configs).mainEventBusProcessor(processor)
             .executor(workers).eventConsumerExecutor(consumers)
             .authorizationProvider(ownership).pushNotificationsEnabled(true).build();
+        backend.start();
     }
 
     Object dispatch(String method, JsonNode params, Object id, ServerCallContext context) {
@@ -83,18 +98,31 @@ final class SdkProtocol implements AutoCloseable {
             case "SendMessage" -> {
                 var request = decode(params, MessageSendParams.class);
                 validateEmbeddedPush(request, context);
+                if (request.message().taskId() != null && !request.message().taskId().isBlank())
+                    backend.prepareContinuation(context, request.message().taskId());
                 yield new SendMessageResponse(id, sendMessage(request, context));
             }
             case "SendStreamingMessage" -> {
                 if (!Boolean.TRUE.equals(card.capabilities().streaming())) throw new UnsupportedOperationError();
                 var request = decode(params, MessageSendParams.class);
                 validateEmbeddedPush(request, context);
-                yield handler.onMessageSendStream(request, context);
+                if (request.message().taskId() != null && !request.message().taskId().isBlank())
+                    backend.prepareContinuation(context, request.message().taskId());
+                yield messageStream(request, context);
             }
             case "GetTask" -> new GetTaskResponse(id, handler.onGetTask(decode(params, TaskQueryParams.class), context));
-            case "CancelTask" -> new CancelTaskResponse(id, handler.onCancelTask(decode(params, CancelTaskParams.class), context));
+            case "CancelTask" -> {
+                var request = decode(params, CancelTaskParams.class);
+                var canceled = backend.cancelTask(context, request);
+                yield new CancelTaskResponse(id, canceled != null ? canceled : handler.onCancelTask(request, context));
+            }
             case "ListTasks" -> new ListTasksResponse(id, handler.onListTasks(decode(params, ListTasksParams.class), context));
-            case "SubscribeToTask" -> handler.onSubscribeToTask(decode(params, TaskIdParams.class), context);
+            case "SubscribeToTask" -> {
+                var request = decode(params, TaskIdParams.class);
+                handler.onGetTask(new TaskQueryParams(request.id(), null), context);
+                var remote = backend.subscribe(request.id());
+                yield remote != null ? remote : handler.onSubscribeToTask(request, context);
+            }
             case "CreateTaskPushNotificationConfig" -> new CreateTaskPushNotificationConfigResponse(id,
                 handler.onCreateTaskPushNotificationConfig(decode(params, TaskPushNotificationConfig.class), context));
             case "GetTaskPushNotificationConfig" -> new GetTaskPushNotificationConfigResponse(id,
@@ -109,16 +137,19 @@ final class SdkProtocol implements AutoCloseable {
         };
     }
 
+    private Flow.Publisher<StreamingEventKind> messageStream(MessageSendParams request, ServerCallContext context) {
+        return new CanonicalTaskStream(handler.onMessageSendStream(request, context),
+                taskId -> handler.onGetTask(new TaskQueryParams(taskId, null), context), backend::messageDelivered);
+    }
+
     private EventKind sendMessage(MessageSendParams request, ServerCallContext context) {
-        if (request.configuration() != null && Boolean.TRUE.equals(request.configuration().returnImmediately())) {
-            return handler.onMessageSend(request, context);
-        }
+        boolean immediately = request.configuration() != null && Boolean.TRUE.equals(request.configuration().returnImmediately());
         // Aggregate the SDK stream for blocking requests. SDK 1.4's separate blocking
         // consumer can race queue closure and time out after a task already completed.
         var result = new CompletableFuture<EventKind>();
         var subscription = new AtomicReference<Flow.Subscription>();
         var taskId = new AtomicReference<String>();
-        handler.onMessageSendStream(request, context).subscribe(new Flow.Subscriber<>() {
+        messageStream(request, context).subscribe(new Flow.Subscriber<>() {
             @Override public void onSubscribe(Flow.Subscription value) {
                 subscription.set(value);
                 value.request(Long.MAX_VALUE);
@@ -129,7 +160,7 @@ final class SdkProtocol implements AutoCloseable {
                         result.complete(message);
                     } else if (event instanceof Task task) {
                         taskId.set(task.id());
-                        if (task.status().state().isFinal() || task.status().state().isInterrupted()) result.complete(task);
+                        if (immediately || task.status().state().isFinal() || task.status().state().isInterrupted()) result.complete(task);
                     } else if (event instanceof TaskStatusUpdateEvent update) {
                         taskId.set(update.taskId());
                         if (update.status().state().isFinal() || update.status().state().isInterrupted()) {
@@ -194,32 +225,54 @@ final class SdkProtocol implements AutoCloseable {
         }
     }
 
+    boolean ready() { return backend.ready(); }
+
     @Override
     public void close() {
         workers.shutdownNow();
         consumers.shutdownNow();
         pushes.shutdownNow();
         processor.close();
+        backend.close();
     }
 
     /** Validates every path, including configs embedded in SendMessage. */
-    private static final class ValidatedPushStore extends InMemoryPushNotificationConfigStore {
+    private static final class ValidatedPushStore implements PushNotificationConfigStore {
         private final PublicWebhookClient callbacks;
+        private final int maxConfigs;
+        private final PushNotificationConfigStore delegate;
 
-        ValidatedPushStore(PublicWebhookClient callbacks) {
+        ValidatedPushStore(PushNotificationConfigStore delegate, PublicWebhookClient callbacks, int maxConfigs) {
+            this.delegate = delegate;
             this.callbacks = callbacks;
+            this.maxConfigs = maxConfigs;
         }
 
         @Override
-        public TaskPushNotificationConfig setInfo(TaskPushNotificationConfig config) {
+        public synchronized TaskPushNotificationConfig setInfo(TaskPushNotificationConfig config) {
             validate(config);
-            return super.setInfo(config);
+            checkCount(config);
+            return delegate.setInfo(config);
         }
 
         @Override
-        public TaskPushNotificationConfig setInfo(TaskPushNotificationConfig config, String version) {
+        public synchronized TaskPushNotificationConfig setInfo(TaskPushNotificationConfig config, String version) {
             validate(config);
-            return super.setInfo(config, version);
+            checkCount(config);
+            return delegate.setInfo(config, version);
+        }
+
+        @Override public ListTaskPushNotificationConfigsResult getInfo(ListTaskPushNotificationConfigsParams params) { return delegate.getInfo(params); }
+        @Override public void deleteInfo(String taskId, String configId) { delegate.deleteInfo(taskId, configId); }
+        @Override public String getProtocolVersion(String taskId, String configId) { return delegate.getProtocolVersion(taskId, configId); }
+        @Override public java.util.Map<String, String> getProtocolVersions(String taskId) { return delegate.getProtocolVersions(taskId); }
+
+        private void checkCount(TaskPushNotificationConfig config) {
+            var existing = getInfo(new ListTaskPushNotificationConfigsParams(config.taskId())).configs();
+            String id = config.id() == null || config.id().isEmpty() ? config.taskId() : config.id();
+            if (existing.size() >= maxConfigs && existing.stream().noneMatch(value -> id.equals(value.id()))) {
+                throw new InvalidParamsError("Push configuration limit exceeded");
+            }
         }
 
         private void validate(TaskPushNotificationConfig config) {
@@ -243,8 +296,8 @@ final class SdkProtocol implements AutoCloseable {
     private static final class ManagedProcessor extends MainEventBusProcessor implements AutoCloseable {
         private Thread thread;
 
-        ManagedProcessor(MainEventBus bus, InMemoryTaskStore tasks, PushNotificationSender sender,
-                         InMemoryQueueManager queues) {
+        ManagedProcessor(MainEventBus bus, TaskStore tasks, PushNotificationSender sender,
+                         QueueManager queues) {
             super(bus, tasks, sender, queues);
         }
 

@@ -25,6 +25,12 @@ public class TaskHandle {
         this.network = network;
     }
 
+    /** Full protocol Task; unlike legacy getStatus(), this never flattens its message/artifacts. */
+    public java.util.Map<String, Object> get() throws Exception { return get(10); }
+    public java.util.Map<String, Object> get(int timeoutSeconds) throws Exception {
+        return (network != null ? network : new AgentNetwork()).getRemoteTaskSnapshot(agentUrl, taskId, timeoutSeconds);
+    }
+
     public String getTaskId() { return taskId; }
     public Object getResult() { return result; }
     public String getAgentUrl() { return agentUrl; }

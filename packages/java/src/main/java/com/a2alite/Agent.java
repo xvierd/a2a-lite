@@ -58,6 +58,9 @@ public class Agent {
     private final AuthProvider auth;
     private final List<String> corsOrigins;
     private final boolean production;
+    private final com.a2alite.runtime.RuntimeOptions runtimeOptions;
+    private final com.a2alite.server.ProtocolBackend protocolBackend;
+    private com.a2alite.runtime.AgentRuntime runtime;
 
     private final AgentNetwork network;
     private final TaskStore taskStore;
@@ -84,6 +87,8 @@ public class Agent {
         this.auth = builder.auth != null ? builder.auth : new NoAuth();
         this.corsOrigins = builder.corsOrigins;
         this.production = builder.production;
+        this.runtimeOptions = builder.runtimeOptions;
+        this.protocolBackend = builder.protocolBackend;
         this.network = builder.network;
         this.taskStore = resolveTaskStore(builder);
         this.serverAdapter = builder.serverAdapter;
@@ -139,7 +144,9 @@ public class Agent {
             config != null && config.description() != null ? config.description() : "Skill: " + name,
             config != null && config.tags() != null ? config.tags() : List.of(),
             handler,
-            config != null ? config.streaming() : false
+            config != null ? config.streaming() : false,
+            false,
+            config != null && config.taskMode()
         );
 
         if (def.isStreaming()) {
@@ -262,7 +269,8 @@ public class Agent {
      * Get the agent executor for use with the SDK.
      */
     public AgentExecutor getExecutor() {
-        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry, errorHandler, contextualSkills);
+        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry, errorHandler, contextualSkills)
+            .withRuntimeLimits(runtimeOptions.limits());
     }
 
     /**
@@ -502,31 +510,34 @@ public class Agent {
      * is thrown.
      */
     public void run(String host, int port) {
-        if (production) {
-            String urlStr = url != null ? url : "http://" + host + ":" + port;
-            if (!urlStr.startsWith("https://")) {
-                LOGGER.warning("Running in production mode over HTTP. "
-                    + "Consider using HTTPS for secure communication.");
-            }
-        }
-
-        for (var hook : startupHooks) {
-            hook.run();
-        }
-
-        ServerAdapter adapter = resolveServerAdapter();
-        adapter.start(this, host, port);
-
-        if (shutdownHookThread != null) {
-            Runtime.getRuntime().removeShutdownHook(shutdownHookThread);
-        }
-        shutdownHookThread = new Thread(() -> {
-            for (var hook : shutdownHooks) {
-                hook.run();
-            }
-        });
+        var managed = start(host, port);
+        shutdownHookThread = new Thread(managed::close, "a2a-lite-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHookThread);
     }
+
+    /** Start without process signal hooks. The caller owns the returned runtime. */
+    public synchronized com.a2alite.runtime.AgentRuntime start(String host, int port) {
+        if (runtime != null) throw new IllegalStateException("Agent already started");
+        if (runtimeOptions.profile() != com.a2alite.runtime.RuntimeOptions.Profile.LEARNING && auth.allowsAnonymous()) {
+            throw new IllegalStateException("Authenticated and durable profiles require identified authentication");
+        }
+        if (runtimeOptions.profile() == com.a2alite.runtime.RuntimeOptions.Profile.DURABLE
+                && (protocolBackend == null || !protocolBackend.durable())) {
+            throw new IllegalStateException("Durable profile requires a durable protocol backend");
+        }
+        for (var hook : startupHooks) hook.run();
+        ServerAdapter adapter = resolveServerAdapter();
+        try { adapter.start(this, host, port); }
+        catch (RuntimeException failure) { adapter.stop(); throw failure; }
+        runtime = new com.a2alite.runtime.AgentRuntime(adapter, () -> {
+            for (var hook : shutdownHooks) hook.run();
+        }, runtimeOptions.limits().shutdownGrace());
+        return runtime;
+    }
+
+    public com.a2alite.runtime.AgentRuntime start(int port) { return start("0.0.0.0", port); }
+    public com.a2alite.runtime.RuntimeOptions getRuntimeOptions() { return runtimeOptions; }
+    public com.a2alite.server.ProtocolBackend getProtocolBackend() { return protocolBackend; }
 
     /**
      * Resolves the effective {@link ServerAdapter}, falling back to
@@ -673,6 +684,8 @@ public class Agent {
         private AuthProvider auth;
         private List<String> corsOrigins;
         private boolean production = false;
+        private com.a2alite.server.ProtocolBackend protocolBackend;
+        private com.a2alite.runtime.RuntimeOptions runtimeOptions = com.a2alite.runtime.RuntimeOptions.learning();
         private AgentNetwork network;
         private TaskStore taskStore;
         private PushNotifier pushNotifier;
@@ -710,6 +723,16 @@ public class Agent {
 
         public Builder production(boolean production) {
             this.production = production;
+            return this;
+        }
+
+        public Builder protocolBackend(com.a2alite.server.ProtocolBackend backend) {
+            this.protocolBackend = Objects.requireNonNull(backend);
+            return this;
+        }
+
+        public Builder runtimeOptions(com.a2alite.runtime.RuntimeOptions options) {
+            this.runtimeOptions = Objects.requireNonNull(options);
             return this;
         }
 

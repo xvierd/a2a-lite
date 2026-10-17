@@ -28,26 +28,27 @@ public class CalculatorAgent {
         ObjectNode agentCard = createAgentCard();
 
         Javalin app = Javalin.create(config -> {
-            config.showJavalinBanner = false;
-        });
+            config.startup.showJavalinBanner = false;
 
-        // Agent card endpoint (A2A v1.0 discovery)
-        app.get("/.well-known/agent-card.json", ctx -> {
-            ctx.contentType("application/json");
-            ctx.result(mapper.writeValueAsString(agentCard));
-        });
+            // Agent card endpoint (A2A v1.0 discovery)
+            config.routes.get("/.well-known/agent-card.json", ctx -> {
+                ctx.contentType("application/json");
+                ctx.result(mapper.writeValueAsString(agentCard));
+            });
 
-        // Health check
-        app.get("/", ctx -> {
-            ObjectNode health = mapper.createObjectNode();
-            health.put("status", "healthy");
-            health.put("agent", "CalculatorAgent");
-            ctx.json(health);
-        });
+            // Health check
+            config.routes.get("/", ctx -> {
+                ObjectNode health = mapper.createObjectNode();
+                health.put("status", "healthy");
+                health.put("agent", "CalculatorAgent");
+                ctx.json(health);
+            });
 
-        // Main A2A message endpoint
-        app.post("/", ctx -> {
-            handleMessage(ctx, handler);
+            // Main A2A message endpoint
+            config.routes.post("/", ctx -> {
+                handleMessage(ctx, handler);
+            });
+
         });
 
         System.out.println("Agent: CalculatorAgent");

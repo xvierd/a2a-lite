@@ -18,10 +18,10 @@ repositories {
 
 dependencies {
     // A2A Lite library — resolved from the composite build (../../packages/java)
-    implementation 'io.github.xvierd:a2a-lite:1.1.0'
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
 
     // Javalin for the standalone HTTP server
-    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'io.javalin:javalin:7.2.3'
 
     // Logging
     implementation 'org.slf4j:slf4j-simple:2.0.9'

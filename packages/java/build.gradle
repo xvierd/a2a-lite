@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'io.github.xvierd'
-version = '1.1.0'
+version = '1.2.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -37,14 +37,19 @@ dependencies {
     // A2A SDK - official Java implementation (A2A protocol v1.0)
     api 'org.a2aproject.sdk:a2a-java-sdk-server-common:1.4.0.Final'
 
+    // Align the complete Jetty graph beyond Javalin's bundled baseline security fixes.
+    api platform('org.eclipse.jetty:jetty-bom:12.1.14')
+    api platform('org.eclipse.jetty.ee10:jetty-ee10-bom:12.1.14')
+    api platform('com.fasterxml.jackson:jackson-bom:2.22.3')
+
     // Web framework for standalone mode (optional for Quarkus users)
-    compileOnly 'io.javalin:javalin:5.6.3'
+    compileOnly 'io.javalin:javalin:7.2.3'
 
     // AWS Bedrock SDK (optional - only needed for LLMSkills.bedrock())
     compileOnly 'software.amazon.awssdk:bedrockruntime:2.31.3'
 
     // JSON handling (provided by Quarkus in Quarkus mode)
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.3'
 
     // Pins validated callback DNS answers while preserving TLS hostname verification.
     implementation 'org.apache.httpcomponents.client5:httpclient5:5.6.5'
@@ -60,9 +65,11 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.1'
     testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.1'
-    testImplementation 'org.assertj:assertj-core:3.24.2'
-    testImplementation 'io.javalin:javalin:5.6.3'
+    testImplementation 'org.assertj:assertj-core:3.27.7'
+    testImplementation 'io.javalin:javalin:7.2.3'
     testImplementation 'io.rest-assured:rest-assured:5.4.0'
+    testImplementation 'org.apache.commons:commons-lang3:3.18.0'
+    testImplementation 'org.postgresql:postgresql:42.7.14'
 }
 
 test {
@@ -102,4 +109,10 @@ mavenPublishing {
             developerConnection = 'scm:git:ssh://git@github.com/xvierd/a2a-lite.git'
         }
     }
+}
+
+// Root cross-language gate starts Java directly so shutdown signals reach the server.
+tasks.register('writeInteropClasspath') {
+    dependsOn testClasses
+    doLast { file("$buildDir/interop-classpath.txt").text = sourceSets.test.runtimeClasspath.asPath }
 }

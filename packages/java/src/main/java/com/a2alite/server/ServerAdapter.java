@@ -53,4 +53,8 @@ public interface ServerAdapter {
      * Stop the HTTP server and release resources.
      */
     void stop();
+
+    default int port() { return -1; }
+    default boolean ready() { return true; }
+    default java.util.Map<String, Object> metrics() { return java.util.Map.of(); }
 }

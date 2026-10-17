@@ -42,33 +42,35 @@ public class SecureAgentServer {
         System.out.println("=".repeat(70));
         
         Javalin app = Javalin.create(config -> {
-            config.showJavalinBanner = false;
+            config.startup.showJavalinBanner = false;
+
+        
+            // CORS configuration
+            config.routes.before(ctx -> {
+                ctx.header("Access-Control-Allow-Origin", "*");
+                ctx.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+                ctx.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
+            });
+        
+            // Agent Card endpoint with security schemes (A2A v1.0 discovery)
+            config.routes.get("/.well-known/agent-card.json", ctx -> {
+                ctx.contentType("application/json");
+                ctx.result(mapper.writeValueAsString(createAgentCard()));
+            });
+        
+            // Skill endpoints
+            config.routes.post("/skills/get_secret", ctx -> handleGetSecret(ctx));
+            config.routes.post("/skills/get_user_info", ctx -> handleGetUserInfo(ctx));
+            config.routes.post("/skills/admin_only", ctx -> handleAdminOnly(ctx));
+        
+            // Health check
+            config.routes.get("/health", ctx -> ctx.json(Map.of("status", "healthy")));
+        
+            // Main A2A message endpoint
+            config.routes.post("/", ctx -> handleMessage(ctx));
+        
         });
-        
-        // CORS configuration
-        app.before(ctx -> {
-            ctx.header("Access-Control-Allow-Origin", "*");
-            ctx.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            ctx.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
-        });
-        
-        // Agent Card endpoint with security schemes (A2A v1.0 discovery)
-        app.get("/.well-known/agent-card.json", ctx -> {
-            ctx.contentType("application/json");
-            ctx.result(mapper.writeValueAsString(createAgentCard()));
-        });
-        
-        // Skill endpoints
-        app.post("/skills/get_secret", ctx -> handleGetSecret(ctx));
-        app.post("/skills/get_user_info", ctx -> handleGetUserInfo(ctx));
-        app.post("/skills/admin_only", ctx -> handleAdminOnly(ctx));
-        
-        // Health check
-        app.get("/health", ctx -> ctx.json(Map.of("status", "healthy")));
-        
-        // Main A2A message endpoint
-        app.post("/", ctx -> handleMessage(ctx));
-        
+
         System.out.println("Secure Agent Server started on port " + PORT);
         System.out.println("Security Schemes configured: apiKeyHeader, apiKeyQuery, bearerAuth");
         System.out.println("=".repeat(70));

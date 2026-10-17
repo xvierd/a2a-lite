@@ -6,6 +6,9 @@ import java.util.Map;
  * Base interface for authentication providers.
  */
 public interface AuthProvider {
+    /** Whether this provider deliberately allows anonymous requests. */
+    default boolean allowsAnonymous() { return false; }
+
     /**
      * Authenticate a request.
      *

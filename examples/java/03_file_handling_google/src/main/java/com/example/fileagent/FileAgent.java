@@ -34,29 +34,31 @@ public class FileAgent {
         
         // Setup Javalin server
         Javalin app = Javalin.create(config -> {
-            config.showJavalinBanner = false;
-        });
+            config.startup.showJavalinBanner = false;
+
         
-        // Agent card endpoint (A2A v1.0 discovery)
-        app.get("/.well-known/agent-card.json", ctx -> {
-            ctx.contentType("application/json");
-            ctx.result(mapper.writeValueAsString(agentCard));
-        });
+            // Agent card endpoint (A2A v1.0 discovery)
+            config.routes.get("/.well-known/agent-card.json", ctx -> {
+                ctx.contentType("application/json");
+                ctx.result(mapper.writeValueAsString(agentCard));
+            });
         
-        // Health check
-        app.get("/", ctx -> {
-            ObjectNode health = mapper.createObjectNode();
-            health.put("status", "healthy");
-            health.put("agent", "FileAgent");
-            health.put("version", "1.0.0");
-            ctx.json(health);
-        });
+            // Health check
+            config.routes.get("/", ctx -> {
+                ObjectNode health = mapper.createObjectNode();
+                health.put("status", "healthy");
+                health.put("agent", "FileAgent");
+                health.put("version", "1.0.0");
+                ctx.json(health);
+            });
         
-        // Main A2A message endpoint
-        app.post("/", ctx -> {
-            handleMessage(ctx, messageHandler);
-        });
+            // Main A2A message endpoint
+            config.routes.post("/", ctx -> {
+                handleMessage(ctx, messageHandler);
+            });
         
+        });
+
         System.out.println("Agent: FileAgent");
         System.out.println("Skills: analyze, convert_to_upper, generate_report");
         System.out.println("File Support: upload, text/plain, application/json");

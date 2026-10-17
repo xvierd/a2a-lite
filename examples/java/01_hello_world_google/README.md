@@ -95,12 +95,11 @@ Response (v1.0 shape):
 Main entry point that sets up the Javalin server and configures routes:
 
 ```java
-Javalin app = Javalin.create();
-app.get("/.well-known/agent-card.json", ctx -> {
-    ctx.json(agentCard);
-});
-app.post("/", ctx -> {
-    // Handle A2A SendMessage (sets A2A-Version: 1.0 response header)
+Javalin app = Javalin.create(config -> {
+    config.routes.get("/.well-known/agent-card.json", ctx -> ctx.json(agentCard));
+    config.routes.post("/", ctx -> {
+        // Handle A2A SendMessage (sets A2A-Version: 1.0 response header)
+    });
 });
 ```
 

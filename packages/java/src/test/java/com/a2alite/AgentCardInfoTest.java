@@ -1,6 +1,6 @@
 package com.a2alite;
 
-import io.javalin.Javalin;
+import com.a2alite.testing.HttpTestServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,12 +13,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentCardInfoTest {
 
-    private Javalin app;
+    private HttpTestServer app;
     private int port;
 
     @BeforeEach
     void setUp() {
-        app = Javalin.create().start(0);
+        app = HttpTestServer.create().start(0);
         port = app.port();
     }
 
