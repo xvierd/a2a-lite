@@ -216,9 +216,12 @@ export class AgentTestClient {
     const envelope = (response.result ?? {}) as Record<string, unknown>;
     const result = (envelope.message ?? envelope.task ?? envelope) as Record<string, unknown>;
 
-    // Handle A2A message format
-    if (result?.parts) {
-      const parts = result.parts as Array<{ text?: string }>;
+    const status = result.status as { message?: { parts?: Array<{ text?: string }> } } | undefined;
+    const artifacts = result.artifacts as Array<{ parts?: Array<{ text?: string }> }> | undefined;
+    const resultParts = result.parts ?? artifacts?.at(-1)?.parts ?? status?.message?.parts;
+    // Handle A2A message and task result formats.
+    if (resultParts) {
+      const parts = resultParts as Array<{ text?: string }>;
       const textPart = parts.find((p) => typeof p.text === 'string');
       if (textPart?.text) {
         let data: unknown;

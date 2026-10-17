@@ -9,6 +9,7 @@ include '06_streaming_lite'
 include '08_llm_integration_lite'
 include '09_human_in_loop_lite'
 include '10_persistence_lite'
+include '11_production_path_lite'
 
 // Include the A2A Lite library as a composite build
 includeBuild('../../packages/java') {

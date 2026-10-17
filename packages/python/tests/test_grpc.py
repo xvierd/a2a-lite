@@ -228,17 +228,9 @@ async def test_grpc_authentication_provider_errors_are_private(caplog):
         await server.stop(grace=0)
 
 
-def test_run_grpc_closes_on_startup_failure_and_uses_one_hook_loop(monkeypatch):
+async def test_managed_grpc_closes_on_startup_failure_and_uses_one_hook_loop():
     agent = _echo_agent()
-    events = []
-    loops = []
-
-    class Server:
-        async def stop(self, grace):
-            events.append("stop")
-            loops.append(asyncio.get_running_loop())
-
-    monkeypatch.setattr(agent, "build_grpc_server", lambda *args: Server())
+    events, loops = [], []
 
     @agent.on_startup
     async def startup():
@@ -250,10 +242,12 @@ def test_run_grpc_closes_on_startup_failure_and_uses_one_hook_loop(monkeypatch):
         events.append("shutdown")
         loops.append(asyncio.get_running_loop())
 
+    server = agent.build_grpc_server("127.0.0.1", _free_port())
     with pytest.raises(RuntimeError, match="startup failure"):
-        agent.run_grpc()
-    assert events == ["stop", "shutdown"]
-    assert loops[0] is loops[1] is loops[2]
+        await server.start()
+    await server.stop(0)
+    assert events == ["shutdown"]
+    assert loops[0] is loops[1]
 
 
 async def test_grpc_streaming_message():

@@ -5,7 +5,7 @@ from contextvars import ContextVar
 import grpc
 from a2a.server.request_handlers.grpc_handler import DefaultGrpcServerCallContextBuilder
 
-from .auth import AuthRequest, AuthResult
+from .auth import AuthRequest, AuthResult, valid_identity
 from .server import AuthenticatedUser
 
 _auth_result: ContextVar[AuthResult] = ContextVar("a2a_lite.grpc.auth_result")
@@ -21,8 +21,9 @@ class AuthenticatedGrpcContextBuilder(DefaultGrpcServerCallContextBuilder):
 
 
 class AuthInterceptor(grpc.aio.ServerInterceptor):
-    def __init__(self, provider):
+    def __init__(self, provider, runtime_state=None):
         self.provider = provider
+        self.runtime_state = runtime_state
 
     async def intercept_service(self, continuation, handler_call_details):
         handler = await continuation(handler_call_details)
@@ -39,7 +40,11 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
                 )
             except Exception:
                 result = AuthResult.failure("Authentication required")
-            if not result.authenticated or not isinstance(result.user_id, str) or not result.user_id.strip():
+            if not valid_identity(result) or (
+                self.runtime_state
+                and self.runtime_state.config.profile != "learning"
+                and result.metadata.get("anonymous") is True
+            ):
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Authentication required")
             return _auth_result.set(result)
 
@@ -86,8 +91,20 @@ class ManagedGrpcServer:
     def __getattr__(self, name):
         return getattr(self._server, name)
 
+    async def start(self):
+        await self._request_handler.runtime.start()
+        try:
+            await self._server.start()
+        except BaseException:
+            await self._request_handler.runtime.stop()
+            raise
+
+    @property
+    def stats(self):
+        return self._request_handler.runtime.state.snapshot()
+
     async def stop(self, grace=None):
         try:
             await self._server.stop(grace)
         finally:
-            await self._request_handler.aclose()
+            await self._request_handler.runtime.stop()

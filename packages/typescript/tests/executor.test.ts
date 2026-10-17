@@ -351,15 +351,10 @@ describe('LiteAgentExecutor streaming', () => {
 // ---------------------------------------------------------------------------
 
 describe('LiteAgentExecutor.cancelTask()', () => {
-  it('publishes a cancellation acknowledgement message and finishes', async () => {
+  it('does not publish fabricated cancellation events for an unknown execution', async () => {
     const executor = new LiteAgentExecutor({ skills: new Map() });
     const bus = makeEventBus();
-    await executor.cancelTask('task-9', bus);
-
-    expect(bus.publish).toHaveBeenCalledTimes(1);
-    const event = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(event.kind).toBe('message');
-    expect(publishedText(bus)).toContain('cancelled');
-    expect(bus.finished).toHaveBeenCalled();
+    await executor.cancelTask('unknown', bus);
+    expect(bus.publish).not.toHaveBeenCalled();
   });
 });

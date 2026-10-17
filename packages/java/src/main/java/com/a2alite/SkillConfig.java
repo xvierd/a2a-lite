@@ -13,8 +13,18 @@ import java.util.List;
 public record SkillConfig(
     String description,
     List<String> tags,
-    boolean streaming
+    boolean streaming,
+    boolean taskMode
 ) {
+    public SkillConfig(String description, List<String> tags, boolean streaming) {
+        this(description, tags, streaming, false);
+    }
+
+    /** Return a queryable protocol Task even when the handler returns a normal value. */
+    public static SkillConfig withTask() {
+        return new SkillConfig(null, null, false, true);
+    }
+
     /**
      * Create a streaming skill configuration.
      */

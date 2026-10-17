@@ -3,6 +3,7 @@ package com.a2alite.server;
 import com.a2alite.Agent;
 import com.a2alite.auth.AuthRequest;
 import com.a2alite.auth.NoAuth;
+import com.a2alite.auth.PrincipalIdentity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -34,6 +35,8 @@ public class JavalinServerAdapter implements ServerAdapter {
     private final ObjectMapper mapper = new ObjectMapper();
     private Javalin app;
     private SdkProtocol protocol;
+    private RuntimeController controller;
+    private com.a2alite.runtime.RuntimeLimits limits;
 
     public JavalinServerAdapter() { this(null); }
 
@@ -53,16 +56,23 @@ public class JavalinServerAdapter implements ServerAdapter {
     @Override
     public void start(Agent agent, String host, int port) {
         String displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
+        limits = agent.getRuntimeOptions().limits();
+        controller = new RuntimeController(limits);
         protocol = new SdkProtocol(agent, displayHost, port);
-        app = Javalin.create();
-        app.before(this::addCorsHeaders);
-        app.get("/.well-known/agent-card.json", ctx -> {
-            var card = agent.buildAgentCardJson(displayHost, app.port());
-            card.withObject("/capabilities").put("pushNotifications", !(agent.getAuth() instanceof NoAuth));
-            ctx.json(card);
+        app = Javalin.create(config -> {
+            config.http.maxRequestSize = limits.maxRequestBytes();
+            config.routes.get("/health/live", ctx -> ctx.json(Map.of("live", true)));
+            config.routes.get("/health/ready", ctx -> ctx.status(ready() ? 200 : 503).json(Map.of("ready", ready())));
+            config.routes.get("/metrics", ctx -> ctx.json(metrics()));
+            config.routes.before(this::addCorsHeaders);
+            config.routes.get("/.well-known/agent-card.json", ctx -> {
+                var card = agent.buildAgentCardJson(displayHost, app.port());
+                card.withObject("/capabilities").put("pushNotifications", !agent.getAuth().allowsAnonymous());
+                ctx.json(card);
+            });
+            config.routes.post("/", ctx -> handleRequest(ctx, agent));
+            if (corsOrigins != null && !corsOrigins.isEmpty()) config.routes.options("/", ctx -> ctx.status(204));
         });
-        app.post("/", ctx -> handleRequest(ctx, agent));
-        if (corsOrigins != null && !corsOrigins.isEmpty()) app.options("/", ctx -> ctx.status(204));
         try {
             app.start(host, port);
         } catch (RuntimeException e) {
@@ -76,9 +86,13 @@ public class JavalinServerAdapter implements ServerAdapter {
 
     @Override
     public void stop() {
+        if (controller != null) controller.close();
         if (protocol != null) protocol.close();
         if (app != null) app.stop();
     }
+
+    @Override public boolean ready() { return controller != null && controller.ready() && protocol != null && protocol.ready(); }
+    @Override public Map<String, Object> metrics() { return controller == null ? Map.of() : controller.metrics(); }
 
     private void handleRequest(Context ctx, Agent agent) throws Exception {
         ctx.header("A2A-Version", "1.0");
@@ -86,7 +100,12 @@ public class JavalinServerAdapter implements ServerAdapter {
         try {
             JsonNode body;
             try {
-                body = mapper.readTree(ctx.bodyAsBytes());
+                byte[] bytes = ctx.bodyAsBytes();
+                if (bytes.length > limits.maxRequestBytes()) { ctx.status(413); throw new InvalidRequestError("Request too large"); }
+                body = mapper.readTree(bytes);
+            } catch (io.javalin.http.HttpResponseException e) {
+                ctx.status(e.getStatus());
+                throw new InvalidRequestError(e.getStatus() == 413 ? "Request too large" : "Invalid HTTP request");
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new JSONParseError();
             }
@@ -113,21 +132,48 @@ public class JavalinServerAdapter implements ServerAdapter {
                 respond(ctx, new A2AErrorResponse(correlation, new InvalidRequestError("Authentication required")), id);
                 return;
             }
+            JsonNode requestedTenant = body.path("params").path("tenant");
+            if (!requestedTenant.isMissingNode() && !requestedTenant.isNull() && !requestedTenant.isTextual()) {
+                throw new InvalidParamsError("Tenant must be a string");
+            }
+            String tenant = requestedTenant.asText("");
+            if (!auth.authorizedTenants().contains(tenant) || (auth.anonymous() && !tenant.isEmpty())) {
+                throw new TaskNotFoundError();
+            }
+            if (auth.anonymous() && agent.getRuntimeOptions().profile() != com.a2alite.runtime.RuntimeOptions.Profile.LEARNING) {
+                ctx.status(401); throw new InvalidRequestError("Identified authentication required");
+            }
             var user = auth.anonymous() ? UnauthenticatedUser.INSTANCE
-                : new AuthenticatedUser(auth.userId());
+                : new AuthenticatedUser(PrincipalIdentity.subject(auth));
             String extensionHeader = ctx.header("A2A-Extensions");
             var context = new ServerCallContext(user,
-                Map.of(ServerCallContext.TRANSPORT_KEY, TransportProtocol.JSONRPC),
+                Map.of(ServerCallContext.TRANSPORT_KEY, TransportProtocol.JSONRPC, TaskOwnership.TENANT_KEY, tenant),
                 A2AExtensions.getRequestedExtensions(extensionHeader == null ? List.of() : List.of(extensionHeader)),
                 ctx.header("A2A-Version"));
-            Object result = protocol.dispatch(body.path("method").asText(), body.path("params"), correlation, context);
-            if (result instanceof Flow.Publisher<?> publisher) {
-                @SuppressWarnings("unchecked")
-                var events = (Flow.Publisher<StreamingEventKind>) publisher;
-                stream(ctx, events, correlation, id, context);
-            } else {
-                respond(ctx, (A2AResponse<?>) result, id);
+            String method = body.path("method").asText();
+            JsonNode params = body.path("params");
+            for (var value : List.of(params.path("historyLength"), params.path("configuration").path("historyLength"), params.path("pageSize"))) {
+                if (!value.isMissingNode() && !value.isNull() && (!value.canConvertToInt() || value.asInt() < 0
+                        || value.asInt() > limits.maxHistoryLength())) throw new InvalidParamsError("History or page limit exceeded");
             }
+            boolean sending = method.equals("SendMessage") || method.equals("SendStreamingMessage");
+            boolean streaming = method.equals("SendStreamingMessage") || method.equals("SubscribeToTask");
+            try (var streamLease = streaming ? controller.admitStream(context) : null;
+                 var taskLease = sending ? controller.admitTask(context) : null) {
+                Object result;
+                try { result = protocol.dispatch(method, params, correlation, context); }
+                catch (RuntimeException failure) { if (taskLease != null) taskLease.abort(); throw failure; }
+                if (result instanceof Flow.Publisher<?> publisher) {
+                    @SuppressWarnings("unchecked")
+                    var events = (Flow.Publisher<StreamingEventKind>) publisher;
+                    stream(ctx, events, correlation, id, context);
+                } else {
+                    respond(ctx, (A2AResponse<?>) result, id);
+                }
+            }
+        } catch (RuntimeOverloadedException e) {
+            ctx.status(503).header("Retry-After", "1");
+            respond(ctx, new A2AErrorResponse(null, new InternalError("Runtime capacity unavailable")), id);
         } catch (A2AError e) {
             respond(ctx, new A2AErrorResponse(null, e), id);
         } catch (IllegalArgumentException e) {
@@ -196,7 +242,7 @@ public class JavalinServerAdapter implements ServerAdapter {
             public void onComplete() { done.countDown(); }
         });
         try {
-            done.await(5, TimeUnit.MINUTES);
+            done.await(limits.streamTimeout().toNanos(), TimeUnit.NANOSECONDS);
         } finally {
             if (subscription.get() != null) subscription.get().cancel();
             context.invokeEventConsumerCancelCallback();

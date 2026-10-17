@@ -1,0 +1,66 @@
+name: Publish TypeScript to npm
+
+on:
+  push:
+    tags:
+      - 'npm/v*'      # npm-only release: npm/v0.3.0
+      - 'v*'          # full release: v0.3.0 (all packages)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (build only, no publish)'
+        type: boolean
+        default: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-publish:
+    name: Build and publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC Trusted Publisher
+    defaults:
+      run:
+        working-directory: packages/typescript
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No registry-url — it would write NODE_AUTH_TOKEN into .npmrc
+          # and prevent the OIDC handshake from running
+
+      - name: Update npm (OIDC Trusted Publisher requires npm >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build package
+        run: npm run build
+
+      - name: Verify release tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          case "$GITHUB_REF_NAME" in
+            "v$version"|"npm/v$version") ;;
+            *) echo "::error::Release tag does not match npm package version $version"; exit 1 ;;
+          esac
+
+      - name: Verify build output
+        run: ls -la dist/
+
+      - name: Publish to npm
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        run: npm publish --access public --provenance
+        # No NODE_AUTH_TOKEN — its absence is what triggers the OIDC flow

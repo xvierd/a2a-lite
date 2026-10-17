@@ -155,7 +155,7 @@ describe('callRemoteSkill()', () => {
     expect(body.jsonrpc).toBe('2.0');
     expect(body.method).toBe('SendMessage');
     expect(body.params.message.role).toBe('ROLE_USER');
-    expect((init.headers as Record<string, string>)['A2A-Version']).toBe('1.0');
+    expect(new Headers(init.headers).get('A2A-Version')).toBe('1.0');
   });
 
   it('throws RemoteAgentError on non-ok HTTP response', async () => {

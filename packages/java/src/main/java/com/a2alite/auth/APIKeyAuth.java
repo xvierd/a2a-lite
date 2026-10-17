@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * }</pre>
  */
 public class APIKeyAuth implements AuthProvider {
-    private final Set<String> keyHashes;
+    private final Map<String, AuthResult> identities;
     private final String header;
     private final String queryParam;
 
@@ -34,11 +34,24 @@ public class APIKeyAuth implements AuthProvider {
 
     public APIKeyAuth(Set<String> keys, String header, String queryParam) {
         // Store only hashes of keys for security
-        this.keyHashes = keys.stream()
-            .map(APIKeyAuth::hashKey)
-            .collect(Collectors.toSet());
+        this.identities = keys.stream().collect(Collectors.toUnmodifiableMap(APIKeyAuth::hashKey,
+            key -> AuthResult.success("api-key:" + hashKey(key).substring(0, 16))));
         this.header = header;
         this.queryParam = queryParam;
+    }
+
+    /** Map rotating API keys to stable, explicitly scoped identities. Keys are kept only as hashes. */
+    public APIKeyAuth(Map<String, AuthResult> keys) {
+        this.identities = keys.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+            entry -> hashKey(entry.getKey()), entry -> {
+                var identity = entry.getValue();
+                if (!identity.authenticated() || identity.anonymous() || identity.userId() == null || identity.userId().isBlank()) {
+                    throw new IllegalArgumentException("API keys require a stable authenticated identity");
+                }
+                return identity;
+            }));
+        this.header = "X-API-Key";
+        this.queryParam = null;
     }
 
     private static String hashKey(String key) {
@@ -61,10 +74,7 @@ public class APIKeyAuth implements AuthProvider {
 
         if (key != null) {
             String hash = hashKey(key);
-            if (keyHashes.contains(hash)) {
-                String userId = "api-key:" + hash.substring(0, 16);
-                return AuthResult.success(userId);
-            }
+            if (identities.containsKey(hash)) return identities.get(hash);
         }
 
         // Check query param
@@ -72,10 +82,7 @@ public class APIKeyAuth implements AuthProvider {
             String queryKey = request.queryParams().get(queryParam);
             if (queryKey != null) {
                 String hash = hashKey(queryKey);
-                if (keyHashes.contains(hash)) {
-                    String userId = "api-key:" + hash.substring(0, 16);
-                    return AuthResult.success(userId);
-                }
+                if (identities.containsKey(hash)) return identities.get(hash);
             }
         }
 

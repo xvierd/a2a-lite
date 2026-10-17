@@ -98,6 +98,15 @@ class AgentTestClient:
             self._client = StarletteTestClient(self._app)
         return self._client
 
+    def __enter__(self):
+        self._get_client().__enter__()
+        return self
+
+    def __exit__(self, *args):
+        if self._client is not None:
+            self._client.__exit__(*args)
+            self._client = None
+
     def call(self, skill: str, **params) -> Any:
         """
         Call a skill and return the result.
@@ -149,6 +158,10 @@ class AgentTestClient:
             candidates.append(result["message"])
         if "parts" in result:
             candidates.append(result)
+        task = result.get("task", {})
+        candidates.extend(task.get("artifacts", []))
+        if not task.get("artifacts") and task.get("status", {}).get("message"):
+            candidates.append(task["status"]["message"])
 
         for candidate in candidates:
             for part in candidate.get("parts", []):
@@ -270,6 +283,7 @@ class AsyncAgentTestClient:
         self.headers = dict(headers or {})
         self._app = None
         self._client = None
+        self._lifespan = None
 
     async def _get_client(self):
         """Lazily create the async test client."""
@@ -277,6 +291,8 @@ class AsyncAgentTestClient:
             import httpx
 
             self._app = self.agent.get_app()
+            self._lifespan = self._app.router.lifespan_context(self._app)
+            await self._lifespan.__aenter__()
             self._client = httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=self._app),
                 base_url="http://testserver",
@@ -330,6 +346,10 @@ class AsyncAgentTestClient:
             candidates.append(result["message"])
         if "parts" in result:
             candidates.append(result)
+        task = result.get("task", {})
+        candidates.extend(task.get("artifacts", []))
+        if not task.get("artifacts") and task.get("status", {}).get("message"):
+            candidates.append(task["status"]["message"])
 
         for candidate in candidates:
             for part in candidate.get("parts", []):
@@ -348,6 +368,9 @@ class AsyncAgentTestClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+        if self._lifespan is not None:
+            await self._lifespan.__aexit__(None, None, None)
+            self._lifespan = None
 
     async def __aenter__(self) -> AsyncAgentTestClient:
         """Enter async context manager."""

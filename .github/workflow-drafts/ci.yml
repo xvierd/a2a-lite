@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: packages/python/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,grpc,sqlite,oauth]"
+
+      - name: Lint (ruff check)
+        run: ruff check src tests
+
+      - name: Format check (ruff format)
+        run: ruff format --check src tests
+
+      - name: Test with coverage
+        # Threshold is [tool.coverage.report] fail_under in pyproject.toml
+        run: pytest tests/ -v --cov=a2a_lite --cov-report=term-missing
+
+  typescript:
+    name: TypeScript Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/typescript
+    strategy:
+      fail-fast: false
+      matrix:
+        # package engines: node >= 20; publish workflow uses Node 24
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: packages/typescript/package.json
+
+      - name: Install dependencies
+        # Use ci when lockfile is present for reproducible prettier/eslint
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build package
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Check persistence example
+        working-directory: examples/typescript/10_persistence_lite
+        run: |
+          npm install --package-lock=false
+          npm run typecheck
+
+  java:
+    name: Java JDK ${{ matrix.java-version }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/java
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: [17, 21]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: temurin
+          cache: gradle
+
+      - name: Verify Gradle wrapper is present
+        run: test -f gradle/wrapper/gradle-wrapper.jar
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build and test
+        run: ./gradlew test compileExamples --no-daemon
+
+  interoperability:
+    name: Protocol and PostgreSQL failure contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: packages/typescript/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Install protocol and PostgreSQL test dependencies
+        run: |
+          python -m venv packages/python/.venv
+          packages/python/.venv/bin/pip install -e 'packages/python[dev,postgresql,sqlite,oauth]'
+          npm ci --prefix packages/typescript
+          cd packages/java
+          ./gradlew writeInteropClasspath --no-daemon
+      - name: Nine language pairings and official SDK client
+        run: python tests/interop/run.py --output /tmp/a2alite-interop.json
+      - name: Audit resolved dependencies
+        run: |
+          python -m pip install pip-audit
+          python_path=$(packages/python/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+          pip-audit --path "$python_path" --format json --output /tmp/a2alite-python-audit.json
+          npm audit --prefix packages/typescript --json > /tmp/a2alite-typescript-audit.json
+          python tests/security/audit_java.py --output /tmp/a2alite-java-audit.json
+      - name: Atomic delivery, execution fences, process crash and backup restore
+        run: python tests/interop/durable.py --package-tests --active --output /tmp/a2alite-durable.json
+      - name: Preserve contract results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-contract-results
+          path: /tmp/a2alite-*.json

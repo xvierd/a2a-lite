@@ -1,6 +1,6 @@
 # Publishing A2A Lite
 
-> The workflow improvements described below are prepared in local branch `codex/a2a-sdk-upgrade-and-hardening` at `5021344`, pending permission to push `.github/workflows`. Until applied, pass `dry_run=true` explicitly and do not rely on the new preflight or tag/version checks.
+> The workflow improvements described below are preserved in [workflow-drafts](workflow-drafts/README.md), pending a GitHub credential authorized to update `.github/workflows`. Those drafts are not active. Until applied, pass `dry_run=true` explicitly and do not rely on the new preflight, integration jobs or tag/version checks.
 
 Run CI against the release commit before publishing. Package versions are independent of the A2A protocol version: keep `A2A-Version: 1.0` even when the package version changes.
 

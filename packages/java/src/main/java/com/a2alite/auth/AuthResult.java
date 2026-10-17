@@ -10,8 +10,25 @@ public record AuthResult(
     String userId,
     Set<String> scopes,
     String error,
-    boolean anonymous
+    boolean anonymous,
+    String namespace,
+    Set<String> authorizedTenants
 ) {
+    public AuthResult {
+        scopes = scopes == null ? Set.of() : Set.copyOf(scopes);
+        namespace = namespace == null ? "" : namespace;
+        authorizedTenants = authorizedTenants == null ? Set.of("") : Set.copyOf(authorizedTenants);
+    }
+
+    public AuthResult(boolean authenticated, String userId, Set<String> scopes, String error, boolean anonymous) {
+        this(authenticated, userId, scopes, error, anonymous, "", Set.of(""));
+    }
+
+    /** Stable authenticated subject, issuer/namespace and explicitly authorized tenant membership. */
+    public static AuthResult identified(String namespace, String userId, Set<String> tenants, Set<String> scopes) {
+        return new AuthResult(true, userId, scopes, null, false, namespace, tenants);
+    }
+
     /** Backwards-compatible constructor for identified authentication results. */
     public AuthResult(boolean authenticated, String userId, Set<String> scopes, String error) {
         this(authenticated, userId, scopes, error, false);

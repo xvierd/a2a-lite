@@ -94,6 +94,29 @@ public class LiteAgentExecutor implements AgentExecutor {
         this.pushRegistry = pushRegistry;
     }
 
+    private com.a2alite.runtime.RuntimeLimits runtimeLimits = com.a2alite.runtime.RuntimeLimits.defaults();
+
+    public LiteAgentExecutor withRuntimeLimits(com.a2alite.runtime.RuntimeLimits limits) {
+        this.runtimeLimits = java.util.Objects.requireNonNull(limits);
+        return this;
+    }
+
+    private void checkDeadline(Execution execution) throws java.util.concurrent.TimeoutException {
+        if (execution.canceled.get() || Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Execution interrupted");
+        if (System.nanoTime() - execution.started > runtimeLimits.executionTimeout().toNanos())
+            throw new java.util.concurrent.TimeoutException("Execution deadline exceeded");
+    }
+
+    private void checkOutput(String value, Execution execution) throws java.util.concurrent.TimeoutException {
+        synchronized (execution) {
+            checkDeadline(execution);
+            if (++execution.outputEvents > runtimeLimits.maxEventsPerExecution())
+                throw new IllegalArgumentException("Output event limit exceeded");
+            execution.outputBytes += value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (execution.outputBytes > runtimeLimits.maxResultBytes()) throw new IllegalArgumentException("Result size limit exceeded");
+        }
+    }
+
     @Override
     public void execute(RequestContext context, AgentEmitter emitter) throws A2AError {
         var execution = new Execution(Thread.currentThread());
@@ -125,7 +148,7 @@ public class LiteAgentExecutor implements AgentExecutor {
             }
             var definition = skills.get(skillName);
             boolean taskMode = context.getTask() != null
-                || (definition != null && (definition.isStreaming() || definition.needsTaskContext()))
+                || (definition != null && (definition.isStreaming() || definition.needsTaskContext() || definition.taskMode()))
                 || (context.getConfiguration() != null
                     && (Boolean.TRUE.equals(context.getConfiguration().returnImmediately())
                         || context.getConfiguration().taskPushNotificationConfig() != null));
@@ -160,9 +183,11 @@ public class LiteAgentExecutor implements AgentExecutor {
                 for (var chunk : streamResult) {
                     if (execution.canceled.get() || execution.outputFinished) break;
                     String chunkText = chunk instanceof String s ? s : String.valueOf(chunk);
+                    checkOutput(chunkText, execution);
                     emitter.updateStatus(TaskState.TASK_STATE_WORKING,
                         emitter.newAgentMessage(List.of(new TextPart(chunkText)), null));
                 }
+                checkDeadline(execution);
                 if (!execution.canceled.get() && !execution.outputFinished) emitter.complete();
             } else {
                 // Non-streaming skill: a single agent message
@@ -172,6 +197,7 @@ public class LiteAgentExecutor implements AgentExecutor {
                 } else {
                     responseText = mapper.writeValueAsString(result);
                 }
+                checkOutput(responseText, execution);
                 if (!execution.canceled.get() && !execution.outputFinished) {
                     if (taskMode) emitter.complete(emitter.newAgentMessage(List.of(new TextPart(responseText)), null));
                     else emitter.sendMessage(responseText);
@@ -213,7 +239,10 @@ public class LiteAgentExecutor implements AgentExecutor {
                 .status(new org.a2aproject.sdk.spec.TaskStatus(TaskState.TASK_STATE_SUBMITTED))
                 .history(List.of(context.getMessage())).build());
         } else {
-            emitter.addTask(context.getTask());
+            // A resumed task's initial snapshot represents this new execution. Re-emitting
+            // INPUT_REQUIRED would prematurely finish the SDK stream and release its lease.
+            emitter.addTask(org.a2aproject.sdk.spec.Task.builder(context.getTask())
+                .status(new org.a2aproject.sdk.spec.TaskStatus(TaskState.TASK_STATE_WORKING)).build());
         }
         execution.taskStarted = true;
         emitter.startWork();
@@ -236,8 +265,21 @@ public class LiteAgentExecutor implements AgentExecutor {
         }
     }
 
+    /** Stop local user work after another replica has durably canceled its task. */
+    public void interruptExecution(String taskId) {
+        Execution execution = executions.get(taskId);
+        if (execution != null) {
+            execution.canceled.set(true);
+            if (execution.stream != null) execution.stream.close();
+            execution.thread.interrupt();
+        }
+    }
+
     private static final class Execution {
         private final Thread thread;
+        private final long started = System.nanoTime();
+        private long outputBytes;
+        private long outputEvents;
         private final AtomicBoolean canceled = new AtomicBoolean();
         private volatile StreamingHandler.StreamResult stream;
         private volatile boolean outputFinished;
@@ -266,6 +308,8 @@ public class LiteAgentExecutor implements AgentExecutor {
                     "type", e.getClass().getSimpleName());
             }
             String errorJson = mapper.writeValueAsString(errorResult);
+            if(errorJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > runtimeLimits.maxResultBytes())
+                errorJson = "Skill execution failed";
             Message errorMessage = emitter.newAgentMessage(List.of(new TextPart(errorJson)), null);
             emitter.fail(errorMessage);
         } catch (Exception ex) {
@@ -318,7 +362,22 @@ public class LiteAgentExecutor implements AgentExecutor {
             var task = new Task(request.getTaskId(), skillName, params, new TaskStatus(com.a2alite.TaskState.WORKING));
             var context = new TaskContext(task);
             context.onStatusChange(status -> {
+              synchronized(execution) {
                 if (execution.canceled.get() || execution.outputFinished) return;
+                try {
+                    checkOutput(status.message() == null ? "" : status.message(), execution);
+                } catch (Exception limit) {
+                    // TaskContext catches callback exceptions for API compatibility. Fail the
+                    // protocol task here and suppress subsequent emissions even if user code ignores interruption.
+                    synchronized (execution) {
+                        if (!execution.outputFinished && !execution.canceled.get()) {
+                            execution.outputFinished = true;
+                            emitter.fail(emitter.newAgentMessage(List.of(new TextPart("Task output limit or deadline exceeded")), null));
+                        }
+                    }
+                    execution.thread.interrupt();
+                    return;
+                }
                 var state = TaskState.valueOf("TASK_STATE_" + status.state().name());
                 var parts = status.message() == null ? List.<Part<?>>of() : List.<Part<?>>of(new TextPart(status.message()));
                 var metadata = status.progress() == null ? null : Map.<String, Object>of("progress", status.progress());
@@ -326,6 +385,7 @@ public class LiteAgentExecutor implements AgentExecutor {
                 emitter.updateStatus(state, message);
                 execution.outputFinished = state.isFinal() || state == TaskState.TASK_STATE_INPUT_REQUIRED
                     || state == TaskState.TASK_STATE_AUTH_REQUIRED;
+              }
             });
             return contextualHandler.handle(params, context);
         }

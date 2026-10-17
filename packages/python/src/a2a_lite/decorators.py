@@ -19,6 +19,8 @@ class SkillDefinition:
     tags: list[str] = field(default_factory=list)
     is_async: bool = False
     is_streaming: bool = False
+    task_mode: bool = False
+    recoverable: bool = False
     needs_task_context: bool = False
     needs_auth: bool = False
     needs_mcp: bool = False
@@ -35,4 +37,6 @@ class SkillDefinition:
             "input_schema": self.input_schema,
             "output_schema": self.output_schema,
             "is_streaming": self.is_streaming,
+            "task_mode": self.task_mode,
+            "recoverable": self.recoverable,
         }

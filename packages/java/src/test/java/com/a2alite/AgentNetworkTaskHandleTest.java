@@ -1,7 +1,7 @@
 package com.a2alite;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.javalin.Javalin;
+import com.a2alite.testing.HttpTestServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,13 +14,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentNetworkTaskHandleTest {
 
-    private Javalin app;
+    private HttpTestServer app;
     private int port;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        app = Javalin.create().start(0);
+        app = HttpTestServer.create().start(0);
         port = app.port();
     }
 

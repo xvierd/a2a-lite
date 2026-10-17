@@ -1,0 +1,14 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+dependencies {
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.javalin:javalin:7.2.3'
+    implementation 'org.postgresql:postgresql:42.7.14'
+}
+application { mainClass = 'com.example.production.ProductionPath' }

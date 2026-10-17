@@ -8,14 +8,14 @@
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API and a standalone JSON-RPC adapter.
 
-> **v1.1.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.1.0`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. New Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0`. See [MIGRATION.md](../../MIGRATION.md).
 
 The standalone Javalin server started by `agent.run()` uses the official SDK
 request handler for messages, SSE streaming, task retrieval/cancellation,
 subscriptions, task listing and push configuration. Requests must send
 `A2A-Version: 1.0`. The card advertises JSON-RPC and enables streaming when a
-streaming skill is registered. Protocol tasks and ownership are stored in memory
-for the lifetime of the server. REST and gRPC require a separate SDK integration.
+streaming skill is registered. The learning default stores protocol tasks and ownership in memory. An explicit
+`JdbcProtocolBackend` persists both together with a task-revision journal and callback outbox. REST and gRPC require a separate SDK integration.
 
 ```java
 var agent = Agent.builder()
@@ -36,8 +36,8 @@ agent.run();
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.1.0'
-    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.javalin:javalin:7.2.3'
 }
 ```
 
@@ -47,15 +47,22 @@ dependencies {
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 </dependency>
 
 <dependency>
     <groupId>io.javalin</groupId>
     <artifactId>javalin</artifactId>
-    <version>5.6.3</version>
+    <version>7.2.3</version>
 </dependency>
 ```
+
+For Maven, also import `org.eclipse.jetty:jetty-bom:12.1.14` and
+`org.eclipse.jetty.ee10:jetty-ee10-bom:12.1.14` and
+`com.fasterxml.jackson:jackson-bom:2.22.3` in `dependencyManagement`; Javalin's
+bundled Jetty baseline is older. Gradle consumes these constraints from this library.
+The standalone adapter now requires Javalin 7.2.3; custom adapters retain the
+`ServerAdapter` interface. Routes register before the server starts.
 
 **Requirements:** Java 17+
 
@@ -438,6 +445,88 @@ python agent.py    # human vs bot → http://localhost:8790/
 Details: [examples/python/11_battleship_lite/README.md](../../examples/python/11_battleship_lite/README.md)
 
 ---
+
+## Managed and durable operation
+
+The runnable [production path example](../../examples/java/11_production_path_lite/)
+progresses from Message to Task, streaming, authentication, durable state and explicit checkpoint recovery.
+
+```java
+var identity = AuthResult.identified("my-service", "alice", Set.of(""), Set.of("work"));
+var agent = Agent.builder().name("Worker").description("Bounded service")
+    .auth(new APIKeyAuth(Map.of("old-key", identity, "new-key", identity)))
+    .runtimeOptions(RuntimeOptions.authenticated()).build();
+agent.skill("task", (params, task) -> task.getTaskId());
+try (var runtime = agent.start("127.0.0.1", 8787)) {
+    runtime.awaitTermination();
+}
+```
+
+`RuntimeOptions.learning()`, `.authenticated()` and `.durable()` declare intent;
+authenticated profiles reject anonymous providers, and durable startup requires a
+durable protocol backend. `RuntimeLimits` bounds global and per-principal task/stream
+admission, requests, results, retained/query history, callback counts and deadlines.
+`maxEventsPerExecution` defaults to 4,096 user chunks/status updates (including empty
+ones); TaskContext updates share output bytes and deadline enforcement.
+Defaults allow 32 tasks/64 streams globally and 8 tasks/16 streams per identity;
+tenants share their identity's admission quota. The learning backend retains at
+most 10,000 task/ownership reservations. At capacity it evicts only finalized tasks
+older than one second, with their ownership and callback credentials; it never
+evicts active/input-required work to admit a new call. Finalized records expire
+on the next admission after 24 hours, and owner-only reservations after the
+execution deadline plus five seconds. Saturation
+returns HTTP 503 before allocating SDK task/stream resources. Reads/cancel remain
+available. `/health/live`, `/health/ready`, `/metrics`, `runtime.ready()` and
+`runtime.metrics()` expose operational state without principal/task labels.
+
+`Agent.start()` installs no process signal hooks. Closing drains and interrupts
+remaining work; interruption is cooperative and does not terminate arbitrary Java
+code. Adapter/backend cleanup and shutdown hooks share the `shutdownGrace` return
+budget. If uncooperative cleanup outlives it, `shutdownCleanupRunning` stays true;
+the daemon cleanup thread is interrupted, and the hosting process regains control. `agent.run()` remains the command-line convenience that installs a shutdown
+hook. Task slots stay occupied until handlers actually finish.
+
+Credentials can rotate through `network.withCredentials(endpoint, uri -> headers)`.
+They apply to discovery and all task-handle requests at that endpoint; redirects
+are disabled. `handle.get()` returns the full protocol Task. Legacy `getStatus()`
+retains its flattened-result behavior. A Message-only response cannot create a
+TaskHandle. Namespaced principals encode `[namespace,subject]` collision-safely;
+legacy subjects remain unchanged unless they begin `a2a:v1:` (reserved and escaped).
+OAuth namespaces come from the configured verified issuer. Tenant membership is
+explicit in `AuthResult.authorizedTenants()`; the default is only the empty tenant.
+
+```java
+var backend = new JdbcProtocolBackend(dataSource, callbackKeyring, RuntimeLimits.defaults());
+backend.initializeSchema(); // controlled migration step, before application startup
+var durable = Agent.builder().name("Worker").description("Persistent tasks")
+    .auth(auth).protocolBackend(backend).runtimeOptions(RuntimeOptions.durable()).build();
+```
+
+`ProtocolBackend` groups the official SDK task/state stores, authorization, push
+store and queue factory so state and ownership cannot silently fall back to memory.
+The optional JDBC reference uses PostgreSQL; the application supplies its JDBC driver,
+bounded DataSource and AES callback-key ring. The four-argument constructor with
+`automaticDelivery=false` keeps the atomic outbox while pausing automatic outbound
+callbacks, for isolated restores or tests; explicit `outbox().drainOnce()` is an
+operator-controlled send. The official SDK JPA store remains a
+valid Quarkus integration option, but it does not supply this atomic outbox/ownership
+boundary automatically.
+
+The JDBC prototype persists task revisions and delivery records atomically. It
+supports other-replica Task reads, snapshot subscriptions, cancellation relay, and
+5-second execution leases renewed every 500 ms. Expired ordinary workers become
+`FAILED` with an interruption message; they are not automatically retried. Each
+writer is fenced. Explicit `backend.checkpoints()` workflows can recover a persisted
+checkpoint under a new fence; downstream side effects need idempotency/fencing too.
+Snapshot subscriptions send current Task first, then committed status/artifact
+replacements; they do not reproduce original chunk boundaries or resume arbitrary
+handler stacks. Durable callbacks use stable `X-A2A-Delivery-Id`, encrypted
+credentials and jittered exponential retry (0.5–300 seconds). Eight claims,
+including workers killed before ACK, or 24 hours of delivery age produce a dead
+letter. Explicit operator retry preserves the delivery ID and starts a new attempt/age
+budget. Delivery remains at least once. A config
+delete removes queued work; in-flight delivery can finish. Retention is an explicit
+bounded `purgeFinalizedBefore()` operation and protects pending/dead-letter deliveries.
 
 ## Full API Reference
 

@@ -19,48 +19,9 @@
 import { randomUUID } from 'crypto';
 import type { Task, TaskState, TaskStatus, TaskStore } from './types.js';
 
-/**
- * Lightweight async mutex for protecting shared state.
- */
-class AsyncMutex {
-  private queue: Array<() => void> = [];
-  private locked = false;
-
-  async acquire(): Promise<void> {
-    if (!this.locked) {
-      this.locked = true;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-    });
-  }
-
-  release(): void {
-    const next = this.queue.shift();
-    if (next) {
-      next();
-    } else {
-      this.locked = false;
-    }
-  }
-
-  async runExclusive<T>(fn: () => T | Promise<T>): Promise<T> {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
-}
-
-/**
- * In-memory task store with mutex for thread safety.
- */
+/** In-memory learning store; synchronous Map mutations are atomic in one JS isolate. */
 export class InMemoryTaskStore implements TaskStore {
   private tasks: Map<string, Task> = new Map();
-  private mutex = new AsyncMutex();
 
   create(skill: string, params: Record<string, unknown>): Task {
     const now = new Date();
@@ -86,10 +47,8 @@ export class InMemoryTaskStore implements TaskStore {
   }
 
   update(task: Task): void {
-    this.mutex.runExclusive(() => {
-      task.updatedAt = new Date();
-      this.tasks.set(task.id, task);
-    });
+    task.updatedAt = new Date();
+    this.tasks.set(task.id, task);
   }
 
   delete(id: string): boolean {
@@ -120,8 +79,23 @@ export class TaskContext {
   private task: Task;
   private statusCallbacks: Array<(status: TaskStatus) => void> = [];
 
-  constructor(task: Task) {
+  constructor(
+    task: Task,
+    readonly signal: AbortSignal = new AbortController().signal,
+    private readonly maxHistory = 256,
+    private readonly lease?: import('./postgres-execution.js').ExecutionLease,
+  ) {
     this.task = task;
+  }
+
+  get checkpointData(): unknown {
+    return this.lease?.checkpointData;
+  }
+
+  async checkpoint(data: unknown): Promise<void> {
+    this.signal.throwIfAborted();
+    if (!this.lease) throw new Error('Checkpoints require a checkpoint-enabled skill and distributed execution');
+    await this.lease.checkpoint(data);
   }
 
   get taskId(): string {
@@ -140,8 +114,13 @@ export class TaskContext {
    * Update task status.
    */
   async update(state: TaskState = 'working', message?: string, progress?: number): Promise<void> {
+    this.signal.throwIfAborted();
+    if (message && Buffer.byteLength(message) > 1048576) throw new Error('Task status message limit exceeded');
+    if (['completed', 'failed', 'canceled'].includes(this.state)) return;
     // Save current status to history
     this.task.history.push({ ...this.task.status });
+    if (this.task.history.length > this.maxHistory)
+      this.task.history.splice(0, this.task.history.length - this.maxHistory);
 
     // Update status
     const newStatus: TaskStatus = {

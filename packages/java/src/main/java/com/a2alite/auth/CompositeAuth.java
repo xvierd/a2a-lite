@@ -20,6 +20,8 @@ public class CompositeAuth implements AuthProvider {
         this.providers = providers;
     }
 
+    @Override public boolean allowsAnonymous() { return providers.stream().anyMatch(AuthProvider::allowsAnonymous); }
+
     @Override
     public AuthResult authenticate(AuthRequest request) {
         for (var provider : providers) {

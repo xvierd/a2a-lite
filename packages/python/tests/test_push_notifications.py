@@ -368,7 +368,7 @@ class TestProtocolTaskStoreWiring:
             agent._build_app("localhost", 8787)
 
         _, kwargs = mock_handler_cls.call_args
-        assert isinstance(kwargs["task_store"], InMemoryTaskStore)
+        assert isinstance(kwargs["task_store"].store, InMemoryTaskStore)
 
     def test_custom_protocol_task_store_passed_through(self):
         """When protocol_task_store is set, it is passed to DefaultRequestHandler."""
@@ -388,7 +388,7 @@ class TestProtocolTaskStoreWiring:
             agent._build_app("localhost", 8787)
 
         _, kwargs = mock_handler_cls.call_args
-        assert kwargs["task_store"] is custom_store
+        assert kwargs["task_store"].store is custom_store
 
 
 # ---------------------------------------------------------------------------

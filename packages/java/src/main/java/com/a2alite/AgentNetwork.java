@@ -1,6 +1,7 @@
 package com.a2alite;
 
 import com.a2alite.errors.RemoteAgentException;
+import com.a2alite.auth.CredentialProvider;
 import com.a2alite.streaming.StreamingHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -39,9 +40,10 @@ public class AgentNetwork {
         "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED");
     private final Map<String, String> agents = new ConcurrentHashMap<>();
     private final Map<String, AgentCardInfo> cards = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, String>> requestHeaders = new ConcurrentHashMap<>();
+    private final Map<String, CredentialProvider> requestHeaders = new ConcurrentHashMap<>();
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NEVER)
         .build();
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -53,15 +55,50 @@ public class AgentNetwork {
         }
     }
 
-    /** Configure authentication headers for this exact agent endpoint, not other destinations. */
+    /** Configure fixed authentication headers for this endpoint. */
     public AgentNetwork withHeaders(String agentUrl, Map<String, String> headers) {
-        requestHeaders.put(agentUrl.replaceAll("/$", ""), Map.copyOf(headers));
+        var snapshot = Map.copyOf(headers);
+        return withCredentials(agentUrl, destination -> snapshot);
+    }
+
+    /** Resolve credentials on every request, allowing rotation without replacing task handles. */
+    public AgentNetwork withCredentials(String agentUrl, CredentialProvider provider) {
+        requestHeaders.put(endpointKey(agentUrl), Objects.requireNonNull(provider));
         return this;
     }
 
+    private String endpointKey(String endpoint) {
+        var uri = URI.create(endpoint).normalize();
+        if (uri.getHost() == null || uri.getRawUserInfo() != null || uri.getRawFragment() != null
+                || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+            throw new IllegalArgumentException("Agent endpoint must be HTTP(S), without credentials or fragment");
+        }
+        return uri.toString().replaceAll("/$", "");
+    }
+
     private HttpRequest.Builder requestBuilder(String agentUrl) {
-        var builder = HttpRequest.newBuilder(URI.create(agentUrl));
-        requestHeaders.getOrDefault(agentUrl.replaceAll("/$", ""), Map.of()).forEach(builder::header);
+        return requestBuilder(agentUrl, agentUrl);
+    }
+
+    private HttpRequest.Builder requestBuilder(String destination, String credentialEndpoint) {
+        var target = URI.create(endpointKey(destination));
+        var scope = URI.create(endpointKey(credentialEndpoint));
+        var builder = HttpRequest.newBuilder(target);
+        // Discovery can use the endpoint's credentials only on the same origin.
+        if (!target.getScheme().equalsIgnoreCase(scope.getScheme())
+                || !target.getHost().equalsIgnoreCase(scope.getHost()) || target.getPort() != scope.getPort()) {
+            throw new IllegalArgumentException("Credentials cannot cross agent origins");
+        }
+        var provider = requestHeaders.get(endpointKey(credentialEndpoint));
+        if (provider != null) {
+            var headers = Map.copyOf(provider.headers(target));
+            headers.forEach((name, value) -> {
+                if (Set.of("host", "content-length", "transfer-encoding", "connection").contains(name.toLowerCase(Locale.ROOT))) {
+                    throw new IllegalArgumentException("Credential provider cannot override transport headers");
+                }
+                builder.header(name, value);
+            });
+        }
         return builder;
     }
 
@@ -167,6 +204,11 @@ public class AgentNetwork {
      * <p>Sends a {@code GetTask} JSON-RPC request to the given agent URL.
      */
     public Object getRemoteTask(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
+        return extractResult(Map.of("result", getRemoteTaskSnapshot(agentUrl, taskId, timeoutSeconds))).result;
+    }
+
+    /** Fetch the full protocol Task, including identity, status, history and artifacts. */
+    public Map<String, Object> getRemoteTaskSnapshot(String agentUrl, String taskId, int timeoutSeconds) throws Exception {
         var requestBody = mapper.writeValueAsString(Map.of(
             "jsonrpc", "2.0",
             "method", "GetTask",
@@ -188,7 +230,11 @@ public class AgentNetwork {
 
         @SuppressWarnings("unchecked")
         var data = mapper.readValue(response.body(), Map.class);
-        return extractResult(data).result;
+        if (data.containsKey("error")) throw new RemoteAgentException(mapper.writeValueAsString(data.get("error")), data);
+        if (!(data.get("result") instanceof Map<?, ?> task) || !taskId.equals(task.get("id"))) {
+            throw new RemoteAgentException("Peer did not return the requested Task");
+        }
+        return (Map<String, Object>) task;
     }
 
     /**
@@ -289,8 +335,7 @@ public class AgentNetwork {
     @SuppressWarnings("unchecked")
     public AgentCardInfo discoverAgent(String agentUrl, int timeoutSeconds) throws Exception {
         var cleanUrl = agentUrl.replaceAll("/$", "");
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(cleanUrl + "/.well-known/agent-card.json"))
+        var request = requestBuilder(cleanUrl + "/.well-known/agent-card.json", agentUrl)
             .header("Accept", "application/json")
             .GET()
             .timeout(Duration.ofSeconds(timeoutSeconds))

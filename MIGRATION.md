@@ -1,4 +1,36 @@
-# Migrating to a2a-lite 1.1.0 (A2A Protocol v1.0)
+# Migrating A2A Lite (A2A Protocol v1.0)
+
+## 1.1.0 → 1.2.0
+
+The basic skill API remains available. New runtime and storage features are opt-in, while finite
+resource limits and identity validation apply to the managed server. Review limits for long-running
+skills and large outputs before upgrading.
+
+- **Protocol tasks:** opt into a queryable task for ordinary skills (`task=True`, `task: true`, or
+  `SkillConfig.withTask()`). The injected TaskContext and remote TaskHandle use the same SDK task ID.
+  An immediate Message does not create a queryable Task; a wire `message.taskId` alone does not support a TaskHandle. Application-local task stores do not become protocol stores.
+- **Stable identity:** map rotating API keys to stable principals. Verified OAuth issuers namespace
+  subjects; tenant access needs explicit membership. Reserved `a2a:v1:` legacy IDs are escaped to avoid
+  collisions. Existing records using those IDs or a different issuer/tenant mapping need an explicit
+  ownership migration before enabling the new mapping. See [identity rules](OPERATIONS.md#stable-identities-and-tenant-authorization).
+- **Managed runtime:** use the package's `start` API and close its returned runtime when embedding an
+  agent. The application owns process signals. Configure admission, stream, payload, output and
+  execution limits; check `/health/ready` before sending traffic. Cancellation remains cooperative.
+- **Durable state:** configure the PostgreSQL adapter, run its migrations and provide an encryption
+  keyring before selecting the durable profile. Startup fails on a missing prerequisite; there is no
+  silent fallback to memory. Readiness does not verify decryption of every historical record: restore with callback dispatch disabled and check retained keys before enabling it. Back up encryption keys separately from the database.
+- **Callback delivery:** with the documented durable-delivery option enabled, adapters persist an outbox with task events and retain a stable
+  `X-A2A-Delivery-Id` through retries and replay. Receivers must commit that ID with their business effect.
+  Deleting a subscription cancels queued work; an HTTP request already in flight can finish.
+- **Multiple workers:** enable the documented coordination mode for the chosen language. Ordinary
+  interrupted skills become failed tasks after their worker lease expires. Checkpoint recovery requires
+  an explicit skill/application contract and fencing; it does not make external effects exactly once.
+- **Java standalone:** use Javalin 7.2.3 on Java 17+, with Jetty core/EE10 12.1.14 and Jackson 2.22.3 BOM alignment. Maven consumers must explicitly import these BOMs; see [Java installation](packages/java/README.md#installation).
+  Custom Javalin routes must be registered inside `Javalin.create(config -> config.routes...)`.
+  `TaskHandle.get()` returns the full protocol Task; `getStatus()` retains its existing convenience shape.
+
+Run the [shared protocol, database and failure gates](tests/interop/README.md) before upgrading a
+deployment. The [operator guide](OPERATIONS.md) covers restore, rotation, draining and incident checks.
 
 ## 1.0.x → 1.1.0
 
@@ -42,7 +74,7 @@ Applications using authentication, task handles or callbacks must review the 1.1
 
 1. **The served protocol is A2A v1.0.** a2a-lite 1.0 agents cannot talk to 0.3 agents and vice versa. v0.3 is **not** supported (explicit decision — no compatibility mode). Lite clients detect a 0.3 agent card (root-level `url` + `protocolVersion`, no `supportedInterfaces`) and fail with a clear error telling you the peer speaks 0.3.
 2. **Well-known path moved.** The agent card is now served at `GET /.well-known/agent-card.json`. The old `/.well-known/agent.json` is no longer served.
-3. **AgentCard shape changed.** The served card now has `supportedInterfaces` (list of `{url, protocolBinding, protocolVersion}`) and **no root-level `url` or `protocolVersion`**. If you parsed the card manually, read `supportedInterfaces[0].url` instead.
+3. **AgentCard shape changed.** The served card now has `supportedInterfaces` (list of `{url, protocolBinding, protocolVersion}`) and **no root-level `url` or `protocolVersion`**. If you parse the card manually, select an interface supported by your client (for example `protocolBinding == "JSONRPC"` and `protocolVersion == "1.0"`), then use its `url`. The first advertised interface may use another transport.
 4. **Python:** requires `a2a-sdk >= 1.2.2` (pulled in automatically by `pip install -U a2a-lite`).
 5. **TypeScript:** requires **Node.js >= 20**.
 6. **Java:** Maven coordinates changed to **`io.github.xvierd:a2a-lite:1.1.0`** (was `com.a2alite:a2a-lite:0.3.x`). The `com.a2alite.tasks` package was removed — task types (`TaskContext`, `TaskState`, `TaskHandle`, ...) now live directly under `com.a2alite.*`.
@@ -94,7 +126,7 @@ Only relevant if you used types or helpers from the official SDKs directly (e.g.
 ```bash
 pip install -U a2a-lite        # pulls a2a-sdk[http-server]>=1.2.2
 # or
-uv add a2a-lite@latest
+uv add --upgrade a2a-lite
 ```
 
 Basic skills retain their registration API. If you pin `a2a-sdk` yourself, bump it to `>=1.2.2`; apply the 1.1.0 authentication, callback and TaskHandle requirements above.
@@ -105,7 +137,7 @@ Basic skills retain their registration API. If you pin `a2a-sdk` yourself, bump 
 npm install a2a-lite@latest    # requires Node.js >= 20
 ```
 
-No code changes needed for lite-API agents.
+Basic skill registration remains compatible. Review the 1.2.0 identity, runtime-limit and persistence requirements above before upgrading an existing deployment.
 
 ### Java
 
@@ -113,8 +145,8 @@ Update the coordinates in your build file:
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.1.0'
-    implementation 'io.javalin:javalin:5.6.3'   // HTTP server (standalone mode)
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.javalin:javalin:7.2.3'   // HTTP server (standalone mode, Java 17+)
 }
 ```
 
@@ -122,9 +154,11 @@ dependencies {
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.0.1</version>
+    <version>1.2.0</version>
 </dependency>
 ```
+
+For standalone Maven, also add Javalin 7.2.3 and import the Jetty core, Jetty EE10 and Jackson BOMs listed in [Java installation](packages/java/README.md#installation) into `dependencyManagement`.
 
 Then fix imports if you used `com.a2alite.tasks.*` — those classes moved to `com.a2alite.*` (e.g. `com.a2alite.TaskContext`).
 

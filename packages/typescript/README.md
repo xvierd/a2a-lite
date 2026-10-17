@@ -7,9 +7,9 @@
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
-Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple, intuitive API. 100% protocol-compatible.
+Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple API and tested A2A1.0 JSON-RPC/HTTP+JSON interoperability.
 
-> **v1.1.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
+> **v1.2.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
 > - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC:** not implemented in TypeScript yet (Python has experimental `run_grpc`; see root Feature Matrix).
 > - Requires **Node.js >= 20**. No v0.3 compatibility.
@@ -55,6 +55,168 @@ agent.skill('greet', async ({ name }: { name: string }) =>
 
 agent.run();
 ```
+
+---
+
+## A progressive production path
+
+Start with the runnable [Message → Task → stream → authenticated → durable example](../../examples/typescript/11_production_path/README.md).
+It requires no external LLM or callback receiver. Its first four steps run locally without PostgreSQL.
+
+```typescript
+import { Agent, TaskContext, callRemoteSkillWithHandle } from 'a2a-lite';
+
+const agent = new Agent({ name: 'Tasks', description: 'One real task ID' });
+agent.skill('identify', { task: true, taskContext: true }, async ({ task }) => {
+  const context = task as TaskContext;
+  await context.update('working', 'Halfway', 0.5);
+  return context.taskId;
+});
+const runtime = await agent.start({ host: '127.0.0.1', port: 0 });
+try {
+  const task = await callRemoteSkillWithHandle(runtime.url, 'identify', {});
+  console.log(task.taskId, task.result, await task.get());
+} finally {
+  await runtime.stop();
+}
+```
+
+`task: true` returns an SDK Task for a normal skill. `TaskContext` uses that same ID;
+progress and terminal state reach the protocol store. Ordinary skills continue returning
+Messages. Cancellation and execution deadlines abort `TaskContext.signal`; handlers must
+cooperate with that signal. Timeouts cannot terminate arbitrary JavaScript or undo its side effects.
+
+`start()` and `run()` return an `AgentRuntime` with `url`, `stats`, `closed` and idempotent
+`stop()`. The library installs no process signal handlers and never calls `process.exit`.
+The application owns SIGINT/SIGTERM handling. Shutdown stops admission, aborts active skills,
+waits for their terminal state to settle, then closes MCP and persistence resources within
+the configured grace period. A shutdown deadline or hook failure rejects `stop()`.
+
+### Verified identity and authenticated clients
+
+```typescript
+import { Agent, APIKeyAuth, AgentNetwork } from 'a2a-lite';
+
+const auth = new APIKeyAuth({ identities: {
+  'current-key': { userId: 'service', namespace: 'company', authorizedTenants: ['team-a'] },
+  'rotated-key': { userId: 'service', namespace: 'company', authorizedTenants: ['team-a'] },
+} });
+const agent = new Agent({ name: 'Secure', description: 'Stable ownership', profile: 'authenticated', auth });
+const network = new AgentNetwork();
+network.add('secure', 'https://agent.example', {
+  tenant: 'team-a',
+  credentialProvider: async () => ({ 'X-API-Key': await readCurrentKey() }),
+});
+```
+
+`readCurrentKey` is an application credential lookup. `headers` and `credentialProvider`
+are supported by discovery, direct calls, streams, `Agent.delegate`, network calls and
+TaskHandle helpers. Providers run for every request and receive its AbortSignal. Credentials
+are bound to the original origin; discovery cannot forward them elsewhere. Redirects fail.
+Set `allowedCredentialOrigins` only for deliberately trusted alternate origins.
+
+AuthResult may include trusted `namespace` and `authorizedTenants`. Missing membership permits
+only the empty tenant. NoAuth is limited to that tenant and cannot register callbacks.
+OAuth uses its verified configured issuer as namespace. Bearer validators may return a verified
+identity object as well as the legacy user-ID string. API-key mappings retain ownership across
+key rotation. Legacy user IDs remain unchanged except reserved `a2a:v1:` IDs, which are escaped;
+namespaced IDs use the shared collision-safe encoding. Existing storage keys in those two cases
+need an explicit migration.
+
+### Profiles, limits and readiness
+
+`learning` is the default. `authenticated` requires verified identities and rejects anonymous
+fallbacks. `durable` additionally requires a ready `ProtocolPersistence`; it means durable state,
+not automatic recovery of arbitrary execution. Custom auth results still fail closed at request time.
+
+The `limits` object controls concurrent requests/streams, per-principal admission, request and
+execution deadlines, body/output/snapshot bytes, event count, memory task count, task history,
+callback configuration count and shutdown grace. Defaults include 128 requests, 32 streams,
+32 requests/8 streams per principal, 1MiB request/output, 4MiB snapshots, 4096 events per execution,
+256 history entries, 10000 memory tasks and 8 callbacks per task. Request/execution deadlines
+are 60 seconds and shutdown grace is 5 seconds. Capacity rejection is explicit and retryable.
+
+`/health/live` is a liveness probe. `/health/ready` returns `{ ready: false }` with HTTP 503 during
+drain or storage failure. `telemetry(event)` receives aggregate counters and event names, never
+headers, tokens, callback URLs, payloads or principal IDs. Optional external telemetry exporters
+can consume that callback without affecting request handling.
+
+### PostgreSQL, transactional delivery and replica coordination
+
+```typescript
+import { createPostgresPersistence, migratePostgresRuntime } from 'a2a-lite';
+
+// Operator step AFTER: DATABASE_URL=... npx a2a-db upgrade
+await migratePostgresRuntime({ connectionString: process.env.DATABASE_URL! });
+const persistence = await createPostgresPersistence({
+  connectionString: process.env.DATABASE_URL!,
+  encryptionKey: process.env.CALLBACK_KEY!, // base64-encoded 32-byte key
+  delivery: {}, // optional transactional outbox; bounded retries and worker leases
+  execution: {}, // optional PostgreSQL leases, scoped journal and remote cancellation
+});
+const agent = new Agent({ name: 'Durable', description: 'Persistent tasks', profile: 'durable', auth, persistence });
+```
+
+Install optional `kysely` and `pg` packages for PostgreSQL. Kysely 0.28.17 preserves Node 20 support;
+Kysely 0.29 requires Node 22. The factory uses official SDK `DatabaseTaskStore` and
+`DatabasePushNotificationStore`. SDK migrations are operator-run and repeatable; startup only
+checks readiness. `taskTable`/`pushTable` customize names and must match migration flags.
+The factory closes its own pool on shutdown. Custom external stores remain application-owned.
+
+Callback tokens and authentication credentials are encrypted with AES-256-GCM, bound to their
+owner/tenant/task/config/URL, and decrypted only for use. Keep the encryption key outside backups
+and retain it for restore. For rotation, supply `encryptionKeys: { blue: oldBase64Key, green: newBase64Key }`
+and `activeEncryptionKeyId: 'green'`. Keep `encryptionKey` while legacy v1 rows or backups remain.
+New writes carry the active key ID; `rotateCallbackCredentials(taskId, trustedContext)` atomically
+rewrites that owner's task configurations under the active key. Roll out readers with both keys
+before switching writers; retire keys only after all rows and retained backups can be restored.
+Task payloads
+remain application data in the database. Public HTTPS, scoped configuration IDs and DNS-pinned
+transport protections apply to both memory and SQL callbacks. SQL registration quotas are enforced
+under a shared transaction lock (`maxPushConfigsPerTask`, default 8).
+
+With `delivery`, protocol state, its revision, a bounded task journal and callback outbox records
+commit in one transaction. Revision checks reject stale writers. Worker leases use PostgreSQL
+`SKIP LOCKED`, bounded exponential retry/jitter and dead-letter state. Defaults are 8 attempts,
+24 hours maximum age (`maxAgeMs`), 10000 pending records and a 15-second delivery lease.
+Expired or crash-exhausted claims become dead without another external attempt; PostgreSQL's
+clock determines expiry. Explicit replay starts a fresh retry/age budget. Set `delivery.autoStart: false` during restore or
+inspection to prevent automatic outbound delivery; `dispatchOnce()` remains an explicit operator action. Every attempt/replay keeps
+the same `X-A2A-Delivery-Id`; delivery is at-least-once and receivers must deduplicate that ID.
+`persistence.delivery.status()`, `dispatchOnce()`, `prune(before)` and owner-scoped `replay(id, context)`
+provide operator hooks. Replay accepts a trusted authenticated ServerCallContext; do not construct it
+from unverified client input. `purgeTask(taskId, before, trustedContext)` is available with the
+transactional `delivery` extension: it removes only that owner's terminal task payloads, callbacks
+and journal when no deliveries are pending, retaining a small revision tombstone to block stale
+resurrection. `maxStoredTasks` limits the default memory store only; SQL deployments must schedule
+purge and apply database disk quotas. Snapshot notifications carry the official v1 StreamResponse envelope.
+
+With `execution`, a scoped lease and fencing token guard state writes. Another replica may read,
+subscribe to committed task snapshots or cancel the task; a stale worker cannot overwrite its state.
+The per-task journal retains the latest 16 snapshots. At the default 4MiB snapshot limit this can
+retain up to 64MiB of journal payload per task, plus protocol state and outbox records; choose limits
+and a retention schedule for your workload. Resubscription observes live committed state,
+not an unlimited historical stream. PostgreSQL failure invalidates leases and stops cooperative work.
+
+After an execution lease expires, a live replica reconciles an interrupted ordinary task to FAILED.
+A task with an explicitly saved checkpoint becomes INPUT_REQUIRED for manual continuation; it is
+never reported completed merely because its producer disappeared.
+
+Checkpoint recovery is explicit: set `{ task: true, taskContext: true, checkpoint: true }`, use
+`task.checkpoint(data)` and inspect `task.checkpointData`. After a crash and lease expiry, send a
+follow-up using the same real `taskId`, identity and tenant. Only that opt-in skill interprets its
+checkpoint; no scheduler automatically restarts arbitrary code. External side effects require
+idempotency keys or their own transaction. This replica/checkpoint extension remains an opt-in
+prototype whose tested boundaries are documented in [OPERATIONS.md](../../OPERATIONS.md).
+
+### Dependency security pins
+
+The tested development toolchain uses Vitest/coverage 4.1.12, Express 5.3.0, Supertest 7.3.1 and
+uuid 11.1.1. Package overrides pin patched transitive releases for `@humanfs/node`,
+`brace-expansion` 1/5, `form-data`, `path-to-regexp` and `rollup`. These address the audit
+advisories without `npm audit fix` or a major production framework migration. Revisit the overrides
+when their parent packages ship compatible patched dependencies. Consumer applications should
+also audit their resolved Express peer and lockfile.
 
 ---
 

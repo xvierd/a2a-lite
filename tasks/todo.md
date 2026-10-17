@@ -32,7 +32,34 @@ The HTTPS credential can push package code but GitHub rejects workflow changes b
 
 ## Remote verification
 
-- [PR #5](https://github.com/xvierd/a2a-lite/pull/5) contains the package and documentation changes.
+- [PR #5](https://github.com/xvierd/a2a-lite/pull/5) was merged on 2026-10-17 at `4d9e655`. [Main CI](https://github.com/xvierd/a2a-lite/actions/runs/39066109738) passed in all seven environments.
 - [CI](https://github.com/xvierd/a2a-lite/actions/runs/39064570880) passed on source commit `ff3b38f`: Python 3.10/3.11/3.12, Node 20/22 and Java 17/21.
 - [Python dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064641530) and [npm dry run](https://github.com/xvierd/a2a-lite/actions/runs/39064643732) passed; publication was skipped.
-- Release 1.1.0 is prepared; no package was published by this work. Remaining workflow-permission and Java-credential requirements are above.
+- The authorized 1.1.0 [Python publication](https://github.com/xvierd/a2a-lite/actions/runs/39066410666) and [npm publication](https://github.com/xvierd/a2a-lite/actions/runs/39066412902) succeeded from that merge commit. Clean registry installations, CLI and HTTP quickstarts passed; PyPI wheel/sdist hashes match the published build artifacts and npm provenance is available. Java publication and workflow delivery still require the prerequisites above.
+
+## Learning to production: 1.2.0 implementation
+
+Approved on 2026-10-17. See [ROADMAP.md](../ROADMAP.md#learning-to-production-improvement-plan--2026-10-17) for the original acceptance criteria and [OPERATIONS.md](../OPERATIONS.md) for supported behavior and limits.
+
+- [x] Add progressive examples, real protocol task IDs, scoped identities and rotating client credentials in all three languages.
+- [x] Add managed lifecycle, bounded admission/output/history, graceful shutdown and health diagnostics.
+- [x] Implement durable state, ownership, schema setup, encrypted callback configuration, rotation and retention.
+- [x] Implement atomic callback handoff, bounded retry/replay and stable delivery IDs for receiver deduplication.
+- [x] Implement and exercise two-replica subscription/cancellation, stale-writer fencing and explicit crash reconciliation; document language-specific checkpoint contracts.
+- [x] Add nine-pair interoperability, official SDK, PostgreSQL crash/restore, package contracts and local load runners.
+- [x] Write migration and operator guides; compile and run the progressive examples.
+- [x] Record final integrated qualification on frozen source: all nine language pairs, three official-SDK profiles, all PostgreSQL failure/restore profiles and 12,000 local load requests pass. See [evidence](../tests/evidence/2026-10-17-1.2.0/README.md).
+- [ ] Publish 1.2.0 Python/npm from a validated merge and verify registry installations.
+- [ ] Activate expanded CI/release workflows when GitHub workflow permission is available.
+- [ ] Publish Java when Maven Central and signing prerequisites are available.
+- [ ] Qualify an agreed production workload and hardware profile against latency, availability, RPO and RTO targets; include long-duration SSE/callback-outage and network-failure campaigns.
+- [ ] Validate the learning sequence with a person unfamiliar with the project.
+
+### Package evidence before integrated release gates
+
+- Python: 685 tests pass without the PostgreSQL opt-in (14 skipped), 89.32% coverage; 28 SQLite/PostgreSQL persistence/recovery cases pass. Lint, format, wheel/sdist and clean installation pass.
+- TypeScript: 451 pass without PostgreSQL (17 skipped); default coverage 81.67% statements, 72.29% branches, 81.38% functions and 83.08% lines. With PostgreSQL, 468 pass. Typecheck/build/format pass; lint has zero errors and 16 existing warnings. Clean package Message/Task/SSE/credential-rotation checks pass.
+- Java: 248 pass with PostgreSQL, including 13 PostgreSQL cases; `compileExamples`, nine Lite builds and six Maven builds pass. Learning and authenticated examples run successfully.
+- Independent reviews fixed stale-producer cancellation, cross-replica terminal-stream races, deadline/output limits, paused-task continuation and revoked-subscription replay.
+
+Coordination adapters are opt-in references, not a certification. Arbitrary interrupted functions do not resume automatically, cancellation remains cooperative, and external effects need application idempotency. Workflow drafts are reviewable files, not active checks.

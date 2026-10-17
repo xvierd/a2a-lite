@@ -103,7 +103,7 @@ public class OAuth2Auth implements AuthProvider {
             String scope = claims.getStringClaim("scope");
             Set<String> scopes = scope == null || scope.isBlank() ? Set.of()
                 : Arrays.stream(scope.trim().split("\\s+")).collect(Collectors.toUnmodifiableSet());
-            return AuthResult.success(subject, scopes);
+            return AuthResult.identified(issuer, subject, Set.of(""), scopes);
         } catch (Exception e) {
             // Tokens, provider responses and parsing details may contain credentials.
             return AuthResult.failure("Invalid bearer token");

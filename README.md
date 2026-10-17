@@ -19,13 +19,13 @@
   </p>
 </p>
 
-> **A2A Lite is designed for learning and prototyping.** It's the friendly on-ramp to Google's A2A Protocol — get familiar with agent-to-agent concepts with minimal boilerplate before going deeper with the official SDKs. Perfect for courses, POCs, and demos. When you're ready for production, the skills you learn here transfer directly.
+> **Learn with a small agent, then add explicit operational guarantees.** The default learning profile needs no database. Authenticated and durable profiles add verified identity, managed lifecycle and persistent tasks as the application grows. Deployment limits and recovery behavior are documented in [OPERATIONS.md](OPERATIONS.md); production suitability depends on the workload and the qualification gates you run.
 
 ---
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API for **A2A protocol v1.0** with minimal boilerplate. Supported features and transport limitations are listed in the [feature matrix](#feature-matrix).
 
-> **Current SDK baseline (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0`, and `a2a-java-sdk 1.4.0.Final`. The latest stable [A2A specification is 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); agent cards and the `A2A-Version` header continue to use `1.0`, as required by [protocol versioning](https://a2a-protocol.org/latest/specification/#36-versioning). Basic skill registration is unchanged; 1.1.0 tightens authentication, task ownership and callback delivery. v0.3 peers remain unsupported. See [MIGRATION.md](MIGRATION.md) for SDK changes and migration steps.
+> **Current SDK baseline (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0`, and `a2a-java-sdk 1.4.0.Final`. The latest stable [A2A specification is 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); agent cards and the `A2A-Version` header continue to use `1.0`, as required by [protocol versioning](https://a2a-protocol.org/latest/specification/#36-versioning). Version 1.2.0 adds managed runtimes, scoped identities, PostgreSQL persistence and explicit delivery/recovery modes while preserving basic skill registration. v0.3 peers remain unsupported. See [MIGRATION.md](MIGRATION.md) for SDK changes and migration steps.
 
 ## Why A2A Lite?
 
@@ -58,8 +58,8 @@ npm install a2a-lite
 ### Java (Gradle)
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.1.0'
-    implementation 'io.javalin:javalin:5.6.3'   // HTTP server
+    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.javalin:javalin:7.2.3'   // HTTP server, Java 17+
 }
 ```
 
@@ -587,13 +587,13 @@ Migrating from an earlier release? Basic skill registration is unchanged; review
 | gRPC transport | ✅ experimental² | 🔜 planned | 🔜 planned |
 | `securitySchemes` in agent card | ✅ | ✅ | ✅ |
 | Signed Agent Cards | 🔜 planned | ✅ experimental | 🔜 planned |
-| `ListTasks` | 🔜 planned | 🔜 planned | 🔜 planned |
-| Multi-tenancy | 🔜 planned | 🔜 planned | 🔜 planned |
+| Owner-scoped `ListTasks` | ✅ | ✅ | ✅ |
+| Authorized tenant scopes | ✅ | ✅ | ✅ |
 | v0.3 compatibility | ❌ | ❌ | ❌ |
 | **Lite API** | | | |
 | Basic skills | ✅ | ✅ | ✅ |
 | Auto JSON schemas | ✅ Pydantic | ⚠️ Manual | ⚠️ Manual |
-| Streaming (`yield`) | ✅ | ✅ | ✅ SDK integration only |
+| Streaming (`yield`) | ✅ | ✅ | ✅ standalone and SDK |
 | Middleware | ✅ | ✅ | ✅ |
 | File handling (`FilePart`) | ✅ | ✅ | ✅ |
 | Structured data (`DataPart`) | ✅ | ✅ | ✅ |
@@ -621,6 +621,14 @@ Migrating from an earlier release? Basic skill registration is unchanged; review
 | `get/cancel` remote tasks | ✅ | ✅ | ✅ |
 | Client-side SSE streaming | ✅ | ✅ | ✅ |
 | Per-task push notifications | ✅ | ✅ | ✅ |
+| Managed start/stop and health probes | ✅ | ✅ | ✅ |
+| PostgreSQL protocol persistence | ✅ | ✅ | ✅ |
+| Durable callback outbox | ✅ | ✅ | ✅ |
+
+These entries describe available APIs, not a certification or a throughput guarantee.
+See the [operator guide](OPERATIONS.md) and [reproducible interoperability and failure gates](tests/interop/README.md)
+for tested behavior, recovery limits and deployment prerequisites. Callback delivery is at least once;
+receivers must deduplicate. With durable execution coordination enabled, an interrupted ordinary skill is marked failed after lease expiry; it is not automatically rerun.
 
 > **Note on v0.3:** a2a-lite 1.0 does not interoperate with A2A 0.3 agents (explicit decision — no compatibility mode). Lite clients detect 0.3 agent cards and fail with a clear error. See [MIGRATION.md](MIGRATION.md).
 >
