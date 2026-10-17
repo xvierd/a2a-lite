@@ -82,7 +82,7 @@ The starting baseline was the merged [PR #5](https://github.com/xvierd/a2a-lite/
 
 ### Implementation status
 
-The language implementations and package tests are complete for 1.2.0. [OPERATIONS.md](OPERATIONS.md) describes exact guarantees, defaults and recovery differences; [tasks/todo.md](tasks/todo.md) records validation and remaining work. Python supports opt-in checkpoint re-execution, TypeScript explicit checkpoint continuation, and Java an application-managed checkpoint primitive. Shared durable state does not imply arbitrary function recovery or exactly-once external effects.
+The language implementations and package tests are complete for 1.2.0. Python and npm 1.2.0 are published and verified from clean registry installations; [release evidence](tests/evidence/2026-10-17-1.2.0/README.md#published-release-verification) records CI, artifact hashes and provenance. [OPERATIONS.md](OPERATIONS.md) describes exact guarantees, defaults and recovery differences; [tasks/todo.md](tasks/todo.md) records validation and remaining work. Python supports opt-in checkpoint re-execution, TypeScript explicit checkpoint continuation, and Java an application-managed checkpoint primitive. Shared durable state does not imply arbitrary function recovery or exactly-once external effects.
 
 Milestones 1–5 have implementations and automated behavioral tests. Their distributed adapters remain reference implementations. Milestone 0 still requires GitHub workflow access and Java publication credentials. Milestone 6 includes repeatable local gates and runbooks, but production SLO qualification, long-duration failure campaigns and an unfamiliar learner's evaluation remain open. Local load measurements cannot substitute for those acceptance targets.
 

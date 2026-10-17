@@ -1,0 +1,70 @@
+{
+  "package": "a2a-lite",
+  "version": "1.2.0",
+  "commit": "7ef5ccc73d3cf1b75773d40579c7c78001ff73c3",
+  "workflowRun": 39070676912,
+  "workflowUrl": "https://github.com/xvierd/a2a-lite/actions/runs/39070676912",
+  "registryUrl": "https://pypi.org/pypi/a2a-lite/1.2.0/json",
+  "success": true,
+  "files": [
+    {
+      "filename": "a2a_lite-1.2.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/4b/76/4d977438269fc6d05c64a5ac339fd0c4af2dd1bfc623c7329c064d8b1005/a2a_lite-1.2.0-py3-none-any.whl",
+      "sha256": "28c12200e3f4de50fd6cf50d8f89b81cdc4993ba3483dacf4f6d0d9741d28c18",
+      "workflowSha256": "28c12200e3f4de50fd6cf50d8f89b81cdc4993ba3483dacf4f6d0d9741d28c18",
+      "registryMetadataSha256": "28c12200e3f4de50fd6cf50d8f89b81cdc4993ba3483dacf4f6d0d9741d28c18",
+      "exactMatch": true
+    },
+    {
+      "filename": "a2a_lite-1.2.0.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/26/61/cb0315a7d5f3a37003876bfd512c9fb70931f8c82b5481611b6cc40868f8/a2a_lite-1.2.0.tar.gz",
+      "sha256": "2f0dc795771da272cf70bd9a9348dddbf29b25e2d1412c5c9c22b437123fd5f1",
+      "workflowSha256": "2f0dc795771da272cf70bd9a9348dddbf29b25e2d1412c5c9c22b437123fd5f1",
+      "registryMetadataSha256": "2f0dc795771da272cf70bd9a9348dddbf29b25e2d1412c5c9c22b437123fd5f1",
+      "exactMatch": true
+    }
+  ],
+  "verifiedAt": "2026-10-17T21:27:37.159123+00:00",
+  "installation": {
+    "indexUrl": "https://pypi.org/simple",
+    "requirement": "a2a-lite[sqlite,oauth]==1.2.0",
+    "isolatedEnvironment": true,
+    "noCache": true,
+    "refreshPackage": "a2a-lite",
+    "passed": true
+  },
+  "imports": {
+    "version": "1.2.0",
+    "python": "3.13.9",
+    "fromCleanVenv": true,
+    "dependencies": {
+      "a2a-sdk": "1.2.2",
+      "pyjwt": "2.15.1",
+      "aiosqlite": "0.22.1",
+      "cryptography": "50.0.2",
+      "sqlalchemy": "2.1.5"
+    }
+  },
+  "cli": {
+    "help": true,
+    "version": "A2A Lite v1.2.0"
+  },
+  "progressive": {
+    "source": "examples/python/12_production_path/main.py",
+    "sourceCommit": "7ef5ccc73d3cf1b75773d40579c7c78001ff73c3",
+    "message": true,
+    "realTaskId": true,
+    "orderedStream": true,
+    "checkpoint": true,
+    "sqliteRestart": true,
+    "apiKeyRotationPreservesOwnership": true,
+    "output": [
+      "Message: Hello, A2A!",
+      "Task: 27a7ef83-7da8-4a52-abbb-f73b71670af1 TASK_STATE_COMPLETED",
+      "Stream: ['learn', 'test', 'operate']",
+      "Checkpoint result: {'processed': 3, 'taskId': '596e622e-3196-43ef-bbed-9028cc1e1ef2'}",
+      "Runtime: {'profile': 'durable', 'ready': True, 'accepting': True, 'active': 0, 'streams': 0, 'uncooperative': 0, 'accepted': 4, 'rejected': 0, 'completed': 4, 'failed': 0, 'timed_out': 0, 'canceled': 0}",
+      "After restart and key rotation: 27a7ef83-7da8-4a52-abbb-f73b71670af1"
+    ]
+  }
+}

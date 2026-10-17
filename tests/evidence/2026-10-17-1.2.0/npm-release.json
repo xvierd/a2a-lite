@@ -1,0 +1,55 @@
+{
+  "verifiedAt": "2026-10-17T21:27:14.624Z",
+  "name": "a2a-lite",
+  "version": "1.2.0",
+  "urls": {
+    "package": "https://www.npmjs.com/package/a2a-lite/v/1.2.0",
+    "metadata": "https://registry.npmjs.org/a2a-lite/1.2.0",
+    "tarball": "https://registry.npmjs.org/a2a-lite/-/a2a-lite-1.2.0.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/a2a-lite@1.2.0",
+    "workflowRun": "https://github.com/xvierd/a2a-lite/actions/runs/39070678731/attempts/1",
+    "sigstore": "https://search.sigstore.dev/?logIndex=3301086134"
+  },
+  "commit": "7ef5ccc73d3cf1b75773d40579c7c78001ff73c3",
+  "commitMatches": true,
+  "integrity": "sha512-/oJZN4sXh5Bt3LOQAUUKL5aBSq4JOpBB9+MFv0Ep7gYyEXsZhwSPjvAcGV7SVnu6CfO2WLB+Bo0FqhgVmxAyEw==",
+  "sha1": "da70ab6b1b9bbad1d6642770c26601c38c743169",
+  "sha512": "fe8259378b1787906ddcb39001450a2f96814aae093a9041f7e305bf4129ee0632117b1987048f8ef01c195ed2567bba09f3b658b07e068d05aa18159b103213",
+  "tarballDigestVerified": true,
+  "provenance": {
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "workflow": {
+      "ref": "refs/heads/main",
+      "repository": "https://github.com/xvierd/a2a-lite",
+      "path": ".github/workflows/publish-npm.yml"
+    },
+    "subjectDigestMatches": true,
+    "npmAuditSignaturesExitCode": 0,
+    "invalid": [],
+    "missing": []
+  },
+  "results": {
+    "registryInstallation": true,
+    "installedPackages": 71,
+    "cli": "1.2.0",
+    "esm": true,
+    "cjs": true,
+    "version": "1.2.0",
+    "message": true,
+    "taskId": true,
+    "taskRead": true,
+    "stream": true,
+    "rotation": true,
+    "rotatedTaskOwner": true,
+    "unauthenticatedRejected": true,
+    "audit": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "success": true
+}

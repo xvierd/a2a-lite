@@ -49,7 +49,7 @@ Approved on 2026-10-17. See [ROADMAP.md](../ROADMAP.md#learning-to-production-im
 - [x] Add nine-pair interoperability, official SDK, PostgreSQL crash/restore, package contracts and local load runners.
 - [x] Write migration and operator guides; compile and run the progressive examples.
 - [x] Record final integrated qualification on frozen source: all nine language pairs, three official-SDK profiles, all PostgreSQL failure/restore profiles and 12,000 local load requests pass. See [evidence](../tests/evidence/2026-10-17-1.2.0/README.md).
-- [ ] Publish 1.2.0 Python/npm from a validated merge and verify registry installations.
+- [x] Publish 1.2.0 Python/npm from validated merge `7ef5ccc` and verify clean registry installations, PyPI artifact hashes and npm signatures/provenance.
 - [ ] Activate expanded CI/release workflows when GitHub workflow permission is available.
 - [ ] Publish Java when Maven Central and signing prerequisites are available.
 - [ ] Qualify an agreed production workload and hardware profile against latency, availability, RPO and RTO targets; include long-duration SSE/callback-outage and network-failure campaigns.
@@ -63,3 +63,12 @@ Approved on 2026-10-17. See [ROADMAP.md](../ROADMAP.md#learning-to-production-im
 - Independent reviews fixed stale-producer cancellation, cross-replica terminal-stream races, deadline/output limits, paused-task continuation and revoked-subscription replay.
 
 Coordination adapters are opt-in references, not a certification. Arbitrary interrupted functions do not resume automatically, cancellation remains cooperative, and external effects need application idempotency. Workflow drafts are reviewable files, not active checks.
+
+## 1.2.0 remote delivery
+
+- [PR #6](https://github.com/xvierd/a2a-lite/pull/6) merged on 2026-10-17 at `7ef5ccc73d3cf1b75773d40579c7c78001ff73c3`.
+- [PR CI](https://github.com/xvierd/a2a-lite/actions/runs/39070418470) and [merge CI](https://github.com/xvierd/a2a-lite/actions/runs/39070566956) passed all seven environments: Python 3.10/3.11/3.12, Node 20/22 and Java 17/21.
+- [Python dry run](https://github.com/xvierd/a2a-lite/actions/runs/39070451741) and [npm dry run](https://github.com/xvierd/a2a-lite/actions/runs/39070453562) passed without publication.
+- [Python publication](https://github.com/xvierd/a2a-lite/actions/runs/39070676912) and [npm publication](https://github.com/xvierd/a2a-lite/actions/runs/39070678731) succeeded from that exact merge. Clean installations from both public registries passed CLI/import and authenticated Message/Task/stream checks. Python also passed durable restart and credential rotation; npm passed rotated task ownership and rejected anonymous calls. [Python release evidence](../tests/evidence/2026-10-17-1.2.0/python-release.json) confirms exact wheel/sdist hashes against the workflow artifact; [npm release evidence](../tests/evidence/2026-10-17-1.2.0/npm-release.json) confirms tarball integrity, signatures and provenance for the merge commit.
+- Java 1.2.0 library, sources, Javadoc, POM and Gradle metadata were generated and inspected locally. POM/metadata carry Jetty core/EE10 12.1.14 and Jackson 2.22.3 platform alignment. Java has not been published.
+- Fresh access checks still show no GitHub `workflow` scope and no Maven Central/GPG repository secrets. Workflow drafts remain inactive; these are external prerequisites, not failed package tests.
