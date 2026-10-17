@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+from importlib.metadata import version
 from uuid import uuid4
 
 import httpx
@@ -68,6 +69,7 @@ async def check(url):
             + json.dumps(
                 {
                     "sdk": "a2a-sdk",
+                    "sdkVersion": version("a2a-sdk"),
                     "message": True,
                     "task": True,
                     "taskRead": True,

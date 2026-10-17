@@ -73,6 +73,21 @@ examples/
 
 ## 🎓 Ejemplos por Dificultad
 
+### Ruta progresiva: del primer mensaje a la persistencia
+
+Los nuevos recorridos conservan el mismo agente mientras agregan una capacidad por paso:
+Message, Task consultable, streaming y cancelación, identidad estable y almacenamiento durable.
+Los primeros pasos funcionan sin cuenta de LLM ni base de datos.
+
+- [Python](python/12_production_path/README.md)
+- [TypeScript](typescript/11_production_path/README.md)
+- [Java](java/11_production_path_lite/README.md)
+
+Para operar réplicas, restaurar datos o dimensionar límites, continúa con
+[OPERATIONS.md](../OPERATIONS.md) y las [pruebas reproducibles](../tests/interop/README.md).
+Los ejemplos de persistencia anteriores muestran almacenamiento local de la aplicación;
+no reemplazan los adaptadores de persistencia del protocolo de esta ruta.
+
 ### 🟢 BÁSICO
 - **01_hello_world**: Agente simple, skills básicos
 - **02_calculator**: Múltiples skills, validación, artifacts

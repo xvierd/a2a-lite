@@ -76,9 +76,15 @@ Java publication requires Maven Central token credentials and a valid GPG privat
 
 ## Learning-to-production improvement plan — 2026-10-17
 
-**Objective:** preserve the small, infrastructure-free first agent and provide a tested path to operating authenticated, durable agents with explicit capacity and recovery guarantees. The milestones below are planned work, not existing capabilities or an enterprise certification.
+**Objective:** preserve the small, infrastructure-free first agent and provide a tested path to operating authenticated, durable agents with explicit capacity and recovery guarantees. The milestones below preserve the approved acceptance criteria. The 1.2.0 implementation now provides progressive examples, managed runtimes and durable reference adapters in all three languages; deployment qualification and external release prerequisites remain separate gates.
 
-The current baseline is the open [PR #5](https://github.com/xvierd/a2a-lite/pull/5): 1,205 local tests and seven CI environments passed. Functional coverage does not establish throughput, availability or automatic recovery. Current release/workflow dependencies remain in [`tasks/todo.md`](tasks/todo.md).
+The starting baseline was the merged [PR #5](https://github.com/xvierd/a2a-lite/pull/5): 1,205 local tests and seven CI environments passed. Implementation of the plan below was approved on 2026-10-17 and is tracked in [`tasks/todo.md`](tasks/todo.md). Functional coverage does not establish throughput, availability or automatic recovery. Release/workflow dependencies remain explicit in that tracker.
+
+### Implementation status
+
+The language implementations and package tests are complete for 1.2.0. [OPERATIONS.md](OPERATIONS.md) describes exact guarantees, defaults and recovery differences; [tasks/todo.md](tasks/todo.md) records validation and remaining work. Python supports opt-in checkpoint re-execution, TypeScript explicit checkpoint continuation, and Java an application-managed checkpoint primitive. Shared durable state does not imply arbitrary function recovery or exactly-once external effects.
+
+Milestones 1–5 have implementations and automated behavioral tests. Their distributed adapters remain reference implementations. Milestone 0 still requires GitHub workflow access and Java publication credentials. Milestone 6 includes repeatable local gates and runbooks, but production SLO qualification, long-duration failure campaigns and an unfamiliar learner's evaluation remain open. Local load measurements cannot substitute for those acceptance targets.
 
 ### Scope and architectural decisions
 

@@ -161,7 +161,9 @@ def main():
                         report["measurements"].append(result)
                         print(json.dumps(result), flush=True)
         report["complete"] = True
-        report["success"] = all(item["errorRate"] == 0 for item in report["measurements"])
+        report["success"] = all(
+            item["errorRate"] == 0 for item in report["measurements"]
+        )
     finally:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")

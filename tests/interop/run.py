@@ -29,6 +29,21 @@ TOKEN = "interop-secret"  # Public, disposable fixture credentials.
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+def source_state():
+    return {
+        "gitCommit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
+        "trackedWorktreeDirty": bool(
+            subprocess.check_output(
+                ["git", "status", "--porcelain", "--untracked-files=no"],
+                cwd=ROOT,
+                text=True,
+            )
+        ),
+    }
+
+
 def require(condition, description):
     if not condition:
         raise AssertionError(description)
@@ -355,6 +370,7 @@ def main():
     args = parser.parse_args()
     report = {
         "schemaVersion": 1,
+        **source_state(),
         "startedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "platform": platform.platform(),
         "cpuCount": os.cpu_count(),

@@ -31,7 +31,7 @@ jobs:
           cache-dependency-path: packages/python/pyproject.toml
 
       - name: Install dependencies
-        run: pip install -e ".[dev,grpc,sqlite]"
+        run: pip install -e ".[dev,grpc,sqlite,oauth]"
 
       - name: Lint (ruff check)
         run: ruff check src tests
@@ -140,7 +140,7 @@ jobs:
       - name: Install protocol and PostgreSQL test dependencies
         run: |
           python -m venv packages/python/.venv
-          packages/python/.venv/bin/pip install -e 'packages/python[dev,postgresql,sqlite]'
+          packages/python/.venv/bin/pip install -e 'packages/python[dev,postgresql,sqlite,oauth]'
           npm ci --prefix packages/typescript
           cd packages/java
           ./gradlew writeInteropClasspath --no-daemon

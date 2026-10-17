@@ -14,7 +14,7 @@ import time
 import urllib.request
 from uuid import uuid4
 
-from run import HTTP, ROOT, message, require, rpc, server
+from run import HTTP, ROOT, message, require, rpc, server, source_state
 
 DB_USER = "a2alite_test"
 DB_PASSWORD = "a2alite_local_test_only"  # Only for the disposable localhost container.
@@ -340,10 +340,36 @@ def qualify(
                 "error" not in configured,
                 f"Durable callback config failed: {configured}",
             )
+            paused = rpc(first.url, "SendMessage", message("pause"))
+            paused_task = paused.get("result", {}).get("task", {})
+            paused_id = paused_task.get("id")
+            require(
+                paused_id
+                and paused_task.get("status", {}).get("state")
+                == "TASK_STATE_INPUT_REQUIRED",
+                f"Task did not pause for input: {paused}",
+            )
+            continuation = message("pause", {"resume": True})
+            continuation["message"]["taskId"] = paused_id
             with server(language, logs, env) as second:
                 read_contract(second.url, task_id, config_id)
+                require(
+                    "error"
+                    in rpc(second.url, "SendMessage", continuation, "interop-other"),
+                    "Another principal continued a paused task",
+                )
                 first.crash()
                 read_contract(second.url, task_id, config_id)
+                resumed = rpc(
+                    second.url, "SendMessage", continuation, "interop-rotated"
+                )
+                resumed_task = resumed.get("result", {}).get("task", {})
+                require(
+                    resumed_task.get("id") == paused_id
+                    and resumed_task.get("status", {}).get("state")
+                    == "TASK_STATE_COMPLETED",
+                    f"Paused task did not continue on another replica with its original ID: {resumed}",
+                )
         # A fresh process must read a completed Task after SIGKILL, without replaying the skill.
         with server(language, logs, env) as restarted:
             read_contract(restarted.url, task_id, config_id)
@@ -375,6 +401,8 @@ def qualify(
             "pgDumpRestore": True,
             "callbackDecryption": True,
             "ownerIsolation": True,
+            "pausedTaskContinuation": True,
+            "continuationOwnerIsolation": True,
             "packageDatabaseTests": include_package_tests,
             "activeExecutionTested": active,
             **active_result,
@@ -420,6 +448,7 @@ def main():
         args.logs.mkdir(parents=True, exist_ok=True)
     report = {
         "schemaVersion": 1,
+        **source_state(),
         "startedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "profiles": [],
         "success": False,
