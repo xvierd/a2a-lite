@@ -47,3 +47,11 @@ Short runs, shared desktop hardware and runtime differences make these regressio
 - Expanded CI/release definitions are inactive drafts until GitHub workflow write permission is available. Maven Central credentials and signing keys are required for Java publication. See [release status](../../../tasks/todo.md).
 
 Commands and setup are documented in [the gate guide](../../interop/README.md). Deployment boundaries and recovery procedures are in [OPERATIONS.md](../../../OPERATIONS.md).
+
+## Published release verification
+
+[PR #6](https://github.com/xvierd/a2a-lite/pull/6) merged at `7ef5ccc73d3cf1b75773d40579c7c78001ff73c3`. [Merge CI](https://github.com/xvierd/a2a-lite/actions/runs/39070566956) passed Python 3.10/3.11/3.12, Node 20/22 and Java 17/21 before publication. Runtime sources are unchanged from the local qualification commits above.
+
+- [PyPI 1.2.0](https://pypi.org/project/a2a-lite/1.2.0/): clean registry installation with SQLite/OAuth extras passed CLI/import, Message, real Task ID, streaming, checkpoint, restart and key rotation. [Recorded hashes](python-release.json) for the wheel and sdist exactly match the [publication build](https://github.com/xvierd/a2a-lite/actions/runs/39070676912).
+- [npm 1.2.0](https://www.npmjs.com/package/a2a-lite/v/1.2.0): clean registry installation passed CLI, ESM/CJS, authenticated HTTP calls, Task reads, streams, rotated ownership and anonymous rejection. [Verification](npm-release.json) records zero audit findings, valid signatures and provenance tied to the [publication run](https://github.com/xvierd/a2a-lite/actions/runs/39070678731) and exact merge commit.
+- Java artifacts (library, sources, Javadoc, POM and Gradle metadata) were generated and inspected. Publication remains pending Maven Central/signing credentials; expanded workflows remain inactive drafts.
