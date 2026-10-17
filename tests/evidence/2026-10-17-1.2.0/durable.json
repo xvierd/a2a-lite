@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "gitCommit": "0305da618fa0e75bd31f890bd5ade4e708d247d1",
+  "trackedWorktreeDirty": false,
+  "startedAt": "2026-10-17T21:15:06.803798+00:00",
+  "profiles": [
+    {
+      "language": "python",
+      "twoReplicaRead": true,
+      "processKill": true,
+      "restart": true,
+      "pgDumpRestore": true,
+      "callbackDecryption": true,
+      "ownerIsolation": true,
+      "pausedTaskContinuation": true,
+      "continuationOwnerIsolation": true,
+      "packageDatabaseTests": true,
+      "activeExecutionTested": true,
+      "remoteSubscribe": true,
+      "remoteCancel": true,
+      "terminalFence": true,
+      "ordinaryCrashExplicitlyFailed": true,
+      "observedReconciliationSeconds": 30.20787095814012
+    },
+    {
+      "language": "typescript",
+      "twoReplicaRead": true,
+      "processKill": true,
+      "restart": true,
+      "pgDumpRestore": true,
+      "callbackDecryption": true,
+      "ownerIsolation": true,
+      "pausedTaskContinuation": true,
+      "continuationOwnerIsolation": true,
+      "packageDatabaseTests": true,
+      "activeExecutionTested": true,
+      "remoteSubscribe": true,
+      "remoteCancel": true,
+      "terminalFence": true,
+      "ordinaryCrashExplicitlyFailed": true,
+      "observedReconciliationSeconds": 15.438349208096042
+    },
+    {
+      "language": "java",
+      "twoReplicaRead": true,
+      "processKill": true,
+      "restart": true,
+      "pgDumpRestore": true,
+      "callbackDecryption": true,
+      "ownerIsolation": true,
+      "pausedTaskContinuation": true,
+      "continuationOwnerIsolation": true,
+      "packageDatabaseTests": true,
+      "activeExecutionTested": true,
+      "remoteSubscribe": true,
+      "remoteCancel": true,
+      "terminalFence": true,
+      "ordinaryCrashExplicitlyFailed": true,
+      "observedReconciliationSeconds": 5.327460958156735
+    }
+  ],
+  "success": true
+}

@@ -83,6 +83,8 @@ During a rolling upgrade, keep overlapping workers on compatible schema and even
 
 ## Qualification
 
+The [1.2.0 local evidence](tests/evidence/2026-10-17-1.2.0/README.md) records measured results and remaining qualification.
+
 Run the [interoperability gates](tests/interop/README.md) against the exact code and SDK versions being deployed. The nine Lite client/server combinations cover the common JSON-RPC surface. The official Python SDK additionally validates AgentCard parsing, messages, task reads and SSE. REST and optional gRPC need their own transport tests; Java standalone advertises JSON-RPC only.
 
 Use the load runner to record hardware, workload, concurrency, throughput, p95/p99 and error rate. Its loopback memory profile measures framework behavior with a 20ms simulated I/O operation; it does not measure a database, TLS, a remote LLM or a production network. Establish latency, availability, recovery-time and acceptable-data-loss targets for the actual deployment before making a production capacity claim.

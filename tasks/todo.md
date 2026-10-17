@@ -48,7 +48,8 @@ Approved on 2026-10-17. See [ROADMAP.md](../ROADMAP.md#learning-to-production-im
 - [x] Implement and exercise two-replica subscription/cancellation, stale-writer fencing and explicit crash reconciliation; document language-specific checkpoint contracts.
 - [x] Add nine-pair interoperability, official SDK, PostgreSQL crash/restore, package contracts and local load runners.
 - [x] Write migration and operator guides; compile and run the progressive examples.
-- [ ] Record the final integrated qualification run on frozen source and publish 1.2.0 Python/npm from a validated merge.
+- [x] Record final integrated qualification on frozen source: all nine language pairs, three official-SDK profiles, all PostgreSQL failure/restore profiles and 12,000 local load requests pass. See [evidence](../tests/evidence/2026-10-17-1.2.0/README.md).
+- [ ] Publish 1.2.0 Python/npm from a validated merge and verify registry installations.
 - [ ] Activate expanded CI/release workflows when GitHub workflow permission is available.
 - [ ] Publish Java when Maven Central and signing prerequisites are available.
 - [ ] Qualify an agreed production workload and hardware profile against latency, availability, RPO and RTO targets; include long-duration SSE/callback-outage and network-failure campaigns.

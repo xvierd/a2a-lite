@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "gitCommit": "0305da618fa0e75bd31f890bd5ade4e708d247d1",
+  "trackedWorktreeDirty": false,
+  "startedAt": "2026-10-17T21:15:03.344839+00:00",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "cpuCount": 11,
+  "pairs": [
+    {
+      "client": "python",
+      "server": "python",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "typescript",
+      "server": "python",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "java",
+      "server": "python",
+      "taskRead": true,
+      "task": true,
+      "message": true,
+      "stream": true
+    },
+    {
+      "client": "python",
+      "server": "typescript",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "typescript",
+      "server": "typescript",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "java",
+      "server": "typescript",
+      "task": true,
+      "taskRead": true,
+      "stream": true,
+      "message": true
+    },
+    {
+      "client": "python",
+      "server": "java",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "typescript",
+      "server": "java",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "client": "java",
+      "server": "java",
+      "taskRead": true,
+      "task": true,
+      "message": true,
+      "stream": true
+    }
+  ],
+  "protocol": [
+    {
+      "server": "python",
+      "discovery": true,
+      "anonymousDenied": true,
+      "rotation": true,
+      "ownerIsolation": true,
+      "pushConfigIds": true,
+      "initialSseTask": true,
+      "failure": true
+    },
+    {
+      "server": "typescript",
+      "discovery": true,
+      "anonymousDenied": true,
+      "rotation": true,
+      "ownerIsolation": true,
+      "pushConfigIds": true,
+      "initialSseTask": true,
+      "failure": true
+    },
+    {
+      "server": "java",
+      "discovery": true,
+      "anonymousDenied": true,
+      "rotation": true,
+      "ownerIsolation": true,
+      "pushConfigIds": true,
+      "initialSseTask": true,
+      "failure": true
+    }
+  ],
+  "officialSdk": [
+    {
+      "server": "python",
+      "sdk": "a2a-sdk",
+      "sdkVersion": "1.2.2",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "server": "typescript",
+      "sdk": "a2a-sdk",
+      "sdkVersion": "1.2.2",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    },
+    {
+      "server": "java",
+      "sdk": "a2a-sdk",
+      "sdkVersion": "1.2.2",
+      "message": true,
+      "task": true,
+      "taskRead": true,
+      "stream": true
+    }
+  ],
+  "success": true
+}
