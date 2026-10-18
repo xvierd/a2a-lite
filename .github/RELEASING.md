@@ -1,10 +1,10 @@
 # Publishing A2A Lite
 
-Python and npm 1.2.0 are published and verified; Java 1.2.0 publication is pending Maven Central/signing credentials. The [release evidence](../tests/evidence/2026-10-17-1.2.0/README.md#published-release-verification) records the validated commit, builds and registry checks.
+Python and npm 1.2.1 are published with the updated READMEs; Java 1.2.0 publication is pending Maven Central/signing credentials. The [1.2.1 release evidence](../tests/evidence/2026-10-18-1.2.1/README.md) records the commit, registry README checks and package integrity. The [1.2.0 evidence](../tests/evidence/2026-10-17-1.2.0/README.md) retains the runtime qualification results.
 
 ## Active workflows
 
-The files in `.github/workflows` are authoritative. All three currently default manual `dry_run` to **false**: always pass `dry_run=true` explicitly for validation. Active workflows also publish on a published GitHub Release event as well as matching tag pushes. Choose a single publication trigger; creating release notes as a GitHub Release can otherwise attempt to publish an existing version again.
+The files in `.github/workflows` are authoritative. All three currently default manual `dry_run` to **false**: always pass `dry_run=true` explicitly for validation. Active workflows also publish on a published GitHub Release event as well as matching tag pushes. A published GitHub Release event triggers all three packages, even for a Python/npm-only tag. Choose a single publication trigger; creating release notes as a GitHub Release can otherwise attempt to publish an existing version again.
 
 The replacements in [workflow-drafts](workflow-drafts/README.md) are inactive until a credential with GitHub workflow write permission delivers them. Their safer defaults, tag/version checks, Java signing preflight and extra integration jobs are not active checks.
 

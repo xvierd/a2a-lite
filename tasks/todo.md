@@ -86,5 +86,5 @@ Validation: local links across all 62 tracked Markdown files; Python constructor
 Approved on 2026-10-18 for Python and npm only. Keep runtime behavior and dependency requirements unchanged; Java remains at source version 1.2.0.
 
 - [x] Bump package metadata to 1.2.1, include corrected READMEs and verify distribution contents plus clean local installation.
-- [ ] Merge the release commit after CI and dispatch each active publication workflow exactly once.
+- [x] Merge the release commit after CI and dispatch each active publication workflow exactly once.
 - [ ] Verify public registry versions, README contents, artifact integrity and clean registry installations; record the release evidence.
