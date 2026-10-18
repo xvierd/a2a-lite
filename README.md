@@ -25,6 +25,8 @@
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API for **A2A protocol v1.0** with minimal boilerplate. Supported features and transport limitations are listed in the [feature matrix](#feature-matrix).
 
+> **Python/npm 1.2.1:** a documentation patch with corrected README examples and package-page links; runtime behavior and dependency requirements are unchanged from 1.2.0. Java remains at source version 1.2.0.
+
 > **Current SDK baseline (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0`, and `a2a-java-sdk 1.4.0.Final`. The latest stable [A2A specification is 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); agent cards and the `A2A-Version` header continue to use `1.0`, as required by [protocol versioning](https://a2a-protocol.org/latest/specification/#36-versioning). Version 1.2.0 adds managed runtimes, scoped identities, PostgreSQL persistence and explicit delivery/recovery modes while preserving basic skill registration. v0.3 peers remain unsupported. See [MIGRATION.md](MIGRATION.md) for SDK changes and migration steps.
 
 ## Why A2A Lite?

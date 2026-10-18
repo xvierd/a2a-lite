@@ -144,7 +144,7 @@ from .runtime import ManagedRuntime, RuntimeConfig
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 __all__ = [
     # Core

@@ -79,3 +79,12 @@ Coordination adapters are opt-in references, not a certification. Arbitrary inte
 - [x] Check changed snippets, local links and release instructions; keep this documentation correction separate from package publication.
 
 Validation: local links across all 62 tracked Markdown files; Python constructor signatures and affected snippets, including sync/async test clients and stable authentication; 23 TypeScript snippets under strict type checking plus the executable learning path; Java shell/JSON examples, SSE reader and Gradle task resolution. `git diff --check` passes. This pass changes Markdown only; PyPI/npm remain 1.2.0 and Java publication remains pending.
+
+
+## 1.2.1 README patch release
+
+Approved on 2026-10-18 for Python and npm only. Keep runtime behavior and dependency requirements unchanged; Java remains at source version 1.2.0.
+
+- [x] Bump package metadata to 1.2.1, include corrected READMEs and verify distribution contents plus clean local installation.
+- [ ] Merge the release commit after CI and dispatch each active publication workflow exactly once.
+- [ ] Verify public registry versions, README contents, artifact integrity and clean registry installations; record the release evidence.

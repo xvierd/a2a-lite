@@ -3,16 +3,17 @@
 [![PyPI](https://img.shields.io/pypi/v/a2a-lite?label=PyPI&logo=pypi&logoColor=white)](https://pypi.org/project/a2a-lite/)
 [![GitHub](https://img.shields.io/badge/GitHub-a2a--lite-blue?logo=github)](https://github.com/xvierd/a2a-lite)
 
-> **Start by learning A2A, then add deployment guarantees explicitly.** A2A Lite provides a small API over the official [A2A Python SDK](https://github.com/a2aproject/a2a-python), with authenticated runtimes, durable state and opt-in recovery when you need them. See the [deployment guide](docs/production.md) for supported guarantees and limits.
+> **Start by learning A2A, then add deployment guarantees explicitly.** A2A Lite provides a small API over the official [A2A Python SDK](https://github.com/a2aproject/a2a-python), with authenticated runtimes, durable state and opt-in recovery when you need them. See the [deployment guide](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/production.md) for supported guarantees and limits.
 
 **Build A2A agents in 8 lines. Add features when you need them.**
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API for A2A v1.0.
 
-> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
+> **v1.2.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
 > - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC (experimental, opt-in):** `pip install 'a2a-lite[grpc]'` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
-> - **No v0.3 compatibility.** See [MIGRATION.md](../../MIGRATION.md).
+> - **1.2.1 is a documentation-only patch:** refreshed examples and registry README links; runtime behavior and dependency requirements are unchanged from 1.2.0.
+> - **No v0.3 compatibility.** See [MIGRATION.md](https://github.com/xvierd/a2a-lite/blob/main/MIGRATION.md).
 
 ```python
 from a2a_lite import Agent
@@ -30,7 +31,7 @@ agent.run()
 
 ## Learning, managed runtimes and durability
 
-Start with the [executable learning path](../../examples/python/12_production_path), then use the [runtime and persistence guide](docs/production.md) for authenticated profiles, real task IDs, rotating credentials, PostgreSQL state/events, durable callback delivery and opt-in checkpoint recovery. `Agent.start()` returns an explicit runtime handle with readiness, statistics and `stop()`; the default eight-line API remains available.
+Start with the [executable learning path](https://github.com/xvierd/a2a-lite/tree/main/examples/python/12_production_path), then use the [runtime and persistence guide](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/production.md) for authenticated profiles, real task IDs, rotating credentials, PostgreSQL state/events, durable callback delivery and opt-in checkpoint recovery. `Agent.start()` returns an explicit runtime handle with readiness, statistics and `stop()`; the default eight-line API remains available.
 
 ```python
 from a2a_lite import RuntimeConfig, ClientConfig, PersistenceConfig
@@ -283,7 +284,7 @@ agent = Agent(
 )
 ```
 
-`production=True` enables warnings; it does not select an authenticated or durable runtime profile. Use `RuntimeConfig` and the [deployment guide](docs/production.md) for those guarantees.
+`production=True` enables warnings; it does not select an authenticated or durable runtime profile. Use `RuntimeConfig` and the [deployment guide](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/production.md) for those guarantees.
 
 ### Level 10 — Multi-Agent Communication
 
@@ -369,7 +370,8 @@ from a2a_lite import Agent, AgentNetwork, stream_remote_skill
 @agent.skill("display")
 async def display(topic: str) -> str:
     chunks = []
-    async for chunk in agent.delegate("story", "tell_story", topic=topic, stream=True):
+    stream = await agent.delegate("story", "tell_story", topic=topic, stream=True)
+    async for chunk in stream:
         print(chunk, end="", flush=True)
         chunks.append(chunk)
     return "".join(chunks)
@@ -400,7 +402,7 @@ config = await get_task_push_notification("https://agent.example/rpc", task_id, 
 await delete_task_push_notification("https://agent.example/rpc", task_id, headers=headers)
 ```
 
-Register during `SendMessage` using `configuration.taskPushNotificationConfig` to avoid missing a fast task's completion. See [the complete example](examples/18_per_task_push.py). Callbacks carry standard A2A task, status-update or artifact-update payloads with `Content-Type: application/a2a+json`; the old custom `{skill, result, status}` envelope is no longer used for per-task notifications. The standalone agent-level `WebhookPushNotifier` keeps its existing trusted configuration and envelope.
+Register during `SendMessage` using `configuration.taskPushNotificationConfig` to avoid missing a fast task's completion. See [the complete example](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/18_per_task_push.py). Callbacks carry standard A2A task, status-update or artifact-update payloads with `Content-Type: application/a2a+json`; the old custom `{skill, result, status}` envelope is no longer used for per-task notifications. The standalone agent-level `WebhookPushNotifier` keeps its existing trusted configuration and envelope.
 
 Client-supplied callbacks require **public HTTPS**. User info, fragments, private/loopback/link-local/shared addresses, unresolved hosts and redirects are rejected. Delivery has a ten-second total deadline, connects to a validated address while preserving TLS verification for the original hostname, and closes the response without buffering its body. Logs omit callback URLs and exception details. Local development should use a public HTTPS reverse proxy or mocked HTTP transport in tests; there is no insecure callback bypass.
 
@@ -514,7 +516,7 @@ def test_streaming():
 
 ## CLI
 
-Full reference: [docs/cli.md](docs/cli.md).
+Full reference: [docs/cli.md](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/cli.md).
 
 ```bash
 a2a-lite init my-agent                          # Scaffold a basic project
@@ -630,37 +632,37 @@ python agent.py    # http://localhost:8790/
 # python arena.py  # http://localhost:8793/?mode=arena
 ```
 
-Full docs: [examples/python/11_battleship_lite/README.md](../../examples/python/11_battleship_lite/README.md)
+Full docs: [examples/python/11_battleship_lite/README.md](https://github.com/xvierd/a2a-lite/blob/main/examples/python/11_battleship_lite/README.md)
 
 ### Progressive package examples
 
 | Example | What it shows |
 |---------|---------------|
-| [01_hello_world.py](examples/01_hello_world.py) | Simplest agent (8 lines) |
-| [02_calculator.py](examples/02_calculator.py) | Multiple skills |
-| [03_async_agent.py](examples/03_async_agent.py) | Async operations & lifecycle hooks |
-| [04_multi_agent/](examples/04_multi_agent) | Two agents communicating |
-| [05_with_llm.py](examples/05_with_llm.py) | OpenAI / Anthropic integration |
-| [06_pydantic_models.py](examples/06_pydantic_models.py) | Auto Pydantic conversion |
-| [06_task_handle_discovery.py](examples/06_task_handle_discovery.py) | TaskHandle + card discovery |
-| [07_middleware.py](examples/07_middleware.py) | Middleware pipeline |
-| [07_client_streaming.py](examples/07_client_streaming.py) | Client-side SSE streaming |
-| [08_streaming.py](examples/08_streaming.py) | Streaming responses |
-| [09_testing.py](examples/09_testing.py) | Built-in TestClient |
-| [10_file_handling.py](examples/10_file_handling.py) | File upload & processing |
-| [11_task_tracking.py](examples/11_task_tracking.py) | Progress updates |
-| [12_with_auth.py](examples/12_with_auth.py) | Authentication |
-| [13_mcp_tools.py](examples/13_mcp_tools.py) | MCP server integration |
-| [14_multi_agent_network.py](examples/14_multi_agent_network.py) | AgentNetwork + delegate() |
-| [15_llm_openai.py](examples/15_llm_openai.py) | OpenAI LLM skill |
-| [16_llm_anthropic.py](examples/16_llm_anthropic.py) | Anthropic LLM skill |
-| [17_llm_bedrock.py](examples/17_llm_bedrock.py) | AWS Bedrock LLM skill |
-| [18_per_task_push.py](examples/18_per_task_push.py) | Per-task push notifications |
-| [19_capability_negotiation.py](examples/19_capability_negotiation.py) | Capability negotiation |
-| [20_streaming_negotiation.py](examples/20_streaming_negotiation.py) | Streaming negotiation |
-| [**Battleship showcase**](../../examples/python/11_battleship_lite/) | Playable multi-agent A2A demo + UI |
+| [01_hello_world.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/01_hello_world.py) | Simplest agent (8 lines) |
+| [02_calculator.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/02_calculator.py) | Multiple skills |
+| [03_async_agent.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/03_async_agent.py) | Async operations & lifecycle hooks |
+| [04_multi_agent/](https://github.com/xvierd/a2a-lite/tree/main/packages/python/examples/04_multi_agent) | Two agents communicating |
+| [05_with_llm.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/05_with_llm.py) | OpenAI / Anthropic integration |
+| [06_pydantic_models.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/06_pydantic_models.py) | Auto Pydantic conversion |
+| [06_task_handle_discovery.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/06_task_handle_discovery.py) | TaskHandle + card discovery |
+| [07_middleware.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/07_middleware.py) | Middleware pipeline |
+| [07_client_streaming.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/07_client_streaming.py) | Client-side SSE streaming |
+| [08_streaming.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/08_streaming.py) | Streaming responses |
+| [09_testing.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/09_testing.py) | Built-in TestClient |
+| [10_file_handling.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/10_file_handling.py) | File upload & processing |
+| [11_task_tracking.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/11_task_tracking.py) | Progress updates |
+| [12_with_auth.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/12_with_auth.py) | Authentication |
+| [13_mcp_tools.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/13_mcp_tools.py) | MCP server integration |
+| [14_multi_agent_network.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/14_multi_agent_network.py) | AgentNetwork + delegate() |
+| [15_llm_openai.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/15_llm_openai.py) | OpenAI LLM skill |
+| [16_llm_anthropic.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/16_llm_anthropic.py) | Anthropic LLM skill |
+| [17_llm_bedrock.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/17_llm_bedrock.py) | AWS Bedrock LLM skill |
+| [18_per_task_push.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/18_per_task_push.py) | Per-task push notifications |
+| [19_capability_negotiation.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/19_capability_negotiation.py) | Capability negotiation |
+| [20_streaming_negotiation.py](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/20_streaming_negotiation.py) | Streaming negotiation |
+| [**Battleship showcase**](https://github.com/xvierd/a2a-lite/tree/main/examples/python/11_battleship_lite) | Playable multi-agent A2A demo + UI |
 
-Also see the side-by-side Google SDK suite under [examples/](../../examples/).
+Also see the side-by-side Google SDK suite under [examples/](https://github.com/xvierd/a2a-lite/tree/main/examples).
 
 ---
 
