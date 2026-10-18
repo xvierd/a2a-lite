@@ -1,5 +1,9 @@
 # Migrating A2A Lite (A2A Protocol v1.0)
 
+## 1.2.0 → 1.2.1 (Python and npm)
+
+This documentation patch updates the package READMEs, corrects API examples and makes documentation links usable on PyPI/npm. It changes no runtime behavior, dependency requirements, protocol version or migration steps. Java remains at source version 1.2.0 and is not part of this publication.
+
 ## 1.1.0 → 1.2.0
 
 The basic skill API remains available. New runtime and storage features are opt-in, while finite

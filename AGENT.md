@@ -12,9 +12,9 @@ Quick reference for AI coding assistants implementing A2A agents.
 - Java standalone `agent.run()` uses official SDK handlers for messaging, SSE, task lifecycle and push configuration over JSON-RPC. REST is not advertised. SDK task authorization must be configured separately for Quarkus (see `MIGRATION.md`). Dynamic push requires authentication and public HTTPS callbacks in every language.
 - Java Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0` (source version; Maven Central publication pending). Standalone requires Javalin 7.2.3 on Java 17+ and the BOM alignment in [the Java guide](packages/java/README.md#installation). The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
 
-## 1.2.0 runtime and task contracts
+## 1.2.x runtime and task contracts
 
-- Python and npm 1.2.0 are published. Java 1.2.0 currently runs from the source/composite builds in `examples/java`.
+- Python/npm 1.2.1 is a README documentation patch with the same runtime and dependency requirements as 1.2.0. Java 1.2.0 currently runs from the source/composite builds in `examples/java`.
 - Ordinary Message responses do not create a queryable Task. Request task mode with Python `task=True`, TypeScript `{ task: true }`, or Java `SkillConfig.withTask()`. The injected context uses the protocol Task ID; Python `TaskContext` no longer requires an application-local `task_store`.
 - Use `learning` for infrastructure-free examples, `authenticated` for verified identities and `durable` with the supported database adapter and external encryption keys. A durable profile validates prerequisites and does not silently fall back to memory.
 - Use the managed `start` API and close its returned runtime in `finally`. The host application owns process signals. Cancellation is cooperative; uncooperative work needs process isolation for hard termination.

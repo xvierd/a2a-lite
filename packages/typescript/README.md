@@ -9,12 +9,16 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple API and tested A2A 1.0 JSON-RPC/HTTP+JSON interoperability.
 
-> **v1.2.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
+> **v1.2.1 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
 > - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
 > - **gRPC:** not implemented in TypeScript yet (Python has experimental `run_grpc`; see root Feature Matrix).
 > - Requires **Node.js >= 20**. No v0.3 compatibility.
 > - Experimental **signed Agent Cards** via `signAgentCard` / `verifyAgentCard`.
-> - See [MIGRATION.md](../../MIGRATION.md).
+> - See [MIGRATION.md](https://github.com/xvierd/a2a-lite/blob/main/MIGRATION.md).
+
+**1.2.1 documentation patch:** Corrected README examples for skills, authentication, task helpers,
+streaming and lifecycle handling, with registry-safe links to the guides. Runtime APIs and
+dependency versions remain the same as 1.2.0.
 
 Discovery selects an advertised JSON-RPC interface for A2A `1.0`, including when
 REST or gRPC appears first. Agents without a compatible interface are rejected.
@@ -60,7 +64,7 @@ await agent.run();
 
 ## A progressive production path
 
-Start with the runnable [Message → Task → stream → authenticated → durable example](../../examples/typescript/11_production_path/README.md).
+Start with the runnable [Message → Task → stream → authenticated → durable example](https://github.com/xvierd/a2a-lite/blob/main/examples/typescript/11_production_path/README.md).
 It requires no external LLM or callback receiver. Its first four steps run locally without PostgreSQL.
 
 ```typescript
@@ -210,7 +214,7 @@ Checkpoint recovery is explicit: set `{ task: true, taskContext: true, checkpoin
 follow-up using the same real `taskId`, identity and tenant. Only that opt-in skill interprets its
 checkpoint; no scheduler automatically restarts arbitrary code. External side effects require
 idempotency keys or their own transaction. This replica/checkpoint extension remains an opt-in
-prototype whose tested boundaries are documented in [OPERATIONS.md](../../OPERATIONS.md).
+prototype whose tested boundaries are documented in [OPERATIONS.md](https://github.com/xvierd/a2a-lite/blob/main/OPERATIONS.md).
 
 ### Dependency security pins
 
@@ -568,7 +572,7 @@ npx a2a-lite doctor http://localhost:8787
 | `discover <url...>` | Compare several agents |
 | `doctor [url]` | Local env + optional remote v1.0 check |
 
-Python has additional commands (`create`, `serve`); see [packages/python/docs/cli.md](../python/docs/cli.md).
+Python has additional commands (`create`, `serve`); see [packages/python/docs/cli.md](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/cli.md).
 ---
 
 ## A2A Protocol Mapping
@@ -595,13 +599,13 @@ Everything maps directly to the underlying protocol — no magic, no lock-in.
 
 Wire methods use **A2A v1.0** names (`SendMessage`, not `message/send`) and the `A2A-Version: 1.0` header.
 
-Full multi-language API: [AGENT.md](../../AGENT.md). CLI deep dive (Python has `create` / `serve`): [packages/python/docs/cli.md](../python/docs/cli.md).
+Full multi-language API: [AGENT.md](https://github.com/xvierd/a2a-lite/blob/main/AGENT.md). CLI deep dive (Python has `create` / `serve`): [packages/python/docs/cli.md](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/cli.md).
 
 ---
 
 ## Examples
 
-TypeScript samples live in [`examples/`](examples/) and the repo-root [side-by-side suite](../../examples/typescript/).
+TypeScript samples live in [`examples/`](https://github.com/xvierd/a2a-lite/tree/main/packages/typescript/examples) and the repo-root [side-by-side suite](https://github.com/xvierd/a2a-lite/tree/main/examples/typescript).
 
 ### Showcase: Battleship (Python demo — same protocol)
 
@@ -615,13 +619,13 @@ python agent.py    # human vs bot → http://localhost:8790/
 # python arena.py  # bot vs bot  → http://localhost:8793/?mode=arena
 ```
 
-Details: [examples/python/11_battleship_lite/README.md](../../examples/python/11_battleship_lite/README.md)
+Details: [examples/python/11_battleship_lite/README.md](https://github.com/xvierd/a2a-lite/blob/main/examples/python/11_battleship_lite/README.md)
 
 ---
 
 ## Full API Reference
 
-See [AGENT.md](../../AGENT.md) for the complete multi-language API reference.
+See [AGENT.md](https://github.com/xvierd/a2a-lite/blob/main/AGENT.md) for the complete multi-language API reference.
 
 ---
 
