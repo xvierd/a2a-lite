@@ -1,0 +1,73 @@
+{
+  "package": "a2a-lite",
+  "version": "1.2.1",
+  "commit": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+  "workflowRun": 39094204688,
+  "workflowUrl": "https://github.com/xvierd/a2a-lite/actions/runs/39094204688",
+  "registryUrl": "https://pypi.org/pypi/a2a-lite/1.2.1/json",
+  "success": true,
+  "workflow": {
+    "conclusion": "success",
+    "headSha": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+    "name": "Publish Python to PyPI",
+    "status": "completed",
+    "url": "https://github.com/xvierd/a2a-lite/actions/runs/39094204688"
+  },
+  "readme": {
+    "sourceUrl": "https://github.com/xvierd/a2a-lite/blob/1e1131b9dee4f16b6993b40d55ed0612f3af17d9/packages/python/README.md",
+    "sha256": "4277506d5bb23746dd72a19c0bd02eb5903b88e3bad2d6b0b356ba00e8c34fdb",
+    "registrySha256": "4277506d5bb23746dd72a19c0bd02eb5903b88e3bad2d6b0b356ba00e8c34fdb",
+    "exactMatch": true,
+    "relativeLinks": 0
+  },
+  "files": [
+    {
+      "filename": "a2a_lite-1.2.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/77/57/2b47b59a0f537889059b78d283152c63e7a68e8c9a35abf9ce6369461027/a2a_lite-1.2.1-py3-none-any.whl",
+      "sha256": "4640f63ae1286a063d307769d324890f3e832d5177103a05ec82bed50bdb9213",
+      "workflowSha256": "4640f63ae1286a063d307769d324890f3e832d5177103a05ec82bed50bdb9213",
+      "registryMetadataSha256": "4640f63ae1286a063d307769d324890f3e832d5177103a05ec82bed50bdb9213",
+      "exactMatch": true,
+      "readmeExact": true
+    },
+    {
+      "filename": "a2a_lite-1.2.1.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/e7/66/cba3a0a0a62f1b8caa3b37942ec3510cdd52b8a9dc80705f9236b0bd04d7/a2a_lite-1.2.1.tar.gz",
+      "sha256": "656f403f41bd188a927532963053e9403a249876b12ae5f4ccf4fb5c8b893dee",
+      "workflowSha256": "656f403f41bd188a927532963053e9403a249876b12ae5f4ccf4fb5c8b893dee",
+      "registryMetadataSha256": "656f403f41bd188a927532963053e9403a249876b12ae5f4ccf4fb5c8b893dee",
+      "exactMatch": true,
+      "readmeExact": true
+    }
+  ],
+  "installation": {
+    "requirement": "a2a-lite==1.2.1",
+    "indexUrl": "https://pypi.org/simple",
+    "noCache": true,
+    "isolatedEnvironment": true,
+    "pythonPathUnset": true,
+    "passed": true
+  },
+  "cli": {
+    "help": true,
+    "version": "A2A Lite v1.2.1"
+  },
+  "versions": {
+    "a2aLite": "1.2.1",
+    "a2aSdk": "1.2.2",
+    "python": "3.13.9",
+    "installedPath": "/private/tmp/a2alite-121-public-6fpy3hlf/venv/lib/python3.13/site-packages/a2a_lite/__init__.py"
+  },
+  "smoke": {
+    "version": "1.2.1",
+    "python": "3.13.9",
+    "isolatedImport": true,
+    "message": true,
+    "realTaskId": true,
+    "authenticatedCall": true,
+    "stream": true,
+    "cardProtocol": "1.0",
+    "readmeStreamingSnippet": true
+  },
+  "verifiedAt": "2026-10-18T03:38:08.872756+00:00"
+}

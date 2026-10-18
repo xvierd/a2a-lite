@@ -86,5 +86,7 @@ Validation: local links across all 62 tracked Markdown files; Python constructor
 Approved on 2026-10-18 for Python and npm only. Keep runtime behavior and dependency requirements unchanged; Java remains at source version 1.2.0.
 
 - [x] Bump package metadata to 1.2.1, include corrected READMEs and verify distribution contents plus clean local installation.
-- [ ] Merge the release commit after CI and dispatch each active publication workflow exactly once.
-- [ ] Verify public registry versions, README contents, artifact integrity and clean registry installations; record the release evidence.
+- [x] Merge the release commit after CI and dispatch each active publication workflow exactly once.
+- [x] Verify public registry versions, README contents, artifact integrity and clean registry installations; record the release evidence.
+
+[PR #9](https://github.com/xvierd/a2a-lite/pull/9) merged as `1e1131b9dee4f16b6993b40d55ed0612f3af17d9`; PR/main CI passed all seven environments. Both registries now expose 1.2.1 with the corrected READMEs. Fresh registry installations, Python artifact/CI hashes and npm signatures/provenance passed. See the [1.2.1 release evidence](../tests/evidence/2026-10-18-1.2.1/README.md).
