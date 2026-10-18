@@ -1,0 +1,109 @@
+{
+  "verifiedAt": "2026-10-18T03:42:09.305840+00:00",
+  "package": "a2a-lite",
+  "version": "1.2.1",
+  "status": "PASS",
+  "commit": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 39094211458,
+    "event": "workflow_dispatch",
+    "headSha": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+    "name": "Publish TypeScript to npm",
+    "status": "completed",
+    "url": "https://github.com/xvierd/a2a-lite/actions/runs/39094211458"
+  },
+  "registry": {
+    "version": "1.2.1",
+    "latest": "1.2.1",
+    "commit": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+    "metadataUrl": "https://registry.npmjs.org/a2a-lite/1.2.1",
+    "packumentUrl": "https://registry.npmjs.org/a2a-lite",
+    "commitReadmeUrl": "https://raw.githubusercontent.com/xvierd/a2a-lite/1e1131b9dee4f16b6993b40d55ed0612f3af17d9/packages/typescript/README.md",
+    "tarballUrl": "https://registry.npmjs.org/a2a-lite/-/a2a-lite-1.2.1.tgz",
+    "attestationUrl": "https://registry.npmjs.org/-/npm/v1/attestations/a2a-lite@1.2.1",
+    "sha1": "4a00166d3c7574f91e38e409b69635dd63ba6506",
+    "sha256": "17e61cfd442c869d74b96afda455d7f5ce03a18020f6dca0f58565f460d3f8b8",
+    "integrity": "sha512-HFjO02oIS4/2GFsuvMdIvsV+j3Zk/suC7CG8mt8D99Ag31N2lzNEXBUjYV8p7OIZTKvZ6smxKWYzaJVwZRX3rQ==",
+    "readmeSha256": "298ffe810593d5af4814299ba7a20796946ff2e0c94c25384b8dd6398f570dab",
+    "registryReadmeExact": true,
+    "tarballReadmeExact": true
+  },
+  "provenance": [
+    {
+      "predicateType": "https://github.com/npm/attestation/tree/main/specs/publish/v0.1",
+      "subjectDigestMatches": true,
+      "logEntries": [
+        {
+          "logIndex": "3305615433",
+          "url": "https://search.sigstore.dev/?logIndex=3305615433"
+        }
+      ]
+    },
+    {
+      "predicateType": "https://slsa.dev/provenance/v1",
+      "subjectDigestMatches": true,
+      "logEntries": [
+        {
+          "logIndex": "3305583325",
+          "url": "https://search.sigstore.dev/?logIndex=3305583325"
+        }
+      ],
+      "commit": "1e1131b9dee4f16b6993b40d55ed0612f3af17d9",
+      "workflow": {
+        "ref": "refs/heads/main",
+        "repository": "https://github.com/xvierd/a2a-lite",
+        "path": ".github/workflows/publish-npm.yml"
+      },
+      "invocation": "https://github.com/xvierd/a2a-lite/actions/runs/39094211458/attempts/1",
+      "commitMatches": true,
+      "workflowMatches": true
+    }
+  ],
+  "installation": {
+    "directory": "/private/tmp/a2alite-121-npm-registry-check/install",
+    "source": "https://registry.npmjs.org",
+    "resolved": "https://registry.npmjs.org/a2a-lite/-/a2a-lite-1.2.1.tgz",
+    "integrity": "sha512-HFjO02oIS4/2GFsuvMdIvsV+j3Zk/suC7CG8mt8D99Ag31N2lzNEXBUjYV8p7OIZTKvZ6smxKWYzaJVwZRX3rQ==",
+    "installedReadmeExact": true,
+    "npmVersion": "11.11.1",
+    "version": "1.2.1",
+    "cleanRegistryInstall": true,
+    "esm": true,
+    "cjs": true,
+    "cliVersion": "1.2.1",
+    "cliHelp": true,
+    "message": true,
+    "explicitTaskContextId": true,
+    "handlerStream": true,
+    "node": "v25.8.2"
+  },
+  "auditSignatures": {
+    "exitCode": 0,
+    "invalid": [],
+    "missing": []
+  },
+  "audit": {
+    "exitCode": 0,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 72,
+      "dev": 0,
+      "optional": 0,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 71
+    }
+  },
+  "evidenceDirectory": "/private/tmp/a2alite-121-npm-registry-check",
+  "originalExampleLockUntouched": true,
+  "repositoryEdits": false,
+  "republished": false
+}
