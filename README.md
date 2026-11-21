@@ -25,9 +25,9 @@
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API for **A2A protocol v1.0** with minimal boilerplate. Supported features and transport limitations are listed in the [feature matrix](#feature-matrix).
 
-> **Python/npm 1.2.1:** a documentation patch with corrected README examples and package-page links; runtime behavior and dependency requirements are unchanged from 1.2.0. Java remains at source version 1.2.0.
+> **A2A Lite 1.3.0** adds task pagination, structured streaming events and task resubscription. Lite clients use the JSON-RPC interface and tenant selected from the agent card. Python and TypeScript servers also expose HTTP+JSON. Java is available from source. [Migration guide](MIGRATION.md)
 
-> **Current SDK baseline (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0`, and `a2a-java-sdk 1.4.0.Final`. The latest stable [A2A specification is 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); agent cards and the `A2A-Version` header continue to use `1.0`, as required by [protocol versioning](https://a2a-protocol.org/latest/specification/#36-versioning). Version 1.2.0 adds managed runtimes, scoped identities, PostgreSQL persistence and explicit delivery/recovery modes while preserving basic skill registration. v0.3 peers remain unsupported. See [MIGRATION.md](MIGRATION.md) for SDK changes and migration steps.
+> The SDK baseline is `a2a-sdk 1.3.1`, `@a2a-js/sdk 1.3.0` and `a2a-java-sdk 1.5.1.Final`. Agent cards and `A2A-Version` use `1.0`. [A2A specification 1.0.1](https://a2a-protocol.org/v1.0.1/specification/)
 
 ## Why A2A Lite?
 
@@ -59,10 +59,10 @@ npm install a2a-lite
 
 ### Java (Gradle)
 
-Java 1.2.0 is validated from source; Maven Central publication is pending. Run the [local composite-build examples](examples/java/README.md) now. The coordinate below identifies this source version; see the [Java installation guide](packages/java/README.md#installation) for required Maven BOM imports.
+Java 1.3.0 is distributed from this source tree. Run the [local composite-build examples](examples/java/README.md) now. The coordinate below identifies this source version; see the [Java installation guide](packages/java/README.md#installation) for required Maven BOM imports.
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.github.xvierd:a2a-lite:1.3.0'
     implementation 'io.javalin:javalin:7.2.3'   // HTTP server, Java 17+
 }
 ```
@@ -591,9 +591,9 @@ Migrating from an earlier release? Basic skill registration is unchanged; review
 |---|:---:|:---:|:---:|
 | **Protocol (A2A v1.0)** | | | |
 | A2A protocol v1.0 | ✅ | ✅ | ✅ |
-| JSON-RPC transport | ✅ | ✅ | ✅ |
-| REST (HTTP+JSON) transport | ✅ | ✅ | 🔜 planned¹ |
-| gRPC transport | ✅ experimental² | 🔜 planned | 🔜 planned |
+| JSON-RPC client and server | ✅ | ✅ | ✅ |
+| HTTP+JSON server | ✅ | ✅ | 🔜 planned¹ |
+| gRPC server | ✅ experimental² | 🔜 planned | 🔜 planned |
 | `securitySchemes` in agent card | ✅ | ✅ | ✅ |
 | Signed Agent Cards | 🔜 planned | ✅ experimental | 🔜 planned |
 | Owner-scoped `ListTasks` | ✅ | ✅ | ✅ |

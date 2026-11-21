@@ -1,5 +1,22 @@
 # A2A SDK upgrade and audit follow-ups
 
+## Current interoperability review · 2026-11-20
+
+The [SDK audit and proposed change plan](2026-11-20-auditoria-a2a.md) records the reproduced client and Java router defects, stable and unreleased upstream changes, Google ADK checks, missing regression coverage and acceptance criteria for six proposed changes. The October entries below are the delivery history.
+
+Implementation and qualification checklist
+
+- [x] Exercise official client factories and published transports in both directions.
+- [x] Repair discovery, tenant handling, JSON-RPC validation and client streaming in all three packages.
+- [x] Repair and test the public Java router and qualify the Java push sender on SDK 1.5.1.Final.
+- [x] Qualify the Python SDK minimum and 1.3.1 and retain the stable TypeScript SDK.
+- [x] Exercise paginated tasks, structured events, resubscription and explicit plain-text routing for multiskill agents.
+- [x] Run Google ADK, the applicable TCK profiles and PostgreSQL recovery and wire these checks into CI.
+
+The local qualification exercised all 30 interoperability combinations, 35 Google ADK consumer cases and 62 upstream TCK cases across the fixtures. PostgreSQL crash and restore passed for all three implementations. See the [migration guide](../MIGRATION.md) and [conformance profile](../tests/qualification/README.md).
+
+## October 2026 delivery history
+
 Scope: finish the six findings from the 2026-10-17 SDK maintenance review, verify the result, and prepare the GitHub/release handoff. Future roadmap features outside these findings are separate work.
 
 - [x] Verify latest stable SDKs and protocol; upgrade Python, TypeScript and Java.

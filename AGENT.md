@@ -2,19 +2,19 @@
 
 Quick reference for AI coding assistants implementing A2A agents.
 
-## Protocol Notes (A2A v1.0 — SDK baseline checked 2026-10-17)
+## Protocol Notes (A2A v1.0 — SDK baseline checked 2026-11-20)
 
 - All three packages serve **A2A protocol v1.0**. There is **no v0.3 compatibility** — lite clients detect 0.3 agent cards and fail with a clear error.
 - The latest stable specification is **1.0.1**. Patch versions are documentation/specification revisions; keep **`1.0`** in agent cards and `A2A-Version`, independently of SDK or a2a-lite package versions.
 - Agent card is served at `GET /.well-known/agent-card.json` (the old `/.well-known/agent.json` is gone). Card shape: `supportedInterfaces` list, **no root-level `url`/`protocolVersion`**.
 - Wire: JSON-RPC methods `SendMessage`, `SendStreamingMessage`, `GetTask`, `CancelTask`, `CreateTaskPushNotificationConfig`, etc., with header `A2A-Version: 1.0`. Parts have **no `kind`/`type` discriminator** — a text part is `{"text": "..."}`. Roles/states are enum-style: `ROLE_USER`, `TASK_STATE_WORKING`, ...
-- SDK integration underneath (invisible to lite-API users): Python mounts `a2a-sdk` 1.2.2 **route factories** (`create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes`); TypeScript uses `@a2a-js/sdk` 1.3.0 **express handlers** (`jsonRpcHandler` / `restHandler` / `agentCardHandler`, requires Node >= 20); Java connects its Javalin JSON-RPC adapter to the request handler and event runtime in `org.a2aproject.sdk` 1.4.0.Final through `AgentEmitter` (the 1.x replacement for `EventQueue` + `TaskUpdater`).
+- SDK integration underneath (invisible to lite-API users): Python mounts `a2a-sdk` 1.3.1 **route factories** (`create_agent_card_routes` / `create_jsonrpc_routes` / `create_rest_routes`); TypeScript uses `@a2a-js/sdk` 1.3.0 **express handlers** (`jsonRpcHandler` / `restHandler` / `agentCardHandler`, requires Node >= 20); Java connects its Javalin JSON-RPC adapter to the request handler and event runtime in `org.a2aproject.sdk` 1.5.1.Final through `AgentEmitter` (the 1.x replacement for `EventQueue` + `TaskUpdater`).
 - Java standalone `agent.run()` uses official SDK handlers for messaging, SSE, task lifecycle and push configuration over JSON-RPC. REST is not advertised. SDK task authorization must be configured separately for Quarkus (see `MIGRATION.md`). Dynamic push requires authentication and public HTTPS callbacks in every language.
-- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0` (source version; Maven Central publication pending). Standalone requires Javalin 7.2.3 on Java 17+ and the BOM alignment in [the Java guide](packages/java/README.md#installation). The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
+- Java Maven coordinates: `io.github.xvierd:a2a-lite:1.3.0` (source version; Maven Central publication pending). Standalone requires Javalin 7.2.3 on Java 17+ and the BOM alignment in [the Java guide](packages/java/README.md#installation). The `com.a2alite.tasks` package no longer exists — task types live in `com.a2alite.*`.
 
-## 1.2.x runtime and task contracts
+## Runtime and task contracts
 
-- Python/npm 1.2.1 is a README documentation patch with the same runtime and dependency requirements as 1.2.0. Java 1.2.0 currently runs from the source/composite builds in `examples/java`.
+- Version 1.3.0 supports paginated tasks, structured events and task resubscription. Use the source/composite builds in `examples/java` for Java.
 - Ordinary Message responses do not create a queryable Task. Request task mode with Python `task=True`, TypeScript `{ task: true }`, or Java `SkillConfig.withTask()`. The injected context uses the protocol Task ID; Python `TaskContext` no longer requires an application-local `task_store`.
 - Use `learning` for infrastructure-free examples, `authenticated` for verified identities and `durable` with the supported database adapter and external encryption keys. A durable profile validates prerequisites and does not silently fall back to memory.
 - Use the managed `start` API and close its returned runtime in `finally`. The host application owns process signals. Cancellation is cooperative; uncooperative work needs process isolation for hard termination.

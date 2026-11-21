@@ -1,5 +1,9 @@
 # A2A Lite Roadmap
 
+## SDK and consumer compatibility · 1.3.0
+
+The Python, TypeScript and Java clients discover tenant-specific endpoints, surface errors during streaming and support task listing and resubscription. Java mounted agents serve discovery and protocol requests under their mount prefix. The interoperability workflow runs official clients, Google ADK, selected upstream conformance cases and PostgreSQL recovery against the public entry points. See the [audit](tasks/2026-11-20-auditoria-a2a.md) and [migration guide](MIGRATION.md).
+
 ## ✅ Implemented
 
 ### Core Features

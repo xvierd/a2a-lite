@@ -85,12 +85,10 @@ During a rolling upgrade, keep overlapping workers on compatible schema and even
 
 The [1.2.0 local evidence](tests/evidence/2026-10-17-1.2.0/README.md) records measured results and remaining qualification.
 
-Run the [interoperability gates](tests/interop/README.md) against the exact code and SDK versions being deployed. The nine Lite client/server combinations cover the common JSON-RPC surface. The official Python SDK additionally validates AgentCard parsing, messages, task reads and SSE. REST and optional gRPC need their own transport tests; Java standalone advertises JSON-RPC only.
+Run the [interoperability gates](tests/interop/README.md) against the exact code and SDK versions being deployed. The nine Lite client/server combinations cover the common JSON-RPC surface. The official SDK probes use discovery to exercise JSON-RPC on all three servers and HTTP+JSON on Python and TypeScript. The extended profile also exercises the independent upstream server. Python gRPC is optional and has its own package tests. [Google ADK and TCK qualification](tests/qualification/README.md)
 
 Use the load runner to record hardware, workload, concurrency, throughput, p95/p99 and error rate. Its loopback memory profile measures framework behavior with a 20ms simulated I/O operation; it does not measure a database, TLS, a remote LLM or a production network. Establish latency, availability, recovery-time and acceptable-data-loss targets for the actual deployment before making a production capacity claim.
 
 Run the [dependency checks](tests/security/README.md) on the resolved deployment environment as well
 as the package development environment. Keep scan dates and dependency versions with test results.
-The expanded CI and release definitions are currently [prepared drafts](.github/workflow-drafts/README.md)
-until the repository credential can update active workflows; local results must not be presented as
-successful runs of those inactive jobs.
+The [interoperability workflow](.github/workflows/compatibility.yml) runs official consumer and card checks on pull requests. Main, scheduled and manual runs also qualify ADK, the broader TCK profile and PostgreSQL crash recovery.

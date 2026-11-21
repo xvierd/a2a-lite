@@ -16,9 +16,9 @@
 
 A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) para darte una API simple basada en decoradores para el **protocolo A2A v1.0**. La [matriz de características](#matriz-de-caracteristicas) detalla las funciones disponibles y las limitaciones de cada transporte.
 
-> **Python/npm 1.2.1:** parche de documentación con ejemplos y enlaces corregidos en las páginas de los paquetes; conserva el comportamiento y los requisitos de dependencias de 1.2.0. Java permanece en la versión fuente 1.2.0.
+> **A2A Lite 1.3.0** incorpora paginación de tareas, eventos estructurados y suscripción a tareas en curso. Los clientes Lite usan la interfaz JSON-RPC y el tenant de la tarjeta del agente. Los servidores Python y TypeScript también ofrecen HTTP+JSON. Java está disponible desde el código fuente. [Guía de migración](MIGRATION.md)
 
-> **SDKs de referencia (2026-10-17):** `a2a-sdk 1.2.2`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.4.0.Final`. La última [especificación estable de A2A es 1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); las agent cards y la cabecera `A2A-Version` siguen usando `1.0`, según las [reglas de versionado](https://a2a-protocol.org/latest/specification/#36-versioning). La versión 1.2.0 agrega runtime administrado, identidades y tenants autorizados, persistencia PostgreSQL y modos explícitos de entrega y recuperación. El registro básico de skills se conserva. Los agentes v0.3 siguen sin estar soportados. Consulta [MIGRATION.md](MIGRATION.md) para los cambios de SDK y los pasos de migración.
+> Los SDK de referencia son `a2a-sdk 1.3.1`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.5.1.Final`. Las tarjetas y la cabecera `A2A-Version` usan `1.0`. [Especificación A2A 1.0.1](https://a2a-protocol.org/v1.0.1/specification/)
 
 > **Aprende con un agente pequeño y agrega capacidades según las necesitas.** El perfil `learning` funciona sin base de datos. `authenticated` exige identidad verificada y `durable` requiere almacenamiento compatible. Python y npm 1.2.1 están publicados; Java 1.2.0 está validado desde código fuente y su publicación en Maven Central sigue pendiente. Consulta [OPERATIONS.md](OPERATIONS.md) para límites y recuperación, y la [evidencia de 1.2.0](tests/evidence/2026-10-17-1.2.0/README.md) para resultados medidos.
 
@@ -114,10 +114,10 @@ npm install a2a-lite
 
 ### Java (Gradle)
 
-La coordenada 1.2.0 corresponde al código de este repositorio; aún no está publicada en Maven Central. Para ejecutarla ahora, usa los [ejemplos con compilación local](examples/java/README.md). Los consumidores Maven deben aplicar los BOM indicados en la [guía Java](packages/java/README.md#installation).
+La coordenada 1.3.0 corresponde a la distribución desde el código fuente de este repositorio. Para ejecutarla ahora, usa los [ejemplos con compilación local](examples/java/README.md). Los consumidores Maven deben aplicar los BOM indicados en la [guía Java](packages/java/README.md#installation).
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.github.xvierd:a2a-lite:1.3.0'
     implementation 'io.javalin:javalin:7.2.3'   // Java 17+
 }
 ```
@@ -336,9 +336,9 @@ Desde a2a-lite 1.0.0, los tres paquetes sirven el **protocolo A2A v1.0** sobre l
 |---|:---:|:---:|:---:|
 | **Protocolo (A2A v1.0)** | | | |
 | Protocolo A2A v1.0 | ✅ | ✅ | ✅ |
-| Transporte JSON-RPC | ✅ | ✅ | ✅ |
-| Transporte REST (HTTP+JSON) | ✅ | ✅ | 🔜 planeado¹ |
-| Transporte gRPC | ✅ experimental² | 🔜 planeado | 🔜 planeado |
+| Cliente y servidor JSON-RPC | ✅ | ✅ | ✅ |
+| Servidor HTTP+JSON | ✅ | ✅ | 🔜 planeado¹ |
+| Servidor gRPC | ✅ experimental² | 🔜 planeado | 🔜 planeado |
 | `securitySchemes` en la agent card | ✅ | ✅ | ✅ |
 | Signed Agent Cards | 🔜 planeado | ✅ experimental | 🔜 planeado |
 | `ListTasks` filtrado por propietario | ✅ | ✅ | ✅ |

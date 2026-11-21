@@ -1,5 +1,22 @@
 # Migrating A2A Lite (A2A Protocol v1.0)
 
+## 1.2.x → 1.3.0
+
+Agent cards and the protocol header continue to use `1.0`. Python is tested with the minimum SDK 1.2.2 and the 1.3.1 baseline. TypeScript uses SDK 1.3.0 and Java uses 1.5.1.Final. For Java 1.3.0, use a composite build from the source tree.
+
+- Custom peers and test doubles should echo the request ID, return `jsonrpc: "2.0"` and supply exactly one of `result` or `error`. A streaming error now propagates to the consumer, including after previously delivered chunks. Handle the exception when consuming an iterator.
+- Register the agent's discovery URL with `AgentNetwork`. Discovery selects a compatible JSON-RPC endpoint and its advertised tenant. Keep the discovery URL available for refresh when the endpoint has a different path.
+- Use the structured event API for parts, artifacts and task status changes. The text helpers remain available. Use task resubscription to follow an existing task over SSE. The existing webhook helpers continue to configure push delivery.
+- Agents accepting natural-language input can explicitly designate a text entry skill. The existing JSON-in-text skill envelope remains available to invoke a particular skill. The [Google ADK qualification](tests/qualification/README.md) shows how this behaves for an external consumer.
+- For mounted Java agents, discover the card at each mount prefix and use the interfaces that card advertises. See the [Java guide](packages/java/README.md).
+
+| Operation | Python | TypeScript | Java |
+|---|---|---|---|
+| Read one page of tasks | `network.list_tasks(...)` | `network.listTasks(...)` | `network.listTasks(...)` |
+| Receive structured skill events | `network.stream_events(...)` | `network.streamEvents(...)` | `network.streamEvents(...)` |
+| Subscribe to an existing task | `network.subscribe_task(...)` | `network.subscribeToTask(...)` | `network.subscribeTask(...)` |
+| Route plain text to a named skill | `Agent(..., free_text_skill="chat")` | `new Agent({ ..., freeTextSkill: 'chat' })` | `Agent.builder().textEntrySkill("chat")` |
+
 ## 1.2.0 → 1.2.1 (Python and npm)
 
 This documentation patch updates the package READMEs, corrects API examples and makes documentation links usable on PyPI/npm. It changes no runtime behavior, dependency requirements, protocol version or migration steps. Java remains at source version 1.2.0 and is not part of this publication.
@@ -12,7 +29,7 @@ skills and large outputs before upgrading.
 
 - **Protocol tasks:** opt into a queryable task for ordinary skills (`task=True`, `task: true`, or
   `SkillConfig.withTask()`). The injected TaskContext and remote TaskHandle use the same SDK task ID.
-  An immediate Message does not create a queryable Task; a wire `message.taskId` alone does not support a TaskHandle. Application-local task stores do not become protocol stores.
+  An immediate Message does not create a queryable Task. Python and TypeScript can return a handle for a Message that explicitly references an existing task. The peer must actually serve that task for a subsequent lookup to succeed. For portable task creation, register a task-backed skill. Application-local task stores do not become protocol stores.
 - **Stable identity:** map rotating API keys to stable principals. Verified OAuth issuers namespace
   subjects; tenant access needs explicit membership. Reserved `a2a:v1:` legacy IDs are escaped to avoid
   collisions. Existing records using those IDs or a different issuer/tenant mapping need an explicit
