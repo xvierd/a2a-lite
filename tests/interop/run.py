@@ -25,6 +25,13 @@ import urllib.request
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
+INTEROP = Path(__file__).resolve().parent
+BINDINGS = {
+    "python": ("JSONRPC", "HTTP+JSON"),
+    "typescript": ("JSONRPC", "HTTP+JSON"),
+    "java": ("JSONRPC",),
+}
+SDK_VERSIONS = {"python": "1.3.1", "typescript": "1.3.0", "java": "1.5.1.Final"}
 TOKEN = "interop-secret"  # Public, disposable fixture credentials.
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -49,12 +56,28 @@ def require(condition, description):
         raise AssertionError(description)
 
 
+def lite_python():
+    return os.environ.get(
+        "A2ALITE_TEST_PYTHON", str(ROOT / "packages/python/.venv/bin/python")
+    )
+
+
+def official_python():
+    if override := os.environ.get("A2ALITE_OFFICIAL_PYTHON"):
+        return override
+    reference = INTEROP / ".venv/bin/python"
+    return str(reference) if reference.is_file() else lite_python()
+
+
 def fixture(language, args):
+    if language == "official-python":
+        return [official_python(), "-I", str(INTEROP / "official_server.py"), *args]
     if language == "python":
-        python = os.environ.get(
-            "A2ALITE_TEST_PYTHON", str(ROOT / "packages/python/.venv/bin/python")
-        )
-        return [python, str(ROOT / "packages/python/tests/interop_fixture.py"), *args]
+        return [
+            lite_python(),
+            str(ROOT / "packages/python/tests/interop_fixture.py"),
+            *args,
+        ]
     if language == "typescript":
         return [
             "node",
@@ -96,6 +119,11 @@ def rpc(url, method, params, token=TOKEN):
     )
     require(status == 200, f"{method}: HTTP {status}: {data}")
     result = json.loads(data)
+    require(result.get("jsonrpc") == "2.0", f"{method}: invalid JSON-RPC version")
+    require(
+        ("result" in result) != ("error" in result),
+        f"{method}: invalid JSON-RPC envelope: {result}",
+    )
     require(
         result.get("id") == identity, f"{method}: JSON-RPC id not preserved: {result}"
     )
@@ -119,16 +147,28 @@ def texts(value):
     return [part["text"] for part in value.get("parts", []) if "text" in part]
 
 
-def protocol_checks(url):
+def protocol_checks(url, language):
     status, _, body = request(url + "/.well-known/agent-card.json")
     require(status == 200, "Agent card unavailable")
     card = json.loads(body)
+    advertised = [
+        (i["protocolBinding"], i["protocolVersion"])
+        for i in card["supportedInterfaces"]
+    ]
+    expected = [(binding, "1.0") for binding in BINDINGS[language]]
     require(
-        any(
-            i.get("protocolVersion") == "1.0" and i.get("protocolBinding") == "JSONRPC"
-            for i in card.get("supportedInterfaces", [])
-        ),
-        "Missing compatible JSONRPC interface",
+        sorted(advertised) == sorted(expected),
+        f"Expected {expected} in card, got {advertised}",
+    )
+    for skill in card["skills"]:
+        require(
+            isinstance(skill.get("tags"), list),
+            f"Skill {skill['id']} is missing its tags array",
+        )
+    url = next(
+        i["url"]
+        for i in card["supportedInterfaces"]
+        if i["protocolBinding"] == "JSONRPC"
     )
     status, _, _ = request(
         url,
@@ -208,27 +248,44 @@ def protocol_checks(url):
         },
     )
     require(
-        status == 200 and "text/event-stream" in headers.get("Content-Type", ""),
+        status == 200 and headers.get_content_type() == "text/event-stream",
         "Invalid SSE response media type",
     )
-    events = [
-        json.loads(line[5:].strip())
-        for line in stream.splitlines()
-        if line.startswith("data:") and line[5:].strip()
-    ]
+    events = []
+    for frame in stream.replace("\r\n", "\n").replace("\r", "\n").split("\n\n"):
+        fields = [line[5:] for line in frame.split("\n") if line.startswith("data:")]
+        if fields:
+            events.append(json.loads("\n".join(fields)))
     require(
         events and events[0].get("result", {}).get("task", {}).get("id"),
         "SSE must start with a Task snapshot",
     )
-    require(all(e.get("id") == identity for e in events), "SSE JSON-RPC IDs were lost")
-    require("TASK_STATE_COMPLETED" in stream, "SSE did not reach completion")
+    require(
+        all(
+            e.get("jsonrpc") == "2.0"
+            and e.get("id") == identity
+            and "result" in e
+            and "error" not in e
+            for e in events
+        ),
+        "Invalid SSE JSON-RPC envelope",
+    )
+    last = events[-1]["result"].get("statusUpdate", {})
+    require(
+        last.get("taskId") == events[0]["result"]["task"]["id"]
+        and last.get("status", {}).get("state") == "TASK_STATE_COMPLETED",
+        "SSE did not end with completion of the original Task",
+    )
     failure = rpc(url, "SendMessage", message("fail"))
     require(
-        "error" in failure or "TASK_STATE_FAILED" in json.dumps(failure),
+        "error" in failure
+        or failure["result"].get("task", {}).get("status", {}).get("state")
+        == "TASK_STATE_FAILED",
         "Failed skill reported success",
     )
     return {
         "discovery": True,
+        "advertisedBindings": list(BINDINGS[language]),
         "anonymousDenied": True,
         "rotation": True,
         "ownerIsolation": True,
@@ -300,117 +357,224 @@ class LocalServer:
             self.process.wait(timeout=5)
 
 
-def run_client(language, url):
-    env = dict(os.environ, PYTHONPATH=str(ROOT / "packages/python/src"))
+def probe(command, marker, *, env=None):
     result = subprocess.run(
-        fixture(language, ["client", "--url", url]),
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
+        command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=60
     )
     require(
         result.returncode == 0,
-        f"{language} client failed: {result.stdout[-4000:]}\n{result.stderr[-4000:]}",
+        f"Probe exited {result.returncode}: {result.stdout[-2000:]}\n{result.stderr[-4000:]}",
     )
     records = [
-        line.removeprefix("A2A_LITE_RESULT ")
+        line[len(marker) :]
         for line in result.stdout.splitlines()
-        if line.startswith("A2A_LITE_RESULT ")
+        if line.startswith(marker)
     ]
     require(
         len(records) == 1,
-        f"{language} client must return one result: {result.stdout[-4000:]}",
+        f"Expected one {marker.strip()} record: {result.stdout[-2000:]}",
     )
     record = json.loads(records[0])
     for name in ("message", "task", "taskRead", "stream"):
-        require(record.get(name) is True, f"{language} did not prove {name}: {record}")
+        require(record.get(name) is True, f"Probe did not prove {name}: {record}")
     return record
 
 
-def official_client(url):
-    python = os.environ.get(
-        "A2ALITE_TEST_PYTHON", str(ROOT / "packages/python/.venv/bin/python")
+def run_client(language, url):
+    return probe(
+        fixture(language, ["client", "--url", url]),
+        "A2A_LITE_RESULT ",
+        env=dict(os.environ, PYTHONPATH=str(ROOT / "packages/python/src")),
     )
-    result = subprocess.run(
-        [python, str(Path(__file__).with_name("official_sdk.py")), "--url", url],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
+
+
+def official_client(language, url, binding):
+    args = ["--url", url, "--binding", binding]
+    if language == "python":
+        command = [official_python(), "-I", str(INTEROP / "official_sdk.py"), *args]
+    elif language == "typescript":
+        command = ["node", str(INTEROP / "official_js.mjs"), *args]
+    else:
+        executable = (
+            INTEROP / "official-java/build/install/official-java/bin/official-java"
+        )
+        require(
+            executable.is_file(),
+            "Run packages/java/gradlew -p tests/interop/official-java installDist",
+        )
+        command = [str(executable), url, binding]
+    record = probe(command, "A2A_LITE_OFFICIAL ")
+    require(record.get("binding") == binding, f"Incorrect binding: {record}")
+    require(
+        record.get("sdkVersion") == SDK_VERSIONS[language],
+        f"Unexpected SDK version: {record}",
     )
     require(
-        result.returncode == 0,
-        f"Official SDK client failed: {result.stdout[-2000:]}\n{result.stderr[-4000:]}",
+        record.get("taskNotFound") is True,
+        f"Expected a typed error for the missing Task: {record}",
     )
-    records = [
-        json.loads(line.removeprefix("A2A_LITE_OFFICIAL "))
-        for line in result.stdout.splitlines()
-        if line.startswith("A2A_LITE_OFFICIAL ")
-    ]
-    require(len(records) == 1, "Official SDK probe did not report its result")
-    return records[0]
+    require(
+        record.get("failure") is True,
+        f"Expected the failing request to be checked: {record}",
+    )
+    return record
+
+
+def matrix(args):
+    rows = []
+
+    def add(group, client, server_language, binding, reason=None):
+        if server_language in BINDINGS and server_language not in args.languages:
+            reason = "server excluded by --languages"
+        rows.append(
+            (
+                group,
+                {
+                    "client": client,
+                    "server": server_language,
+                    "binding": binding,
+                    "status": "skipped" if reason else "pending",
+                    **({"reason": reason} if reason else {}),
+                },
+            )
+        )
+
+    for language, bindings in BINDINGS.items():
+        for client in BINDINGS:
+            omitted = (
+                "client excluded by --languages"
+                if client not in args.languages
+                else None
+            )
+            add("pairs", client, language, "JSONRPC", omitted)
+        diagnostic = "--skip-protocol" if args.skip_protocol else None
+        add("protocol", "wire", language, "JSONRPC", diagnostic)
+        for binding in bindings:
+            for sdk in SDK_VERSIONS:
+                extended = sdk == "java" and not args.extended
+                add(
+                    "officialSdk",
+                    sdk,
+                    language,
+                    binding,
+                    diagnostic or ("requires --extended" if extended else None),
+                )
+        reverse = None if args.extended else "requires --extended"
+        if language not in args.languages:
+            reverse = "client excluded by --languages"
+        add("officialServer", language, "official-python", "JSONRPC", reverse)
+    return rows
+
+
+def run_case(group, row, url):
+    client = row["client"]
+    if group == "protocol":
+        return protocol_checks(url, row["server"])
+    if group == "officialSdk":
+        return official_client(client, url, row["binding"])
+    record = run_client(client, url)
+    if group == "officialServer":
+        from reverse_errors import check_error
+
+        check_error(client, url, fixture)
+        status, _, raw = request(url + "/.well-known/agent-card.json")
+        server_version = json.loads(raw)["version"]
+        require(
+            status == 200 and server_version == SDK_VERSIONS["python"],
+            f"Unexpected official server version: {server_version}",
+        )
+        record.update(
+            serverSdk="a2a-sdk",
+            serverSdkVersion=server_version,
+            failure=True,
+            tenant=True,
+        )
+    return record
+
+
+def run_server_cases(language, logs, cases, errors):
+    try:
+        with server(language, logs) as runtime:
+            for group, row in cases:
+                try:
+                    checks = run_case(group, row, runtime.url)
+                    row.update(checks, status="passed")
+                except Exception as exc:
+                    row.update(status="failed", error=str(exc) or repr(exc))
+                print(json.dumps({"gate": group, **row}), flush=True)
+    except Exception as exc:
+        errors.append(f"{language} server: {exc}")
+        for _, row in cases:
+            if row["status"] == "pending":
+                row.update(status="skipped", reason=f"server unavailable: {exc}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--languages",
-        nargs="+",
-        choices=("python", "typescript", "java"),
-        default=["python", "typescript", "java"],
+        "--languages", nargs="+", choices=BINDINGS, default=list(BINDINGS)
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--skip-protocol",
         action="store_true",
-        help="Diagnostic only: omit shared protocol probes",
+        help="Diagnostic only: run Lite pairs alone",
+    )
+    parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Include the official Java client and independent server",
     )
     args = parser.parse_args()
+    if args.skip_protocol and args.extended:
+        parser.error("--extended and --skip-protocol select conflicting scopes")
+    rows = matrix(args)
     report = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         **source_state(),
         "startedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "platform": platform.platform(),
         "cpuCount": os.cpu_count(),
-        "pairs": [],
-        "protocol": [],
-        "officialSdk": [],
         "success": False,
+        "fullMatrixPassed": False,
+        "errors": [],
     }
+    for group, row in rows:
+        report.setdefault(group, []).append(row)
+    selected = [(group, row) for group, row in rows if row["status"] == "pending"]
     try:
         with tempfile.TemporaryDirectory(prefix="a2alite-interop-") as logs:
-            for server_language in args.languages:
-                with server(server_language, logs) as runtime:
-                    url = runtime.url
-                    if not args.skip_protocol:
-                        checks = protocol_checks(url)
-                        report["protocol"].append({"server": server_language, **checks})
-                        report["officialSdk"].append(
-                            {"server": server_language, **official_client(url)}
-                        )
-                    for client_language in args.languages:
-                        checks = run_client(client_language, url)
-                        pair = {
-                            "client": client_language,
-                            "server": server_language,
-                            **checks,
-                        }
-                        report["pairs"].append(pair)
-                        print(json.dumps(pair), flush=True)
-        report["success"] = True
-    except Exception as exc:
-        report["error"] = str(exc)
-        raise
+            for language in (*BINDINGS, "official-python"):
+                cases = [
+                    (group, row) for group, row in selected if row["server"] == language
+                ]
+                if cases:
+                    run_server_cases(language, logs, cases, report["errors"])
+        report["success"] = (
+            bool(selected)
+            and not report["errors"]
+            and all(row["status"] == "passed" for _, row in selected)
+        )
+        report["fullMatrixPassed"] = report["success"] and all(
+            row["status"] == "passed" for _, row in rows
+        )
     finally:
+        for _, row in rows:
+            if row["status"] == "pending":
+                row.update(status="skipped", reason="run interrupted")
+        report["counts"] = {
+            status: sum(row["status"] == status for _, row in rows)
+            for status in ("passed", "failed", "skipped")
+        }
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2) + "\n")
-    print(
-        f"Passed {len(report['pairs'])} client/server pairings and {len(report['protocol'])} protocol profiles"
-    )
+        print(
+            json.dumps({"counts": report["counts"], "errors": report["errors"]}),
+            flush=True,
+        )
+    return 0 if report["success"] else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

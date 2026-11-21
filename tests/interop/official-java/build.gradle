@@ -1,0 +1,21 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.a2aproject.sdk:a2a-java-sdk-client:1.5.1.Final'
+    implementation 'org.a2aproject.sdk:a2a-java-sdk-client-transport-rest:1.5.1.Final'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+application {
+    mainClass = 'OfficialProbe'
+}
