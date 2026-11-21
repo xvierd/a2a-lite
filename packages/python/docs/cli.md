@@ -52,7 +52,7 @@ a2a-lite init my-agent --path /custom/path
 **Generated files:**
 
 - `agent.py` — Agent with example skills (`hello`, `echo`)
-- `pyproject.toml` — Dependencies (`a2a-lite>=1.0.0`)
+- `pyproject.toml` — Dependencies (`a2a-lite>=1.3.0,<2`)
 - `README.md` — Getting started
 - `tests/test_agent.py` — Unit tests with `AgentTestClient`
 - `.gitignore` — Python ignores
@@ -81,9 +81,9 @@ a2a-lite create my-agent --path /tmp/my-agent
 
 ```bash
 cd my-agent
-uv run pytest tests/
+uv run --extra dev pytest tests/
 uv run agent.py
-# or: a2a-lite serve agent.py
+# or: uv run a2a-lite serve agent.py
 docker compose up --build
 a2a-lite doctor http://localhost:8787
 ```
@@ -173,6 +173,8 @@ a2a-lite test http://localhost:8790 next_shot
 | `SKILL` | Skill id / name (required) |
 | `-p, --param KEY=VALUE` | Skill parameters (repeatable) |
 | `-j, --json` | Print raw JSON instead of the formatted result |
+
+When a card is available, the CLI sends the request to its compatible JSON-RPC endpoint using the advertised tenant. A direct endpoint URL also works when the card is unavailable.
 
 Values after `=` are kept as strings unless they look like numbers/booleans; prefer multiple `-p` flags over a single JSON blob.
 

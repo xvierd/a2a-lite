@@ -52,6 +52,7 @@ class LiteAgentExecutor(AgentExecutor):
         task_store: Any | None = None,
         mcp_servers: list[str] | None = None,
         runtime_state=None,
+        free_text_skill: str | None = None,
     ):
         self.skills = skills
         self.error_handler = error_handler
@@ -61,6 +62,7 @@ class LiteAgentExecutor(AgentExecutor):
         self.task_store = task_store
         self.mcp_servers = mcp_servers or []
         self.runtime_state = runtime_state
+        self.free_text_skill = free_text_skill
         self.recovery = None
 
     async def execute(
@@ -451,7 +453,7 @@ class LiteAgentExecutor(AgentExecutor):
         except json.JSONDecodeError:
             logger.debug("Message is not JSON, treating as plain text")
 
-        return None, {"message": message}
+        return self.free_text_skill if message else None, {"message": message}
 
     def _extract_message_and_parts(self, context: RequestContext) -> tuple[str, list[Any]]:
         """Extract message text and any file/data parts.

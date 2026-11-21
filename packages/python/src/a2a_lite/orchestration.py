@@ -22,18 +22,21 @@ Example (named network):
 from __future__ import annotations
 
 import asyncio
+import codecs
+import io
 import json
-import logging
 import re
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from .client import ClientConfig
+import httpx
 
-logger = logging.getLogger(__name__)
+from .client import ClientConfig
+from .errors import RemoteAgentError
 
 
 @dataclass
@@ -44,6 +47,7 @@ class TaskHandle:
     result: Any
     _agent_url: str
     _client: ClientConfig | None = field(default=None, repr=False)
+    context_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -67,6 +71,27 @@ class TaskHandle:
     async def cancel(self, timeout: float = 10.0) -> dict:
         """Request cancellation of this task on the remote agent."""
         return await cancel_remote_task(self._agent_url, self.task_id, timeout, client_config=self._client)
+
+    def events(self, timeout: float = 30.0) -> AsyncGenerator[dict, None]:
+        """Subscribe to the active task's SSE updates, starting with its current snapshot."""
+        return _stream_rpc(self.agent_url, "SubscribeToTask", {"id": self.task_id}, timeout, self._client)
+
+    async def continue_task(self, skill: str, /, timeout: float = 30.0, **params: Any) -> TaskHandle:
+        """Send a follow-up skill invocation in this task and context."""
+        context_id = self.context_id or (await self.get_status(timeout)).get("contextId", "")
+        raw = await _call_remote_skill(
+            self.agent_url,
+            skill,
+            params,
+            timeout,
+            client_config=self._client,
+            task_id=self.task_id,
+            context_id=context_id,
+        )
+        handle = _task_handle(raw, self.agent_url, self._client)
+        if handle.task_id != self.task_id or (context_id and handle.context_id and handle.context_id != context_id):
+            raise RemoteAgentError("Continuation returned a different task or context", raw)
+        return handle
 
     async def subscribe(self, webhook_url: str, token: str | None = None, timeout: float = 10.0) -> dict:
         """Register a webhook for this task on the remote agent."""
@@ -95,6 +120,36 @@ class AgentCardInfo:
     supports_streaming: bool
     supports_push: bool
     raw: dict
+    tenant: str = ""
+    discovery_url: str = ""
+
+    def client_config(self, config: ClientConfig | None = None) -> ClientConfig:
+        """Bind credentials to the discovery origin and tenant of this interface."""
+        return (config or ClientConfig()).bind(self.discovery_url or self.url).for_interface(self.url, self.tenant)
+
+
+@dataclass
+class _Registration:
+    base_url: str
+    config: ClientConfig
+    auto_discover: bool = False
+    card: AgentCardInfo | None = None
+    pending: asyncio.Task[AgentCardInfo] | None = None
+
+    @property
+    def endpoint(self) -> str:
+        return self.card.url if self.card else self.base_url
+
+    async def _fetch(self, timeout: float) -> AgentCardInfo:
+        self.card = await discover(self.base_url, timeout, client_config=self.config)
+        return self.card
+
+    def start_discovery(self, timeout: float = 10.0) -> asyncio.Task[AgentCardInfo]:
+        self.pending = asyncio.create_task(self._fetch(timeout))
+        # Background failures stay available to awaiters, including the first call
+        # after a failed automatic discovery. Observe them even if the peer is removed.
+        self.pending.add_done_callback(lambda task: None if task.cancelled() else task.exception())
+        return self.pending
 
 
 class AgentNetwork:
@@ -113,10 +168,7 @@ class AgentNetwork:
     """
 
     def __init__(self, agents: dict[str, str] | None = None) -> None:
-        self._agents: dict[str, str] = dict(agents) if agents else {}
-        self._cards: dict[str, AgentCardInfo] = {}
-        self._clients: dict[str, ClientConfig] = {name: ClientConfig().bind(url) for name, url in self._agents.items()}
-        self._discovery_urls: dict[str, str] = dict(self._agents)
+        self._agents = {name: _Registration(url, ClientConfig().bind(url)) for name, url in (agents or {}).items()}
 
     def add(
         self, name: str, url: str, auto_discover: bool = False, *, client_config: ClientConfig | None = None
@@ -126,15 +178,17 @@ class AgentNetwork:
         Args:
             name: A friendly name for the agent.
             url: The agent's base URL.
-            auto_discover: If True, fetch and cache the agent card on add.
-                           Must be awaited if True (use within async context via discover()).
+            auto_discover: Fetch the card in the running event loop, or on first use.
+                All named operations await discovery before contacting the endpoint.
         """
-        self._agents[name] = url.rstrip("/")
-        self._discovery_urls[name] = url.rstrip("/")
-        self._clients[name] = (client_config or ClientConfig()).bind(url)
+        peer = _Registration(url.rstrip("/"), (client_config or ClientConfig()).bind(url), auto_discover)
+        self._agents[name] = peer
         if auto_discover:
-            # Schedule discovery; caller should await this in an async context
-            asyncio.ensure_future(self.discover(name))
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            peer.start_discovery()
 
     def get(self, name: str) -> str | None:
         """Get an agent URL by name.
@@ -145,7 +199,8 @@ class AgentNetwork:
         Returns:
             The agent URL, or None if not found.
         """
-        return self._agents.get(name)
+        peer = self._agents.get(name)
+        return peer.endpoint if peer else None
 
     def remove(self, name: str) -> bool:
         """Remove an agent from the network.
@@ -156,13 +211,7 @@ class AgentNetwork:
         Returns:
             True if the agent was removed, False if not found.
         """
-        if name in self._agents:
-            del self._agents[name]
-            self._clients.pop(name, None)
-            self._discovery_urls.pop(name, None)
-            self._cards.pop(name, None)
-            return True
-        return False
+        return self._agents.pop(name, None) is not None
 
     def list(self) -> dict[str, str]:
         """List all registered agents.
@@ -170,7 +219,32 @@ class AgentNetwork:
         Returns:
             Dict mapping agent names to their URLs.
         """
-        return dict(self._agents)
+        return {name: peer.endpoint for name, peer in self._agents.items()}
+
+    def _registration(self, name: str) -> _Registration:
+        try:
+            return self._agents[name]
+        except KeyError:
+            raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents)}") from None
+
+    async def _peer(
+        self, name: str, config: ClientConfig | None = None, *, use_card: bool = True
+    ) -> tuple[str, ClientConfig]:
+        peer = self._registration(name)
+        if peer.auto_discover and peer.card is None:
+            # One canceled caller must not cancel discovery for other callers.
+            await asyncio.shield(peer.pending or peer.start_discovery())
+            if self._agents.get(name) is not peer:
+                return await self._peer(name, config, use_card=use_card)
+        base = peer.base_url
+        config = (config or peer.config).bind(base)
+        card = peer.card if use_card else None
+        if card is None:
+            return base, config
+        if config.tenant and config.tenant != card.tenant:
+            url, tenant = _select_jsonrpc_interface(card.raw, base, config.tenant)
+            return url, config.for_interface(url, tenant)
+        return card.url, card.client_config(config)
 
     async def call(
         self,
@@ -196,14 +270,9 @@ class AgentNetwork:
         Raises:
             KeyError: If the agent name is not registered.
         """
-        url = self._agents.get(name)
-        if url is None:
-            raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        client_config = self._clients.get(name)
-        result, task_id = await _call_remote_skill(url, skill, params, timeout, client_config=client_config)
-        if return_handle:
-            return TaskHandle(task_id=task_id, result=result, _agent_url=url, _client=client_config)
-        return result
+        url, config = await self._peer(name)
+        raw = await _call_remote_skill(url, skill, params, timeout, client_config=config)
+        return _task_handle(raw, url, config) if return_handle else _extract_result(raw)
 
     def get_card(self, name: str) -> AgentCardInfo | None:
         """Return the cached agent card for a named agent, or None if not cached.
@@ -214,7 +283,8 @@ class AgentNetwork:
         Returns:
             The cached AgentCardInfo, or None.
         """
-        return self._cards.get(name)
+        peer = self._agents.get(name)
+        return peer.card if peer else None
 
     async def discover(self, name: str, timeout: float = 10.0) -> AgentCardInfo:
         """Fetch and cache the agent card for a named agent.
@@ -229,41 +299,69 @@ class AgentNetwork:
         Raises:
             KeyError: If the agent name is not registered.
         """
-        url = self._agents.get(name)
-        if url is None:
-            raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        card = await discover(self._discovery_urls.get(name, url), timeout, client_config=self._clients.get(name))
-        self._cards[name] = card
-        self._agents[name] = card.url
-        return card
+        peer = self._registration(name)
+        if peer.pending and not peer.pending.done():
+            return await asyncio.shield(peer.pending)
+        return await asyncio.shield(peer.start_discovery(timeout))
 
-    async def stream(
+    async def stream(self, name: str, skill: str, /, timeout: float = 30.0, **params: Any) -> AsyncGenerator[str, None]:
+        """Yield text chunks from the named skill."""
+        url, config = await self._peer(name)
+        async with aclosing(stream_remote_skill(url, skill, params, timeout, client_config=config)) as chunks:
+            async for chunk in chunks:
+                yield chunk
+
+    async def stream_events(
+        self, name: str, skill: str, /, timeout: float = 30.0, **params: Any
+    ) -> AsyncGenerator[dict, None]:
+        """Yield complete A2A StreamResponse objects, including non-text parts and metadata."""
+        url, config = await self._peer(name)
+        async with aclosing(
+            _stream_rpc(url, "SendStreamingMessage", _skill_params(skill, params), timeout, config)
+        ) as events:
+            async for event in events:
+                yield event
+
+    async def subscribe_task(self, name: str, task_id: str, timeout: float = 30.0) -> AsyncGenerator[dict, None]:
+        """Attach to a task's existing SSE stream by ID."""
+        url, config = await self._peer(name)
+        async with aclosing(_stream_rpc(url, "SubscribeToTask", {"id": task_id}, timeout, config)) as events:
+            async for event in events:
+                yield event
+
+    async def list_tasks(
         self,
         name: str,
-        skill: str,
-        /,
-        timeout: float = 30.0,
-        **params: Any,
-    ) -> AsyncGenerator[str, None]:
-        """Stream chunks from a named agent's skill via SSE.
+        *,
+        page_size: int | None = None,
+        page_token: str | None = None,
+        context_id: str | None = None,
+        status: str | None = None,
+        history_length: int | None = None,
+        status_timestamp_after: str | None = None,
+        include_artifacts: bool | None = None,
+        timeout: float = 10.0,
+    ) -> dict:
+        """Return one ListTasks page. Pass nextPageToken unchanged to fetch the next page."""
+        url, config = await self._peer(name)
+        filters = {
+            "pageSize": page_size,
+            "pageToken": page_token,
+            "contextId": context_id,
+            "status": status,
+            "historyLength": history_length,
+            "statusTimestampAfter": status_timestamp_after,
+            "includeArtifacts": include_artifacts,
+        }
+        params = {key: value for key, value in filters.items() if value is not None}
+        return (await _rpc_request(url, "ListTasks", params, timeout, client_config=config))["result"]
 
-        Args:
-            name: The agent name (must be registered).
-            skill: The skill to invoke on the remote agent.
-            timeout: Request timeout in seconds.
-            **params: Parameters to pass to the skill.
-
-        Yields:
-            Text chunks as they arrive from the remote agent.
-
-        Raises:
-            KeyError: If the agent name is not registered.
-        """
-        url = self._agents.get(name)
-        if url is None:
-            raise KeyError(f"Agent '{name}' not found in network. Available: {list(self._agents.keys())}")
-        async for chunk in stream_remote_skill(url, skill, params, timeout, client_config=self._clients.get(name)):
-            yield chunk
+    async def continue_task(
+        self, name: str, task_id: str, skill: str, /, timeout: float = 30.0, *, context_id: str = "", **params: Any
+    ) -> TaskHandle:
+        """Continue an existing task by ID. Fetch its context when only the task ID is known."""
+        url, config = await self._peer(name)
+        return await TaskHandle(task_id, None, url, config, context_id).continue_task(skill, timeout, **params)
 
     async def broadcast(
         self,
@@ -282,20 +380,19 @@ class AgentNetwork:
         Returns:
             Dict mapping agent names to their results (or error dicts).
         """
-        tasks = {
-            name: _call_remote_skill(url, skill, params, timeout, client_config=self._clients.get(name))
-            for name, url in self._agents.items()
-        }
 
+        async def invoke(name: str) -> Any:
+            url, config = await self._peer(name)
+            raw = await _call_remote_skill(url, skill, params, timeout, client_config=config)
+            return _extract_result(raw)
+
+        names = list(self._agents)
+        gathered = await asyncio.gather(*(invoke(name) for name in names), return_exceptions=True)
         results: dict[str, Any] = {}
-        gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        for name, raw_result in zip(tasks.keys(), gathered):
-            if isinstance(raw_result, Exception):
-                results[name] = {"error": str(raw_result), "type": type(raw_result).__name__}
-            else:
-                result, _task_id = raw_result
-                results[name] = result
-
+        for name, value in zip(names, gathered):
+            results[name] = (
+                {"error": str(value), "type": type(value).__name__} if isinstance(value, Exception) else value
+            )
         return results
 
     async def get_task(self, name: str, task_id: str, timeout: float = 10.0) -> dict:
@@ -312,10 +409,8 @@ class AgentNetwork:
         Raises:
             KeyError: If the agent name is not registered.
         """
-        url = self._agents.get(name)
-        if url is None:
-            raise KeyError(f"Agent '{name}' not found in network.")
-        return await get_remote_task(url, task_id, timeout, client_config=self._clients.get(name))
+        url, config = await self._peer(name)
+        return await get_remote_task(url, task_id, timeout, client_config=config)
 
     async def cancel_task(self, name: str, task_id: str, timeout: float = 10.0) -> dict:
         """Request cancellation of a task running on a named agent.
@@ -331,10 +426,8 @@ class AgentNetwork:
         Raises:
             KeyError: If the agent name is not registered.
         """
-        url = self._agents.get(name)
-        if url is None:
-            raise KeyError(f"Agent '{name}' not found in network.")
-        return await cancel_remote_task(url, task_id, timeout, client_config=self._clients.get(name))
+        url, config = await self._peer(name)
+        return await cancel_remote_task(url, task_id, timeout, client_config=config)
 
     def __len__(self) -> int:
         return len(self._agents)
@@ -346,6 +439,71 @@ class AgentNetwork:
         return f"AgentNetwork(agents={list(self._agents.keys())})"
 
 
+def _message_params(text: str, task_id: str = "", context_id: str = "") -> dict:
+    message = {"role": "ROLE_USER", "messageId": uuid4().hex, "parts": [{"text": text}]}
+    if task_id:
+        message["taskId"] = task_id
+    if context_id:
+        message["contextId"] = context_id
+    return {"message": message}
+
+
+def _skill_params(skill: str, params: dict, task_id: str = "", context_id: str = "") -> dict:
+    return _message_params(json.dumps({"skill": skill, "params": params}), task_id, context_id)
+
+
+def _rpc_body(method: str, params: dict, config: ClientConfig) -> dict:
+    return {"jsonrpc": "2.0", "method": method, "id": uuid4().hex, "params": config.request_params(params)}
+
+
+def _check_envelope(data: Any, request_id: str) -> dict:
+    if not isinstance(data, dict) or data.get("jsonrpc") != "2.0":
+        raise RemoteAgentError("Invalid JSON-RPC response version", data if isinstance(data, dict) else None)
+    if data.get("id") != request_id:
+        raise RemoteAgentError("JSON-RPC response ID does not match the request", data)
+    if ("result" in data) == ("error" in data):
+        raise RemoteAgentError("JSON-RPC response must contain exactly one of result and error", data)
+    if "error" in data:
+        error = data["error"]
+        if (
+            not isinstance(error, dict)
+            or type(error.get("code")) is not int
+            or not isinstance(error.get("message"), str)
+        ):
+            raise RemoteAgentError("Invalid JSON-RPC error object", data)
+        raise RemoteAgentError(error["message"], data, code=error["code"], data=error.get("data"))
+    return data
+
+
+def _http_envelope(response: httpx.Response, request_id: str) -> dict:
+    try:
+        data = response.json()
+    except ValueError as exc:
+        response.raise_for_status()
+        raise RemoteAgentError("Invalid JSON in JSON-RPC response") from exc
+    # An HTTP error may carry a correlated JSON-RPC error with application details.
+    if isinstance(data, dict) and "error" in data and "jsonrpc" in data:
+        _check_envelope(data, request_id)
+    response.raise_for_status()
+    return _check_envelope(data, request_id)
+
+
+async def _rpc_request(
+    agent_url: str,
+    method: str,
+    params: dict,
+    timeout: float,
+    *,
+    client_config: ClientConfig | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict:
+    config = (client_config or ClientConfig()).bind(agent_url)
+    body = _rpc_body(method, params, config)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        response = await client.post(agent_url, json=body, headers=await config.request_headers(agent_url, headers))
+        return _http_envelope(response, body["id"])
+
+
 async def _call_remote_skill(
     agent_url: str,
     skill: str,
@@ -353,55 +511,20 @@ async def _call_remote_skill(
     timeout: float = 30.0,
     *,
     client_config: ClientConfig | None = None,
-) -> tuple[Any, str]:
-    """Call a remote A2A agent's skill and extract the result.
+    task_id: str = "",
+    context_id: str = "",
+) -> dict:
+    body = _skill_params(skill, params, task_id, context_id)
+    response = await _rpc_request(agent_url, "SendMessage", body, timeout, client_config=client_config)
+    return response["result"]
 
-    Args:
-        agent_url: Base URL of the remote agent.
-        skill: Skill name to invoke.
-        params: Parameters for the skill.
-        timeout: Request timeout in seconds.
 
-    Returns:
-        A tuple of (parsed_result, task_id).
-    """
-    import httpx
-
-    message = json.dumps({"skill": skill, "params": params})
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "SendMessage",
-        "id": uuid4().hex,
-        "params": {
-            "message": {
-                "role": "ROLE_USER",
-                "parts": [{"text": message}],
-                "messageId": uuid4().hex,
-            }
-        },
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(agent_url, json=request_body, headers=await config.request_headers(agent_url))
-        response.raise_for_status()
-        data = response.json()
-
-    # Extract task_id from the A2A v1.0 response: result.task.id or result.message.taskId
-    rpc_result = data.get("result", {})
-    task_id = None
-    if isinstance(rpc_result, dict):
-        task = rpc_result.get("task")
-        if isinstance(task, dict):
-            task_id = task.get("id")
-        if not task_id:
-            message_result = rpc_result.get("message")
-            if isinstance(message_result, dict):
-                task_id = message_result.get("taskId")
-        if not task_id:
-            task_id = rpc_result.get("id")
-    return _extract_result(data), task_id or ""
+def _task_handle(result: dict, url: str, config: ClientConfig | None) -> TaskHandle:
+    task = result.get("task") or {}
+    message = result.get("message") or {}
+    task_id = task.get("id") or message.get("taskId") or result.get("id", "")
+    context_id = task.get("contextId") or message.get("contextId") or result.get("contextId", "")
+    return TaskHandle(task_id, _extract_result(result), url, config, context_id)
 
 
 _TERMINAL_STATES = {
@@ -409,14 +532,121 @@ _TERMINAL_STATES = {
     "TASK_STATE_FAILED",
     "TASK_STATE_CANCELED",
     "TASK_STATE_REJECTED",
-    "TASK_STATE_INPUT_REQUIRED",
-    "TASK_STATE_AUTH_REQUIRED",
 }
+_INTERRUPTED_STATES = {"TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"}
+_STREAM_VARIANTS = {"task", "message", "artifactUpdate", "statusUpdate"}
 
 
-def _part_text(part: dict) -> str:
-    """Extract text from a v1.0 part dict (content key presence)."""
-    return part.get("text", "") if "text" in part else ""
+def _event_status(event: dict) -> dict:
+    return (event.get("statusUpdate") or event.get("task") or {}).get("status", {})
+
+
+async def _sse_lines(response: httpx.Response) -> AsyncGenerator[str, None]:
+    # Only CR, LF and CRLF delimit SSE lines. Python's incremental newline
+    # decoder handles split CRLF and UTF-8 sequences without splitting U+2028.
+    decoder = io.IncrementalNewlineDecoder(codecs.getincrementaldecoder("utf-8-sig")(), translate=True)
+    partial: list[str] = []
+    try:
+        async for chunk in response.aiter_bytes():
+            *lines, tail = decoder.decode(chunk).split("\n")
+            if lines:
+                lines[0] = "".join(partial) + lines[0]
+                partial.clear()
+                for line in lines:
+                    yield line
+            if tail:
+                partial.append(tail)
+        # A final CR still terminates a line. A partial data line also needs to
+        # reach the event parser so it can distinguish truncation from clean EOF.
+        if decoder.decode(b"", final=True) or partial:
+            yield "".join(partial)
+    except UnicodeDecodeError as exc:
+        raise RemoteAgentError("Invalid UTF-8 in SSE stream") from exc
+
+
+async def _sse_events(response: httpx.Response) -> AsyncGenerator[tuple[str, str], None]:
+    event = ""
+    data: list[str] = []
+    async with aclosing(_sse_lines(response)) as lines:
+        async for line in lines:
+            if not line:
+                if data or event == "error":
+                    yield event, "\n".join(data)
+                event = ""
+                data = []
+                continue
+            field, _, value = line.partition(":")
+            if field == "data":
+                data.append(value.removeprefix(" "))
+            elif field == "event":
+                event = value.removeprefix(" ")
+    if data or event == "error":
+        raise RemoteAgentError("Truncated SSE event at end of stream")
+
+
+async def _stream_rpc(
+    url: str,
+    method: str,
+    params: dict,
+    timeout: float,
+    client_config: ClientConfig | None,
+    *,
+    text_stream: bool = False,
+) -> AsyncGenerator[dict, None]:
+    config = (client_config or ClientConfig()).bind(url)
+    body = _rpc_body(method, params, config)
+    headers = httpx.Headers(await config.request_headers(url))
+    headers["Accept"] = "text/event-stream, application/json"
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with client.stream("POST", url, json=body, headers=headers) as response:
+            mime = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+            if not response.is_success or mime != "text/event-stream":
+                await response.aread()
+                _http_envelope(response, body["id"])
+                raise RemoteAgentError(f"{method} expected a text/event-stream response")
+
+            interrupted = False
+            subscribed_id = params["id"] if method == "SubscribeToTask" else None
+            seen_snapshot = False
+            async with aclosing(_sse_events(response)) as events:
+                async for event_name, payload in events:
+                    if not payload and event_name != "error":
+                        continue
+                    try:
+                        data = json.loads(payload)
+                    except ValueError as exc:
+                        raise RemoteAgentError("Invalid JSON in SSE event") from exc
+                    event = _check_envelope(data, body["id"])["result"]
+                    if event_name == "error":
+                        raise RemoteAgentError("SSE error event lacks a JSON-RPC error", data)
+                    variants = (
+                        [event[key] for key in _STREAM_VARIANTS if key in event] if isinstance(event, dict) else []
+                    )
+                    if len(variants) != 1 or not isinstance(variants[0], dict):
+                        raise RemoteAgentError("Invalid A2A StreamResponse", data)
+                    if subscribed_id is not None:
+                        if "task" in event:
+                            event_id = event["task"].get("id")
+                            seen_snapshot = True
+                        else:
+                            if not seen_snapshot:
+                                raise RemoteAgentError("SubscribeToTask must start with a Task snapshot", data)
+                            event_id = (event.get("statusUpdate") or event.get("artifactUpdate") or {}).get("taskId")
+                        if event_id != subscribed_id:
+                            raise RemoteAgentError("Subscription event does not match the requested task ID", data)
+                    status = _event_status(event)
+                    state = status.get("state")
+                    if state:
+                        interrupted = state in _INTERRUPTED_STATES
+                    if text_stream and state == "TASK_STATE_FAILED":
+                        parts = (status.get("message") or {}).get("parts", [])
+                        reason = next((p["text"] for p in parts if p.get("text")), "Remote agent task failed")
+                        raise RemoteAgentError(reason, data)
+                    yield event
+                    if "message" in event or state in _TERMINAL_STATES:
+                        return
+            if not interrupted:
+                raise RemoteAgentError("SSE stream ended before a final message or task state")
 
 
 async def stream_remote_skill(
@@ -427,142 +657,23 @@ async def stream_remote_skill(
     *,
     client_config: ClientConfig | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Stream chunks from a remote A2A agent skill via SSE.
-
-    The remote agent must support streaming (supports_streaming=True in its card).
-    Uses the SendStreamingMessage JSON-RPC method and consumes the SSE response.
-
-    Args:
-        agent_url: Base URL of the remote agent.
-        skill: Skill name to invoke.
-        params: Parameters for the skill.
-        timeout: Request timeout in seconds.
-
-    Yields:
-        Text chunks as they arrive from the remote agent.
-
-    Raises:
-        RemoteAgentError: If the remote agent reports a failed state.
-    """
-    import httpx
-
-    message = json.dumps({"skill": skill, "params": params})
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "SendStreamingMessage",
-        "id": uuid4().hex,
-        "params": {
-            "message": {
-                "role": "ROLE_USER",
-                "parts": [{"text": message}],
-                "messageId": uuid4().hex,
-            }
-        },
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout), follow_redirects=False) as client:
-        async with client.stream(
-            "POST", agent_url, json=request_body, headers=await config.request_headers(agent_url)
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                line = line.strip()
-
-                # Skip empty lines, SSE comments, and event type lines
-                if not line or line.startswith(":") or line.startswith("event:"):
-                    continue
-
-                if not line.startswith("data:"):
-                    continue
-
-                data_str = line[len("data:") :].strip()
-                if not data_str:
-                    continue
-
-                try:
-                    data = json.loads(data_str)
-                except json.JSONDecodeError:
-                    logger.debug("Skipping non-JSON SSE data: %s", data_str)
-                    continue
-
-                # A2A v1.0 SSE events: {"result": {"task"|"statusUpdate"|"artifactUpdate"|"message": ...}}
-                # No `final` field: a terminal status state (or the stream closing) marks the end.
-                event = data.get("result", data)
-                if not isinstance(event, dict):
-                    continue
-
-                status = None
-                if "statusUpdate" in event:
-                    status = (event.get("statusUpdate") or {}).get("status") or {}
-                elif "task" in event:
-                    status = (event.get("task") or {}).get("status") or {}
-
-                state = status.get("state", "") if status else ""
-
-                # Check for failed state
-                if state == "TASK_STATE_FAILED":
-                    from .errors import RemoteAgentError
-
-                    msg = status.get("message", {})
-                    error_text = ""
-                    for part in msg.get("parts", []) if isinstance(msg, dict) else []:
-                        error_text = _part_text(part)
-                        if error_text:
-                            break
-                    raise RemoteAgentError(
-                        error_text or "Remote agent task failed",
-                        data,
-                    )
-
-                # Extract text from artifact parts
-                artifact = (event.get("artifactUpdate") or {}).get("artifact") or {}
-                for part in artifact.get("parts", []):
-                    text = _part_text(part)
-                    if text:
-                        yield text
-
-                # Extract text from status message parts
-                if status:
-                    msg = status.get("message") or {}
-                    if isinstance(msg, dict):
-                        for part in msg.get("parts", []):
-                            text = _part_text(part)
-                            if text:
-                                yield text
-
-                # Extract text from a direct message event
-                msg_event = event.get("message") or {}
-                if isinstance(msg_event, dict):
-                    for part in msg_event.get("parts", []):
-                        text = _part_text(part)
-                        if text:
-                            yield text
-
-                # Stop on terminal state (stream end also terminates the generator)
-                if state in _TERMINAL_STATES:
-                    return
+    """Yield text from A2A artifact, status and message events. Surface failures in stream order."""
+    events = _stream_rpc(
+        agent_url, "SendStreamingMessage", _skill_params(skill, params), timeout, client_config, text_stream=True
+    )
+    async with aclosing(events):
+        async for event in events:
+            status = _event_status(event)
+            message = status.get("message") or event.get("message") or {}
+            artifact = event.get("artifactUpdate", {}).get("artifact", {})
+            for item in (artifact, message):
+                for part in item.get("parts", []):
+                    if part.get("text"):
+                        yield part["text"]
 
 
-def _extract_result(response: dict[str, Any]) -> Any:
-    """Extract the skill result from an A2A JSON-RPC response.
-
-    Args:
-        response: The full JSON-RPC response dict.
-
-    Returns:
-        The parsed result value (dict, str, etc.).
-    """
-    if "error" in response:
-        from .errors import RemoteAgentError
-
-        error = response["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, response)
-
-    result = response.get("result", {})
-
+def _extract_result(result: Any) -> Any:
+    """Extract the Lite convenience value from a validated SendMessage result."""
     # A2A v1.0: result.message.parts (Message) or result.task.status.message.parts (Task)
     candidates: list[dict] = []
     if isinstance(result, dict):
@@ -609,32 +720,9 @@ async def get_remote_task(
     Returns:
         The task status dict from the remote agent.
     """
-    import httpx
-
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "GetTask",
-        "id": uuid4().hex,
-        "params": {"id": task_id},
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(
-            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    if "error" in data:
-        from .errors import RemoteAgentError
-
-        error = data["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, data)
-
-    return data.get("result", {})
+    return (
+        await _rpc_request(agent_url, "GetTask", {"id": task_id}, timeout, client_config=client_config, headers=headers)
+    )["result"]
 
 
 async def cancel_remote_task(
@@ -656,32 +744,11 @@ async def cancel_remote_task(
     Returns:
         The cancellation response dict from the remote agent.
     """
-    import httpx
-
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "CancelTask",
-        "id": uuid4().hex,
-        "params": {"id": task_id},
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(
-            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+    return (
+        await _rpc_request(
+            agent_url, "CancelTask", {"id": task_id}, timeout, client_config=client_config, headers=headers
         )
-        response.raise_for_status()
-        data = response.json()
-
-    if "error" in data:
-        from .errors import RemoteAgentError
-
-        error = data["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, data)
-
-    return data.get("result", {})
+    )["result"]
 
 
 async def set_task_push_notification(
@@ -707,40 +774,14 @@ async def set_task_push_notification(
     Returns:
         The JSON-RPC result dict from the remote agent.
     """
-    import httpx
-
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "CreateTaskPushNotificationConfig",
-        "id": uuid4().hex,
-        "params": {
-            "taskId": task_id,
-            "id": task_id,
-            "url": webhook_url,
-            "token": token,
-        },
-    }
-
+    params = {"taskId": task_id, "id": task_id, "url": webhook_url, "token": token}
     if token:
-        request_body["params"]["authentication"] = {"scheme": "Bearer", "credentials": token}
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(
-            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+        params["authentication"] = {"scheme": "Bearer", "credentials": token}
+    return (
+        await _rpc_request(
+            agent_url, "CreateTaskPushNotificationConfig", params, timeout, client_config=client_config, headers=headers
         )
-        response.raise_for_status()
-        data = response.json()
-
-    if "error" in data:
-        from .errors import RemoteAgentError
-
-        error = data["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, data)
-
-    return data.get("result", {})
+    )["result"]
 
 
 async def get_task_push_notification(
@@ -762,32 +803,16 @@ async def get_task_push_notification(
     Returns:
         The JSON-RPC result dict from the remote agent.
     """
-    import httpx
-
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "GetTaskPushNotificationConfig",
-        "id": uuid4().hex,
-        "params": {"taskId": task_id, "id": task_id},
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(
-            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+    return (
+        await _rpc_request(
+            agent_url,
+            "GetTaskPushNotificationConfig",
+            {"id": task_id, "taskId": task_id},
+            timeout,
+            client_config=client_config,
+            headers=headers,
         )
-        response.raise_for_status()
-        data = response.json()
-
-    if "error" in data:
-        from .errors import RemoteAgentError
-
-        error = data["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, data)
-
-    return data.get("result", {})
+    )["result"]
 
 
 async def delete_task_push_notification(
@@ -809,32 +834,16 @@ async def delete_task_push_notification(
     Returns:
         The JSON-RPC result dict from the remote agent.
     """
-    import httpx
-
-    request_body = {
-        "jsonrpc": "2.0",
-        "method": "DeleteTaskPushNotificationConfig",
-        "id": uuid4().hex,
-        "params": {"taskId": task_id, "id": task_id},
-    }
-
-    config = (client_config or ClientConfig()).bind(agent_url)
-    request_body["params"] = config.request_params(request_body["params"])
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        response = await client.post(
-            agent_url, json=request_body, headers=await config.request_headers(agent_url, headers)
+    return (
+        await _rpc_request(
+            agent_url,
+            "DeleteTaskPushNotificationConfig",
+            {"id": task_id, "taskId": task_id},
+            timeout,
+            client_config=client_config,
+            headers=headers,
         )
-        response.raise_for_status()
-        data = response.json()
-
-    if "error" in data:
-        from .errors import RemoteAgentError
-
-        error = data["error"]
-        message = error if isinstance(error, str) else str(error)
-        raise RemoteAgentError(message, data)
-
-    return data.get("result", {})
+    )["result"]
 
 
 async def discover(
@@ -852,8 +861,6 @@ async def discover(
     Raises:
         RemoteAgentError: If the remote agent speaks A2A 0.3 (unsupported).
     """
-    import httpx
-
     card_url = f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
 
     config = (client_config or ClientConfig()).bind(agent_url)
@@ -864,14 +871,12 @@ async def discover(
 
     # Detect A2A 0.3 cards (root `url` + `protocolVersion`, no supportedInterfaces)
     if "supportedInterfaces" not in data and ("url" in data or "protocolVersion" in data):
-        from .errors import RemoteAgentError
-
         raise RemoteAgentError(
             f"Agent at {agent_url} speaks A2A 0.3, not supported by a2a-lite 1.0",
             data,
         )
 
-    interface_url = _select_jsonrpc_url(data, agent_url)
+    interface_url, tenant = _select_jsonrpc_interface(data, agent_url, config.tenant)
     config.check_endpoint(interface_url)
 
     capabilities = data.get("capabilities", {})
@@ -887,19 +892,31 @@ async def discover(
         supports_streaming=capabilities.get("streaming", False),
         supports_push=capabilities.get("pushNotifications", False),
         raw=data,
+        tenant=tenant,
+        discovery_url=agent_url,
     )
 
 
-def _select_jsonrpc_url(card: dict, fallback: str) -> str:
-    """Select a supported JSON-RPC binding instead of assuming card order."""
-    from .errors import RemoteAgentError
-
+def _select_jsonrpc_interface(card: dict, base: str, tenant: str) -> tuple[str, str]:
+    """Choose an advertised compatible endpoint, honoring an explicitly requested tenant."""
+    unscoped = None
     for interface in card.get("supportedInterfaces", []):
         if not isinstance(interface, dict) or interface.get("protocolBinding") != "JSONRPC":
             continue
         if not re.fullmatch(r"1\.0(?:\.\d+)?", str(interface.get("protocolVersion", ""))):
             continue
         url = interface.get("url", "")
-        if isinstance(url, str) and urlsplit(url).scheme in ("http", "https") and urlsplit(url).hostname:
-            return url
-    raise RemoteAgentError(f"Agent at {fallback} has no supported A2A 1.0 JSON-RPC interface", card)
+        if not isinstance(url, str) or urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+            continue
+        advertised = interface.get("tenant", "")
+        if not isinstance(advertised, str):
+            continue
+        if not tenant or advertised == tenant:
+            return url, advertised
+        if not advertised and unscoped is None:
+            unscoped = url
+    if unscoped:
+        return unscoped, ""
+    raise RemoteAgentError(
+        f"Agent at {base} has no supported A2A 1.0 JSON-RPC interface for the requested tenant", card
+    )

@@ -7,6 +7,7 @@ Simple by default, powerful when needed.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -29,7 +30,7 @@ from .decorators import SkillDefinition
 from .executor import LiteAgentExecutor
 from .middleware import MiddlewareChain
 from .push_notifications import ProtocolPushSender, create_push_http_client, validate_callback_url
-from .server import AuthenticatedContextBuilder, LiteRequestHandler, ProtocolMiddleware
+from .server import AuthenticatedContextBuilder, LiteRequestHandler, ProtocolMiddleware, TaskContextBuilder
 from .streaming import is_generator_function
 from .utils import _is_or_subclass, extract_function_schemas
 
@@ -122,6 +123,7 @@ class Agent:
     push_notifier: Any | None = None  # PushNotifier for skill completion events
     runtime: Any | None = None  # RuntimeConfig
     persistence: Any | None = None  # PersistenceConfig
+    free_text_skill: str | None = None  # Receives unaddressed text as message=...
 
     def __post_init__(self):
         # Internal state
@@ -269,7 +271,7 @@ class Agent:
             skill_def = SkillDefinition(
                 name=skill_name,
                 description=skill_desc,
-                tags=tags or [],
+                tags=tags or [skill_name],
                 handler=func,
                 input_schema=input_schema,
                 output_schema=output_schema,
@@ -397,26 +399,19 @@ class Agent:
             async for chunk in agent.delegate("story", "tell", stream=True, topic="cats"):
                 print(chunk, end="", flush=True)
         """
-        from .orchestration import TaskHandle, _call_remote_skill, stream_remote_skill
+        from .orchestration import _call_remote_skill, _extract_result, _task_handle, stream_remote_skill
         from .orchestration import discover as discover_agent
 
-        # Resolve name to URL via network if available
-        url = target
         if self._network is not None and not target.startswith(("http://", "https://")):
-            resolved = self._network.get(target)
-            if resolved is not None:
-                url = resolved
-                client_config = client_config or self._network._clients.get(target)
-            else:
-                raise KeyError(f"Agent '{target}' not found in network. Available: {list(self._network.list().keys())}")
-
-        client_config = (client_config or ClientConfig()).bind(url)
-        # Optionally discover the agent card and validate the skill
+            url, client_config = await self._network._peer(target, client_config, use_card=not discover)
+        else:
+            url = target
+            client_config = (client_config or ClientConfig()).bind(url)
         if discover:
             from .errors import SkillNotFoundError
 
-            discovery_url = self._network._discovery_urls.get(target, url) if self._network else url
-            card = await discover_agent(discovery_url, timeout, client_config=client_config)
+            card = await discover_agent(url, timeout, client_config=client_config)
+            client_config = card.client_config(client_config)
             # Validate the skill exists on the remote agent
             skill_names = [s.get("id") or s.get("name", "") for s in card.skills]
             if skill and skill not in skill_names:
@@ -427,10 +422,8 @@ class Agent:
         if stream:
             return stream_remote_skill(url, skill, params, timeout, client_config=client_config)
 
-        result, task_id = await _call_remote_skill(url, skill, params, timeout, client_config=client_config)
-        if return_handle:
-            return TaskHandle(task_id=task_id, result=result, _agent_url=url, _client=client_config)
-        return result
+        raw = await _call_remote_skill(url, skill, params, timeout, client_config=client_config)
+        return _task_handle(raw, url, client_config) if return_handle else _extract_result(raw)
 
     def build_agent_card(self, host: str = "localhost", port: int = 8787, grpc_url: str | None = None) -> AgentCard:
         """Generate A2A 1.0-compliant Agent Card from registered skills.
@@ -441,6 +434,19 @@ class Agent:
             grpc_url: Optional "host:port" of a running gRPC endpoint (EXPERIMENTAL).
                 When provided, a GRPC AgentInterface is added to supported_interfaces.
         """
+        if self.free_text_skill is not None:
+            entry = self._skills.get(self.free_text_skill)
+            if entry is None:
+                raise ValueError(f"Unknown free_text_skill: {self.free_text_skill!r}")
+            injected = [entry.task_context_param, entry.auth_param, entry.mcp_param if self._mcp_servers else None]
+            if "message" in injected:
+                raise ValueError("free_text_skill must accept the user's text in its message parameter")
+            arguments = {"message": "", **{param: None for param in injected if param}}
+            try:
+                inspect.signature(entry.handler).bind(**arguments)
+            except TypeError as exc:
+                raise ValueError(f"free_text_skill {entry.name!r} must accept message=...: {exc}") from exc
+
         skills = []
 
         for skill_def in self._skills.values():
@@ -449,7 +455,9 @@ class Agent:
                 name=skill_def.name,
                 description=skill_def.description,
                 tags=skill_def.tags,
-                input_modes=["application/json"],
+                input_modes=["application/json", "text/plain"]
+                if skill_def.name == self.free_text_skill
+                else ["application/json"],
                 output_modes=["application/json"],
             )
             skills.append(skill)
@@ -632,33 +640,11 @@ class Agent:
         client_config: ClientConfig | None = None,
     ) -> dict[str, Any]:
         """Call a remote A2A agent (JSON-RPC SendMessage, wire v1.0)."""
-        from uuid import uuid4
+        from .orchestration import _message_params, _rpc_request
 
-        import httpx
-
-        request_body = {
-            "jsonrpc": "2.0",
-            "method": "SendMessage",
-            "id": uuid4().hex,
-            "params": {
-                "message": {
-                    "role": "ROLE_USER",
-                    "parts": [{"text": message}],
-                    "messageId": uuid4().hex,
-                }
-            },
-        }
-
-        config = (client_config or ClientConfig()).bind(agent_url)
-        request_body["params"] = config.request_params(request_body["params"])
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as http_client:
-            response = await http_client.post(
-                agent_url,
-                json=request_body,
-                headers=await config.request_headers(agent_url),
-            )
-            response.raise_for_status()
-            return response.json()
+        return await _rpc_request(
+            agent_url, "SendMessage", _message_params(message), timeout, client_config=client_config
+        )
 
     def _build_request_handler(self, agent_card: AgentCard) -> DefaultRequestHandler:
         """Build the SDK DefaultRequestHandler (shared executor + task store wiring)."""
@@ -697,6 +683,7 @@ class Agent:
             task_store=self._task_store,
             mcp_servers=self._mcp_servers,
             runtime_state=state,
+            free_text_skill=self.free_text_skill,
         )
 
         # SDK task store for protocol-level lifecycle (separate from app-level self._task_store)
@@ -716,6 +703,7 @@ class Agent:
         handler = LiteRequestHandler(
             agent_executor=executor,
             task_store=_protocol_store,
+            request_context_builder=TaskContextBuilder(task_store=_protocol_store),
             agent_card=agent_card,
             push_http_client=push_http_client,
             push_config_store=self.push_registry,

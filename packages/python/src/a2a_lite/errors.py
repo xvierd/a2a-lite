@@ -106,7 +106,12 @@ class RemoteAgentError(A2ALiteError):
         self,
         message: str,
         response: dict[str, Any] | None = None,
+        *,
+        code: int | None = None,
+        data: Any = None,
     ) -> None:
+        self.code = code
+        self.data = data
         self.response = response or {}
         super().__init__(message)
 

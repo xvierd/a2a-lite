@@ -2,7 +2,7 @@
 
 **Build A2A agents in 8 lines. Add enterprise features when you need them.**
 
-A2A Lite 1.2.0 wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) for A2A protocol v1.0. Start with small agents, then add authentication, streaming, managed runtimes and durable state explicitly.
+A2A Lite 1.3.0 wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) for A2A protocol v1.0. Start with small agents, then add authentication, streaming, managed runtimes and durable state explicitly.
 
 ## Quick Start
 

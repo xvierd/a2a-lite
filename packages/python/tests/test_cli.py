@@ -2,6 +2,9 @@
 Tests for the CLI module.
 """
 
+import json
+
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -14,8 +17,7 @@ class TestVersion:
     def test_version_command(self):
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
-        # Output is "A2A Lite v0.2.5"
-        assert "a2a lite" in result.stdout.lower()
+        assert "A2A Lite v1.3.0" in result.stdout
 
 
 class TestInit:
@@ -97,7 +99,7 @@ class TestInit:
 
         content = (project_dir / "pyproject.toml").read_text()
         assert "pytest" in content
-        assert "a2a-lite>=1.0.0" in content
+        assert "a2a-lite>=1.3.0,<2" in content
 
 
 class TestInspect:
@@ -114,6 +116,52 @@ class TestTest:
         result = runner.invoke(app, ["test", "http://invalid-nonexistent-url-12345.example.com", "hello"])
         # Should fail but not crash
         assert result.exit_code != 0 or "error" in result.stdout.lower()
+
+    def test_test_calls_discovered_jsonrpc_endpoint_with_tenant(self, mock_http):
+        def respond(request):
+            if request.method == "GET":
+                assert request.url.path == "/hub/.well-known/agent-card.json"
+                return httpx.Response(
+                    200,
+                    json={
+                        "supportedInterfaces": [
+                            {"protocolBinding": "HTTP+JSON", "protocolVersion": "1.0", "url": "http://peer/rest"},
+                            {
+                                "protocolBinding": "JSONRPC",
+                                "protocolVersion": "1.0",
+                                "url": "http://peer/custom/rpc",
+                                "tenant": "north",
+                            },
+                        ]
+                    },
+                )
+            assert str(request.url) == "http://peer/custom/rpc"
+            assert request.headers["A2A-Version"] == "1.0"
+            body = json.loads(request.content)
+            assert body["params"]["tenant"] == "north"
+            assert json.loads(body["params"]["message"]["parts"][0]["text"]) == {"skill": "hello", "params": {"n": 2}}
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"message": {}}})
+
+        requests = mock_http(respond)
+        result = runner.invoke(app, ["test", "http://peer/hub", "hello", "-p", "n=2", "--json"])
+        assert result.exit_code == 0, result.stdout
+        assert json.loads(result.stdout)["result"] == {"message": {}}
+        assert len(requests) == 2
+
+    def test_test_direct_endpoint_preserves_rpc_error_json(self, mock_http):
+        error = {"code": -32602, "message": "Invalid params", "data": {"field": "text"}}
+
+        def respond(request):
+            if request.method == "GET":
+                return httpx.Response(404)
+            assert str(request.url) == "http://peer/rpc"
+            body = json.loads(request.content)
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "error": error})
+
+        mock_http(respond)
+        result = runner.invoke(app, ["test", "http://peer/rpc", "hello", "--json"])
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["error"] == error
 
     def test_test_json_flag_exists(self):
         """Test command should accept --json flag."""
@@ -250,7 +298,8 @@ class TestCreate:
         assert result.exit_code == 0
         compile((project_dir / "agent.py").read_text(), "agent.py", "exec")
 
-    def test_create_dockerfile(self, tmp_path):
+    def test_create_dockerfile(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("a2a_lite.cli._find_a2a_lite_source", lambda: None)
         project_dir = tmp_path / "docker-agent"
         result = runner.invoke(app, ["create", "docker-agent", "--path", str(project_dir)])
         assert result.exit_code == 0
@@ -258,11 +307,10 @@ class TestCreate:
         dockerfile = (project_dir / "Dockerfile").read_text()
         assert "python:3.12-slim" in dockerfile
         assert "EXPOSE 8787" in dockerfile
-        if (project_dir / "vendor" / "a2a-lite").is_dir():
-            # a2a-lite installed from a local checkout -> vendored into the project
-            assert "RUN pip install --no-cache-dir ./vendor/a2a-lite" in dockerfile
-        else:
-            assert 'RUN pip install --no-cache-dir "a2a-lite>=1.0.0"' in dockerfile
+        assert 'RUN pip install --no-cache-dir "a2a-lite>=1.3.0,<2"' in dockerfile
+        readme = (project_dir / "README.md").read_text()
+        assert "Docker installs the published `a2a-lite` package from PyPI." in readme
+        assert "uv run --extra dev pytest tests/" in readme
 
         compose = (project_dir / "docker-compose.yml").read_text()
         assert "8787:8787" in compose
@@ -281,6 +329,7 @@ class TestCreate:
         assert (project_dir / "vendor" / "a2a-lite" / "pyproject.toml").exists()
         assert (project_dir / "vendor" / "a2a-lite" / "src" / "a2a_lite").is_dir()
         dockerfile = (project_dir / "Dockerfile").read_text()
+        assert "Docker installs the copy of your local checkout" in (project_dir / "README.md").read_text()
         assert "COPY vendor/ ./vendor/" in dockerfile
         assert "RUN pip install --no-cache-dir ./vendor/a2a-lite" in dockerfile
 
@@ -288,7 +337,7 @@ class TestCreate:
         project_dir = tmp_path / "dep-agent"
         result = runner.invoke(app, ["create", "dep-agent", "--path", str(project_dir)])
         assert result.exit_code == 0
-        assert "a2a-lite>=1.0.0" in (project_dir / "pyproject.toml").read_text()
+        assert "a2a-lite>=1.3.0,<2" in (project_dir / "pyproject.toml").read_text()
 
     def test_create_test_uses_test_client(self, tmp_path):
         project_dir = tmp_path / "test-agent"
@@ -322,7 +371,6 @@ class TestCreate:
         assert result.exit_code == 0
         assert (project_dir / "Dockerfile").exists()
 
-        # Prefer vendored path (local checkout); PyPI path only works after 1.0 is published.
         build = subprocess.run(
             ["docker", "build", "-t", "a2a-lite-cli-create-smoke", str(project_dir)],
             capture_output=True,
@@ -364,6 +412,12 @@ class TestV03Detection:
         result = runner.invoke(app, ["discover", "http://localhost:8787"])
         assert result.exit_code == 0
         assert "speaks A2A 0.3" in result.stdout
+
+    def test_info_shows_selected_endpoint(self, monkeypatch):
+        _mock_card(monkeypatch, V1_CARD)
+        result = runner.invoke(app, ["info", "http://localhost:8787"])
+        assert result.exit_code == 0, result.stdout
+        assert "URL: http://localhost:8787/" in result.stdout
 
     def test_inspect_v1_shows_interfaces(self, monkeypatch):
         """Inspect shows interfaces/transports, capabilities, and signatures."""

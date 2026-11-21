@@ -94,6 +94,7 @@ from .errors import (
     A2ALiteError,
     AuthRequiredError,
     ParamValidationError,
+    RemoteAgentError,
     SkillNotFoundError,
 )
 
@@ -144,7 +145,7 @@ from .runtime import ManagedRuntime, RuntimeConfig
 from .tasks import Task, TaskContext, TaskState, TaskStatus, TaskStore
 from .testing import AgentTestClient, AsyncAgentTestClient, TestResult
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 
 __all__ = [
     # Core
@@ -188,6 +189,7 @@ __all__ = [
     "A2ALiteError",
     "SkillNotFoundError",
     "ParamValidationError",
+    "RemoteAgentError",
     "AuthRequiredError",
     # Orchestration
     "AgentNetwork",

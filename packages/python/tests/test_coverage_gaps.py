@@ -223,6 +223,7 @@ class TestAgentDelegate:
         """Test delegate resolves name from network."""
         from unittest.mock import AsyncMock, patch
 
+        from a2a_lite import ClientConfig
         from a2a_lite.orchestration import AgentNetwork
 
         network = AgentNetwork()
@@ -231,11 +232,15 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test", network=network)
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = ({"temp": 72}, "task-123")
+            mock_call.return_value = {"message": {"parts": [{"text": '{"temp": 72}'}]}}
             result = await agent.delegate("weather", "forecast", city="NYC")
 
             mock_call.assert_called_once_with(
-                "http://weather:8787", "forecast", {"city": "NYC"}, 30.0, client_config=network._clients["weather"]
+                "http://weather:8787",
+                "forecast",
+                {"city": "NYC"},
+                30.0,
+                client_config=ClientConfig().bind("http://weather:8787"),
             )
             assert result == {"temp": 72}
 

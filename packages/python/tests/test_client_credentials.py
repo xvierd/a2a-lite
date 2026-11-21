@@ -103,9 +103,13 @@ async def test_stream_and_push_helpers_keep_headers_and_tenant(monkeypatch):
             return httpx.Response(
                 200,
                 headers={"Content-Type": "text/event-stream"},
-                text='data: {"result":{"message":{"parts":[{"text":"chunk"}]}}}\n\n',
+                text="data: "
+                + json.dumps(
+                    {"jsonrpc": "2.0", "id": body["id"], "result": {"message": {"parts": [{"text": "chunk"}]}}}
+                )
+                + "\n\n",
             )
-        return httpx.Response(200, json={"result": {"id": "task-1"}})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"id": "task-1"}})
 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(respond), **kw))

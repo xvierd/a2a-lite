@@ -23,6 +23,7 @@ agent = Agent(
     network=None,               # Optional: AgentNetwork for multi-agent
     runtime=None,               # Optional: RuntimeConfig profile and limits
     persistence=None,           # Optional: PersistenceConfig for managed SQL
+    free_text_skill=None,       # Registered skill accepting message=...
 )
 ```
 
@@ -146,6 +147,7 @@ async def admin_action(data: str, auth: AuthResult) -> str:
 ::: a2a_lite.errors.SkillNotFoundError
 ::: a2a_lite.errors.ParamValidationError
 ::: a2a_lite.errors.AuthRequiredError
+::: a2a_lite.errors.RemoteAgentError
 
 ## Orchestration
 
@@ -154,6 +156,14 @@ async def admin_action(data: str, auth: AuthResult) -> str:
 ### AgentNetwork
 
 ::: a2a_lite.orchestration.AgentNetwork
+
+### TaskHandle
+
+::: a2a_lite.orchestration.TaskHandle
+
+### AgentCardInfo
+
+::: a2a_lite.orchestration.AgentCardInfo
 
 ## MCP
 

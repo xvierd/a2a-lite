@@ -49,6 +49,13 @@ class ClientConfig:
         if trusted and destination not in trusted:
             raise ValueError("Discovered A2A endpoint has an untrusted origin; configure allowed_origins explicitly")
 
+    def for_interface(self, url: str, tenant: str) -> ClientConfig:
+        """Apply the selected interface's tenant on a request-scoped configuration."""
+        self.check_endpoint(url)
+        if tenant and self.tenant and tenant != self.tenant:
+            raise ValueError("Configured tenant does not match the selected A2A interface")
+        return self if tenant == self.tenant else replace(self, tenant=tenant)
+
     async def request_headers(self, url: str, extra: Mapping[str, str] | None = None) -> dict[str, str]:
         self.check_endpoint(url)
         headers = {**self.headers, **(extra or {})}

@@ -9,11 +9,11 @@
 
 Wraps the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) with a simple, decorator-based API for A2A v1.0.
 
-> **v1.2.1 — A2A Protocol v1.0.** Serves A2A v1.0 on `a2a-sdk >= 1.2.2`.
-> - **Default transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
-> - **gRPC (experimental, opt-in):** `pip install 'a2a-lite[grpc]'` then `agent.run_grpc()` / `build_grpc_server()` — not enabled by `agent.run()` alone.
-> - **1.2.1 is a documentation-only patch:** refreshed examples and registry README links; runtime behavior and dependency requirements are unchanged from 1.2.0.
-> - **No v0.3 compatibility.** See [MIGRATION.md](https://github.com/xvierd/a2a-lite/blob/main/MIGRATION.md).
+> **A2A Lite 1.3.0** speaks A2A protocol 1.0. The package supports `a2a-sdk[http-server]>=1.2.2,<2` and locks SDK 1.3.1 for development.
+>
+> - The Python client uses JSON-RPC. Discovery selects a compatible interface and retains its endpoint and tenant.
+> - The HTTP server publishes JSON-RPC and HTTP+JSON. Its card is at `/.well-known/agent-card.json`. Install `a2a-lite[grpc]` to run the separate experimental gRPC server.
+> - Clients can read complete stream events, subscribe to active tasks, paginate tasks and continue an interrupted task. [Multi-agent guide](https://github.com/xvierd/a2a-lite/blob/main/packages/python/docs/multi-agent.md)
 
 ```python
 from a2a_lite import Agent
@@ -290,7 +290,7 @@ agent = Agent(
 
 #### TaskHandle — track remote tasks
 
-A handle requires a real task ID returned by the peer. Message-only responses cannot be polled or subscribed to; requesting a handle for one raises a clear error instead of inventing an ID. Discovery selects a compatible JSON-RPC interface regardless of card order.
+A handle requires a Task with an `id` or a Message with an explicit `taskId`. Requesting a handle for a standalone Message without a task reference raises `ValueError`. Discovery selects a compatible JSON-RPC interface regardless of card order.
 
 ```python
 from a2a_lite import Agent, AgentNetwork, TaskHandle
@@ -310,7 +310,7 @@ async def process(query: str) -> str:
     return str(handle.result)
 ```
 
-#### Task Lifecycle — poll and cancel remote tasks
+#### Task lifecycle
 
 Use convenience methods directly on the handle, or via the network by name:
 
@@ -341,6 +341,15 @@ status = await get_remote_task("http://localhost:8787", task_id)
 await cancel_remote_task("http://localhost:8787", task_id)
 ```
 
+For a running task, `handle.events()` opens a `SubscribeToTask` SSE stream. Each item is the complete A2A event, including its parts and metadata. `handle.subscribe(webhook_url)` registers a push callback. A task awaiting input can be continued in its original context.
+
+```python
+continued = await handle.continue_task("review", answer="approved")
+page = await network.list_tasks("data", page_size=20)
+if token := page.get("nextPageToken"):
+    next_page = await network.list_tasks("data", page_size=20, page_token=token)
+```
+
 #### Agent Card Discovery — inspect before calling
 
 ```python
@@ -358,6 +367,10 @@ network.add("data", "http://localhost:8787", auto_discover=True)
 # Validate skill exists before delegating
 result = await agent.delegate("data", "fetch", query="hello", discover=True)
 ```
+
+#### Free text from Google ADK
+
+A multiskill agent can accept natural language from a `RemoteA2aAgent` by setting `free_text_skill` to a registered skill that takes a `message` argument. An explicit Lite skill call is a JSON object encoded in a text part, for example `{"skill":"add","params":{"a":5,"b":3}}`. When a multiskill agent has no text entry, an ambiguous request returns a Message whose text decodes to `{"type":"SkillNotFoundError", ...}` with `available_skills`. [Calculator example](https://github.com/xvierd/a2a-lite/blob/main/packages/python/examples/02_calculator.py)
 
 #### Client-Side SSE Streaming
 
@@ -614,7 +627,11 @@ Auto-injected when detected in skill function signatures:
 | `discover(url)` | Fetch a remote agent's card from `/.well-known/agent-card.json` |
 | `get_remote_task(url, task_id)` | Poll the status of a remote task |
 | `cancel_remote_task(url, task_id)` | Request cancellation of a remote task |
-| `stream_remote_skill(url, skill, params)` | Stream SSE chunks from a remote agent skill |
+| `stream_remote_skill(url, skill, params)` | Stream SSE text chunks from a remote agent skill |
+| `network.stream_events(name, skill, **params)` | Receive full Task, Message, status and artifact events |
+| `network.subscribe_task(name, task_id)` / `handle.events()` | Attach to an active task over SSE |
+| `network.list_tasks(name, page_size=..., page_token=...)` | Return one page and its continuation token |
+| `handle.continue_task(skill, **params)` | Send a follow-up in the same task and context |
 
 ---
 

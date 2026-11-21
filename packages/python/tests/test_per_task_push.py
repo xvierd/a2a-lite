@@ -4,7 +4,7 @@ client-side functions, and TaskHandle methods.
 """
 
 import json
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -55,26 +55,10 @@ class TestTaskPushRegistry:
         assert config == {"url": "http://hook.test/cb", "token": None}
 
 
-def _mock_httpx_response(response_data: dict):
-    """Build a patch context for httpx.AsyncClient that returns the given data."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = response_data
-    mock_response.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.post.return_value = mock_response
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-
-    return mock_client
-
-
 class TestSetTaskPushNotification:
     @pytest.mark.asyncio
-    async def test_set_task_push_notification(self):
+    async def test_set_task_push_notification(self, rpc_reply):
         response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
             "result": {
                 "taskId": "task-42",
                 "id": "task-42",
@@ -82,31 +66,27 @@ class TestSetTaskPushNotification:
                 "token": None,
             },
         }
-        mock_client = _mock_httpx_response(response_data)
+        requests = rpc_reply(**response_data)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await set_task_push_notification(
-                "http://agent:8787",
-                "task-42",
-                "http://hook.test/cb",
-            )
-            assert result["taskId"] == "task-42"
-            assert result["url"] == "http://hook.test/cb"
+        result = await set_task_push_notification(
+            "http://agent:8787",
+            "task-42",
+            "http://hook.test/cb",
+        )
+        assert result["taskId"] == "task-42"
+        assert result["url"] == "http://hook.test/cb"
 
-            # Verify the JSON-RPC body
-            call_args = mock_client.post.call_args
-            body = call_args[1]["json"]
-            assert body["method"] == "CreateTaskPushNotificationConfig"
-            assert body["params"]["taskId"] == "task-42"
-            assert body["params"]["url"] == "http://hook.test/cb"
+        # Verify the JSON-RPC body
+        body = json.loads(requests[0].content)
+        assert body["method"] == "CreateTaskPushNotificationConfig"
+        assert body["params"]["taskId"] == "task-42"
+        assert body["params"]["url"] == "http://hook.test/cb"
 
 
 class TestGetTaskPushNotification:
     @pytest.mark.asyncio
-    async def test_get_task_push_notification(self):
+    async def test_get_task_push_notification(self, rpc_reply):
         response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
             "result": {
                 "taskId": "task-42",
                 "id": "task-42",
@@ -114,35 +94,31 @@ class TestGetTaskPushNotification:
                 "token": "secret",
             },
         }
-        mock_client = _mock_httpx_response(response_data)
+        requests = rpc_reply(**response_data)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await get_task_push_notification("http://agent:8787", "task-42")
-            assert result["taskId"] == "task-42"
-            assert result["url"] == "http://hook.test/cb"
+        result = await get_task_push_notification("http://agent:8787", "task-42")
+        assert result["taskId"] == "task-42"
+        assert result["url"] == "http://hook.test/cb"
 
-            body = mock_client.post.call_args[1]["json"]
-            assert body["method"] == "GetTaskPushNotificationConfig"
-            assert body["params"]["taskId"] == "task-42"
+        body = json.loads(requests[0].content)
+        assert body["method"] == "GetTaskPushNotificationConfig"
+        assert body["params"]["taskId"] == "task-42"
 
 
 class TestDeleteTaskPushNotification:
     @pytest.mark.asyncio
-    async def test_delete_task_push_notification(self):
+    async def test_delete_task_push_notification(self, rpc_reply):
         response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
             "result": {},
         }
-        mock_client = _mock_httpx_response(response_data)
+        requests = rpc_reply(**response_data)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await delete_task_push_notification("http://agent:8787", "task-42")
-            assert result == {}
+        result = await delete_task_push_notification("http://agent:8787", "task-42")
+        assert result == {}
 
-            body = mock_client.post.call_args[1]["json"]
-            assert body["method"] == "DeleteTaskPushNotificationConfig"
-            assert body["params"]["taskId"] == "task-42"
+        body = json.loads(requests[0].content)
+        assert body["method"] == "DeleteTaskPushNotificationConfig"
+        assert body["params"]["taskId"] == "task-42"
 
 
 # ---------------------------------------------------------------------------

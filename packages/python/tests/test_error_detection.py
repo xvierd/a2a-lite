@@ -10,26 +10,22 @@ import pytest
 class TestErrorDetection:
     """Tests that errors are detected using proper types, not string matching."""
 
-    def test_orchestration_detects_json_rpc_error_key(self):
-        """Test that orchestration._extract_result raises RemoteAgentError on JSON-RPC error."""
+    async def test_orchestration_detects_json_rpc_error_key(self, rpc_reply):
+        from a2a_lite import AgentNetwork
         from a2a_lite.errors import RemoteAgentError
-        from a2a_lite.orchestration import _extract_result
 
-        # Error response
-        error_response = {"jsonrpc": "2.0", "id": "123", "error": {"code": -32600, "message": "Invalid Request"}}
+        rpc_reply(error={"code": -32600, "message": "Invalid Request"})
+        network = AgentNetwork({"test": "http://test"})
+        with pytest.raises(RemoteAgentError, match="Invalid Request") as exc:
+            await network.call("test", "skill")
+        assert exc.value.response["error"]["code"] == -32600
 
-        with pytest.raises(RemoteAgentError):
-            _extract_result(error_response)
+    async def test_orchestration_returns_success_result(self, rpc_reply):
+        from a2a_lite import AgentNetwork
 
-    def test_orchestration_returns_success_result(self):
-        """Test that orchestration._extract_result returns result when no error."""
-        from a2a_lite.orchestration import _extract_result
-
-        # Success response
-        success_response = {"jsonrpc": "2.0", "id": "123", "result": {"parts": [{"type": "text", "text": "Hello"}]}}
-
-        result = _extract_result(success_response)
-        assert result == "Hello"
+        rpc_reply(result={"message": {"parts": [{"text": "Hello"}]}})
+        network = AgentNetwork({"test": "http://test"})
+        assert await network.call("test", "skill") == "Hello"
 
     def test_testing_client_detects_error_key(self):
         """Test that testing client detects error by key presence."""

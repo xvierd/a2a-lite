@@ -5,6 +5,7 @@ Tests for the orchestration module (AgentNetwork, delegate).
 import json
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from a2a_lite import Agent
@@ -13,12 +14,15 @@ from a2a_lite.orchestration import (
     AgentNetwork,
     TaskHandle,
     _call_remote_skill,
-    _extract_result,
     cancel_remote_task,
     discover,
     get_remote_task,
     stream_remote_skill,
 )
+
+
+def task_result(text, task_id):
+    return {"task": {"id": task_id, "contextId": "context", "artifacts": [{"parts": [{"text": text}]}]}}
 
 
 class TestAgentNetwork:
@@ -86,7 +90,7 @@ class TestAgentNetwork:
         net.add("test", "http://test:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("hello", "task-123")
+            mock.return_value = task_result("hello", "task-123")
             result = await net.call("test", "greet", city="NYC")
             assert result == "hello"
             mock.assert_called_once_with("http://test:8787", "greet", {"city": "NYC"}, 30.0, client_config=ANY)
@@ -99,7 +103,7 @@ class TestAgentNetwork:
         net.add("test", "http://test:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("hello Bob", "task-123")
+            mock.return_value = task_result("hello Bob", "task-123")
             result = await net.call("test", "greet", name="Bob", skill="advanced")
             assert result == "hello Bob"
             mock.assert_called_once_with(
@@ -112,7 +116,7 @@ class TestAgentNetwork:
         net.add("a", "http://a:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("ok", "tid-a")
+            mock.return_value = task_result("ok", "tid-a")
             results = await net.broadcast("greet", skill="advanced")
             assert results["a"] == "ok"
             mock.assert_called_once_with("http://a:8787", "greet", {"skill": "advanced"}, 30.0, client_config=ANY)
@@ -124,7 +128,7 @@ class TestAgentNetwork:
         net.add("b", "http://b:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.side_effect = [("result_a", "tid-a"), ("result_b", "tid-b")]
+            mock.side_effect = [task_result("result_a", "tid-a"), task_result("result_b", "tid-b")]
             results = await net.broadcast("skill", x=1)
             assert results["a"] == "result_a"
             assert results["b"] == "result_b"
@@ -136,40 +140,27 @@ class TestAgentNetwork:
         net.add("b", "http://b:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.side_effect = [("ok", "tid-a"), Exception("fail")]
+            mock.side_effect = [task_result("ok", "tid-a"), Exception("fail")]
             results = await net.broadcast("skill")
             assert results["a"] == "ok"
             assert "error" in results["b"]
 
 
 class TestExtractResult:
-    def test_extract_text_part(self):
-        response = {"result": {"parts": [{"kind": "text", "text": '"hello"'}]}}
-        assert _extract_result(response) == "hello"
-
-    def test_extract_json_part(self):
-        response = {"result": {"parts": [{"kind": "text", "text": '{"key": "value"}'}]}}
-        assert _extract_result(response) == {"key": "value"}
-
-    def test_extract_plain_text(self):
-        response = {"result": {"parts": [{"kind": "text", "text": "just text"}]}}
-        assert _extract_result(response) == "just text"
-
-    def test_extract_error(self):
-        from a2a_lite.errors import RemoteAgentError
-
-        response = {"error": {"code": -32000, "message": "fail"}}
-        with pytest.raises(RemoteAgentError) as exc_info:
-            _extract_result(response)
-        assert exc_info.value.response == response
-
-    def test_extract_empty_result(self):
-        response = {"result": {}}
-        assert _extract_result(response) == {}
-
-    def test_extract_type_text(self):
-        response = {"result": {"parts": [{"type": "text", "text": "hello"}]}}
-        assert _extract_result(response) == "hello"
+    @pytest.mark.parametrize(
+        ("result", "expected"),
+        [
+            ({"parts": [{"kind": "text", "text": '"hello"'}]}, "hello"),
+            ({"parts": [{"kind": "text", "text": '{"key": "value"}'}]}, {"key": "value"}),
+            ({"parts": [{"kind": "text", "text": "just text"}]}, "just text"),
+            ({"parts": [{"type": "text", "text": "hello"}]}, "hello"),
+            ({}, {}),
+        ],
+    )
+    async def test_parses_legacy_results(self, rpc_reply, result, expected):
+        rpc_reply(result=result)
+        network = AgentNetwork({"test": "http://test"})
+        assert await network.call("test", "skill") == expected
 
 
 class TestAgentDelegate:
@@ -178,7 +169,7 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("result", "task-123")
+            mock.return_value = task_result("result", "task-123")
             result = await agent.delegate("http://other:8787", "skill", x=1)
             assert result == "result"
 
@@ -189,7 +180,7 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test", network=net)
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("result", "task-456")
+            mock.return_value = task_result("result", "task-456")
             result = await agent.delegate("other", "skill", x=1)
             assert result == "result"
             mock.assert_called_once_with("http://other:8787", "skill", {"x": 1}, 30.0, client_config=ANY)
@@ -201,7 +192,7 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("result", "task-123")
+            mock.return_value = task_result("result", "task-123")
             result = await agent.delegate("http://other:8787", "greet", target="Bob", skill="advanced")
             assert result == "result"
             mock.assert_called_once_with(
@@ -221,7 +212,7 @@ class TestAgentDelegate:
         agent = Agent(name="Test", description="Test")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("result", "task-789")
+            mock.return_value = task_result("result", "task-789")
             handle = await agent.delegate("http://other:8787", "skill", return_handle=True, x=1)
             assert isinstance(handle, TaskHandle)
             assert handle.task_id == "task-789"
@@ -247,7 +238,7 @@ class TestAgentDelegate:
             patch("a2a_lite.orchestration.discover", new_callable=AsyncMock, return_value=card) as mock_discover,
             patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock_call,
         ):
-            mock_call.return_value = ("result", "task-abc")
+            mock_call.return_value = task_result("result", "task-abc")
             result = await agent.delegate("http://other:8787", "skill", discover=True, x=1)
             assert result == "result"
             mock_discover.assert_called_once()
@@ -331,56 +322,24 @@ class TestTaskHandleLifecycleMethods:
 
 class TestAgentNetworkTaskLifecycle:
     @pytest.mark.asyncio
-    async def test_get_task(self):
+    async def test_get_task(self, rpc_reply):
         net = AgentNetwork()
         net.add("test", "http://test:8787")
 
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "result": {"id": "task-xyz", "status": {"state": "completed"}},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            result = await net.get_task("test", "task-xyz")
-            assert result["id"] == "task-xyz"
-            assert result["status"]["state"] == "completed"
+        rpc_reply(result={"id": "task-xyz", "status": {"state": "completed"}})
+        result = await net.get_task("test", "task-xyz")
+        assert result["id"] == "task-xyz"
+        assert result["status"]["state"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_cancel_task(self):
+    async def test_cancel_task(self, rpc_reply):
         net = AgentNetwork()
         net.add("test", "http://test:8787")
 
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "result": {"id": "task-xyz", "status": {"state": "canceled"}},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            result = await net.cancel_task("test", "task-xyz")
-            assert result["id"] == "task-xyz"
-            assert result["status"]["state"] == "canceled"
+        rpc_reply(result={"id": "task-xyz", "status": {"state": "canceled"}})
+        result = await net.cancel_task("test", "task-xyz")
+        assert result["id"] == "task-xyz"
+        assert result["status"]["state"] == "canceled"
 
     @pytest.mark.asyncio
     async def test_get_task_unknown_agent(self):
@@ -402,7 +361,7 @@ class TestAgentNetworkCallWithHandle:
         net.add("test", "http://test:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("hello", "task-handle-123")
+            mock.return_value = task_result("hello", "task-handle-123")
             handle = await net.call("test", "greet", return_handle=True, city="NYC")
             assert isinstance(handle, TaskHandle)
             assert handle.task_id == "task-handle-123"
@@ -415,7 +374,7 @@ class TestAgentNetworkCallWithHandle:
         net.add("test", "http://test:8787")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("hello", "task-handle-123")
+            mock.return_value = task_result("hello", "task-handle-123")
             result = await net.call("test", "greet", city="NYC")
             assert result == "hello"
             assert not isinstance(result, TaskHandle)
@@ -444,9 +403,7 @@ class TestAgentCardInfo:
 
 
 class TestDiscover:
-    def test_selects_jsonrpc_instead_of_first_interface(self):
-        from a2a_lite.orchestration import _select_jsonrpc_url
-
+    async def test_selects_jsonrpc_instead_of_first_interface(self, mock_http):
         card = {
             "supportedInterfaces": [
                 {"url": "localhost:50051", "protocolBinding": "GRPC", "protocolVersion": "1.0"},
@@ -454,24 +411,23 @@ class TestDiscover:
                 {"url": "https://agent.example/rpc", "protocolBinding": "JSONRPC", "protocolVersion": "1.0.1"},
             ]
         }
-        assert _select_jsonrpc_url(card, "https://agent.example") == "https://agent.example/rpc"
+        mock_http(lambda request: httpx.Response(200, json=card))
+        assert (await discover("https://agent.example")).url == "https://agent.example/rpc"
 
     @pytest.mark.parametrize(
         "binding,version", [("GRPC", "1.0"), ("HTTP+JSON", "1.0"), ("JSONRPC", "0.3"), ("JSONRPC", "2.0")]
     )
-    def test_rejects_unsupported_interface(self, binding, version):
+    async def test_rejects_unsupported_interface(self, mock_http, binding, version):
         from a2a_lite.errors import RemoteAgentError
-        from a2a_lite.orchestration import _select_jsonrpc_url
 
+        card = {
+            "supportedInterfaces": [
+                {"url": "https://agent.example", "protocolBinding": binding, "protocolVersion": version}
+            ]
+        }
+        mock_http(lambda request: httpx.Response(200, json=card))
         with pytest.raises(RemoteAgentError, match="no supported"):
-            _select_jsonrpc_url(
-                {
-                    "supportedInterfaces": [
-                        {"url": "https://agent.example", "protocolBinding": binding, "protocolVersion": version}
-                    ]
-                },
-                "https://agent.example",
-            )
+            await discover("https://agent.example")
 
     @pytest.mark.asyncio
     async def test_discover_fetches_card(self):
@@ -512,100 +468,36 @@ class TestDiscover:
 
 class TestGetRemoteTask:
     @pytest.mark.asyncio
-    async def test_get_remote_task(self):
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "result": {"id": "task-xyz", "status": {"state": "completed"}},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            result = await get_remote_task("http://agent:8787", "task-xyz")
-            assert result["id"] == "task-xyz"
-            assert result["status"]["state"] == "completed"
+    async def test_get_remote_task(self, rpc_reply):
+        rpc_reply(result={"id": "task-xyz", "status": {"state": "completed"}})
+        result = await get_remote_task("http://agent:8787", "task-xyz")
+        assert result["id"] == "task-xyz"
+        assert result["status"]["state"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_get_remote_task_error(self):
+    async def test_get_remote_task_error(self, rpc_reply):
         from a2a_lite.errors import RemoteAgentError
 
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "error": {"code": -32000, "message": "Task not found"},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(RemoteAgentError):
-                await get_remote_task("http://agent:8787", "task-xyz")
+        rpc_reply(error={"code": -32000, "message": "Task not found"})
+        with pytest.raises(RemoteAgentError):
+            await get_remote_task("http://agent:8787", "task-xyz")
 
 
 class TestCancelRemoteTask:
     @pytest.mark.asyncio
-    async def test_cancel_remote_task(self):
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "result": {"id": "task-xyz", "status": {"state": "canceled"}},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            result = await cancel_remote_task("http://agent:8787", "task-xyz")
-            assert result["id"] == "task-xyz"
-            assert result["status"]["state"] == "canceled"
+    async def test_cancel_remote_task(self, rpc_reply):
+        rpc_reply(result={"id": "task-xyz", "status": {"state": "canceled"}})
+        result = await cancel_remote_task("http://agent:8787", "task-xyz")
+        assert result["id"] == "task-xyz"
+        assert result["status"]["state"] == "canceled"
 
     @pytest.mark.asyncio
-    async def test_cancel_remote_task_error(self):
+    async def test_cancel_remote_task_error(self, rpc_reply):
         from a2a_lite.errors import RemoteAgentError
 
-        response_data = {
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "error": {"code": -32000, "message": "Cannot cancel"},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = response_data
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(RemoteAgentError):
-                await cancel_remote_task("http://agent:8787", "task-xyz")
+        rpc_reply(error={"code": -32000, "message": "Cannot cancel"})
+        with pytest.raises(RemoteAgentError):
+            await cancel_remote_task("http://agent:8787", "task-xyz")
 
 
 class TestAgentNetworkDiscover:
@@ -641,103 +533,38 @@ class TestAgentNetworkDiscover:
         assert net.get_card("missing") is None
 
 
-def _make_sse_lines(events: list[dict]) -> list[str]:
-    """Build raw SSE lines from a list of event dicts."""
-    lines = []
-    for event in events:
-        lines.append(f"data: {json.dumps(event)}")
-        lines.append("")  # blank line between events
-    return lines
-
-
-class _FakeAsyncLineIterator:
-    """Async iterator over a list of strings, simulating response.aiter_lines()."""
-
-    def __init__(self, lines: list[str]):
-        self._lines = lines
-        self._index = 0
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if self._index >= len(self._lines):
-            raise StopAsyncIteration
-        line = self._lines[self._index]
-        self._index += 1
-        return line
-
-
-def _build_streaming_mocks(sse_lines: list[str]):
-    """Build mock httpx client + response for SSE streaming tests.
-
-    Returns (mock_client_cls,) ready to patch httpx.AsyncClient.
-    httpx.AsyncClient.stream() returns an async context manager (not a coroutine),
-    so we use a custom class to match that protocol.
-    """
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.aiter_lines.return_value = _FakeAsyncLineIterator(sse_lines)
-
-    class _StreamCM:
-        async def __aenter__(self):
-            return mock_response
-
-        async def __aexit__(self, *args):
-            return False
-
-    mock_client = MagicMock()
-    mock_client.stream = MagicMock(return_value=_StreamCM())
-
-    class _ClientCM:
-        def __init__(self, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return mock_client
-
-        async def __aexit__(self, *args):
-            return False
-
-    return _ClientCM, mock_client
-
-
 class TestStreamRemoteSkill:
     @pytest.mark.asyncio
-    async def test_yields_artifact_chunks_in_order(self):
+    async def test_yields_artifact_chunks_in_order(self, sse_reply):
         """Artifact text parts are yielded in order, stops at terminal state."""
         sse_events = [
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "Hello "}]}}}},
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "world"}]}}}},
             {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            async for chunk in stream_remote_skill("http://test:8787", "skill", {"x": 1}):
-                chunks.append(chunk)
+        sse_reply(sse_events)
+        chunks = []
+        async for chunk in stream_remote_skill("http://test:8787", "skill", {"x": 1}):
+            chunks.append(chunk)
 
         assert chunks == ["Hello ", "world"]
 
     @pytest.mark.asyncio
-    async def test_yields_from_result_artifact_pattern(self):
+    async def test_yields_from_result_artifact_pattern(self, sse_reply):
         """Handles the result.artifactUpdate nested pattern."""
         sse_events = [
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "chunk1"}]}}}},
             {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
-                chunks.append(chunk)
+        sse_reply(sse_events)
+        chunks = []
+        async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
+            chunks.append(chunk)
 
         assert chunks == ["chunk1"]
 
     @pytest.mark.asyncio
-    async def test_stops_at_final_true(self):
+    async def test_stops_at_terminal_state(self, sse_reply):
         """Generator stops at a terminal state, ignoring subsequent events."""
         sse_events = [
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "A"}]}}}},
@@ -745,17 +572,15 @@ class TestStreamRemoteSkill:
             # This should never be reached
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "B"}]}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
-                chunks.append(chunk)
+        sse_reply(sse_events)
+        chunks = []
+        async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
+            chunks.append(chunk)
 
         assert chunks == ["A"]
 
     @pytest.mark.asyncio
-    async def test_raises_on_failed_state(self):
+    async def test_raises_on_failed_state(self, sse_reply):
         """RemoteAgentError raised when status.state is TASK_STATE_FAILED."""
         from a2a_lite.errors import RemoteAgentError
 
@@ -772,60 +597,45 @@ class TestStreamRemoteSkill:
                 }
             },
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            with pytest.raises(RemoteAgentError, match="Something went wrong"):
-                async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
-                    chunks.append(chunk)
+        sse_reply(sse_events)
+        chunks = []
+        with pytest.raises(RemoteAgentError, match="Something went wrong"):
+            async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
+                chunks.append(chunk)
 
         # The first chunk should have been yielded before the error
         assert chunks == ["partial"]
 
     @pytest.mark.asyncio
-    async def test_skips_comment_and_event_lines(self):
+    async def test_skips_comment_and_event_lines(self, sse_reply):
         """Comment lines and event: lines are silently skipped."""
-        raw_lines = [
-            ": this is a comment",
-            "event: message",
-            f"data: {json.dumps({'result': {'artifactUpdate': {'artifact': {'parts': [{'text': 'ok'}]}}}})}",
-            "",
-            f"data: {json.dumps({'result': {'statusUpdate': {'status': {'state': 'TASK_STATE_COMPLETED'}}}})}",
-            "",
+        sse_events = [
+            {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "ok"}]}}}},
+            {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(raw_lines)
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            async for chunk in stream_remote_skill("http://test:8787", "skill", {}):
-                chunks.append(chunk)
-
+        sse_reply(sse_events, prefix=": this is a comment\nevent: message\n")
+        chunks = [chunk async for chunk in stream_remote_skill("http://test:8787", "skill", {})]
         assert chunks == ["ok"]
 
     @pytest.mark.asyncio
-    async def test_uses_message_stream_method(self):
+    async def test_uses_message_stream_method(self, sse_reply):
         """Verify the request body uses method 'SendStreamingMessage'."""
         sse_events = [
             {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, mock_client = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            async for _ in stream_remote_skill("http://test:8787", "skill", {"a": 1}):
-                pass
-
-        # Check the stream() call args
-        call_args = mock_client.stream.call_args
-        assert call_args[0][0] == "POST"
-        assert call_args[0][1] == "http://test:8787"
-        body = call_args[1]["json"] if "json" in call_args[1] else call_args[0][2]
+        requests = sse_reply(sse_events)
+        async for _ in stream_remote_skill("http://test:8787", "skill", {"a": 1}):
+            pass
+        (request,) = requests
+        assert request.method == "POST"
+        assert str(request.url) == "http://test:8787"
+        body = json.loads(request.content)
         assert body["method"] == "SendStreamingMessage"
 
 
 class TestAgentNetworkStream:
     @pytest.mark.asyncio
-    async def test_stream_yields_chunks(self):
+    async def test_stream_yields_chunks(self, sse_reply):
         net = AgentNetwork()
         net.add("test", "http://test:8787")
 
@@ -834,12 +644,10 @@ class TestAgentNetworkStream:
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "chunk2"}]}}}},
             {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            chunks = []
-            async for chunk in net.stream("test", "skill", x=1):
-                chunks.append(chunk)
+        sse_reply(sse_events)
+        chunks = []
+        async for chunk in net.stream("test", "skill", x=1):
+            chunks.append(chunk)
 
         assert chunks == ["chunk1", "chunk2"]
 
@@ -853,7 +661,7 @@ class TestAgentNetworkStream:
 
 class TestAgentDelegateStream:
     @pytest.mark.asyncio
-    async def test_delegate_stream_returns_generator(self):
+    async def test_delegate_stream_returns_generator(self, sse_reply):
         net = AgentNetwork()
         net.add("test", "http://test:8787")
         agent = Agent(name="Test", description="Test", network=net)
@@ -863,13 +671,11 @@ class TestAgentDelegateStream:
             {"result": {"artifactUpdate": {"artifact": {"parts": [{"text": "b"}]}}}},
             {"result": {"statusUpdate": {"status": {"state": "TASK_STATE_COMPLETED"}}}},
         ]
-        client_cls, _ = _build_streaming_mocks(_make_sse_lines(sse_events))
-
-        with patch("httpx.AsyncClient", client_cls):
-            gen = await agent.delegate("test", "skill", stream=True, x=1)
-            chunks = []
-            async for chunk in gen:
-                chunks.append(chunk)
+        sse_reply(sse_events)
+        gen = await agent.delegate("test", "skill", stream=True, x=1)
+        chunks = []
+        async for chunk in gen:
+            chunks.append(chunk)
 
         assert chunks == ["a", "b"]
 
@@ -879,6 +685,6 @@ class TestAgentDelegateStream:
         agent = Agent(name="Test", description="Test")
 
         with patch("a2a_lite.orchestration._call_remote_skill", new_callable=AsyncMock) as mock:
-            mock.return_value = ("result", "task-123")
+            mock.return_value = task_result("result", "task-123")
             result = await agent.delegate("http://other:8787", "skill", x=1)
             assert result == "result"

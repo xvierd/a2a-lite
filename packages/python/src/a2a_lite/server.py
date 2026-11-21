@@ -6,9 +6,11 @@ import json
 from contextlib import asynccontextmanager
 
 from a2a.auth.user import User
+from a2a.server.agent_execution import SimpleRequestContextBuilder
+from a2a.server.cluster.task_store import StoredTask
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes.common import DefaultServerCallContextBuilder
-from a2a.utils.errors import UnsupportedOperationError
+from a2a.utils.errors import TaskNotFoundError, UnsupportedOperationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -127,6 +129,22 @@ class ProtocolMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_protocol_response)
+
+
+class TaskContextBuilder(SimpleRequestContextBuilder):
+    def __init__(self, task_store):
+        super().__init__()
+        self.store = task_store
+
+    async def build(self, context, params=None, task_id=None, context_id=None, task=None):
+        # SDK 1.2.2 discards the stored context before calling this hook. Newer
+        # SDKs supply it directly, so a continuation needs no additional read.
+        if task_id and not context_id:
+            stored = await self.store.get(task_id, context)
+            if stored is None:
+                raise TaskNotFoundError()
+            context_id = (stored.task if isinstance(stored, StoredTask) else stored).context_id
+        return await super().build(context, params, task_id, context_id, task)
 
 
 class LiteRequestHandler(DefaultRequestHandler):

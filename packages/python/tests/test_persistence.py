@@ -490,16 +490,18 @@ async def test_durable_task_continuation_keeps_identity_and_rejects_other_owner(
         continuation = payload()
         continuation["params"]["message"].update(
             taskId=initial["id"],
-            contextId=initial["contextId"],
             parts=[{"text": json.dumps({"skill": "work", "params": {"answer": "accepted"}})}],
         )
+        # External clients can resume by task ID alone. Also cover an explicit context.
+        if paused_state == "auth-required":
+            continuation["params"]["message"]["contextId"] = initial["contextId"]
         denied = (await client.post("/", json=continuation, headers={"X-API-Key": "other"})).json()
         assert "error" in denied
         continuation["params"]["tenant"] = "other"
         assert "error" in (await client.post("/", json=continuation)).json()
         continuation["params"].pop("tenant")
         final = (await client.post("/", json=continuation)).json()["result"]["task"]
-        assert final["id"] == initial["id"]
+        assert (final["id"], final["contextId"]) == (initial["id"], initial["contextId"])
         assert final["status"]["state"] == "TASK_STATE_COMPLETED"
         assert final["artifacts"][-1]["parts"][0]["text"] == "accepted"
         assert calls == [initial["id"], initial["id"]]

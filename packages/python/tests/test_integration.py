@@ -20,7 +20,7 @@ def calculator_agent():
     async def add(a: float, b: float) -> float:
         return a + b
 
-    @agent.skill("multiply")
+    @agent.skill("multiply", tags=["math", "multiplication"])
     async def multiply(a: float, b: float) -> float:
         return a * b
 
@@ -74,6 +74,69 @@ async def test_agent_card_endpoint(calculator_agent):
     data = response.json()
     assert data["name"] == "Calculator"
     assert len(data["skills"]) == 2
+    assert {skill["id"]: skill["tags"] for skill in data["skills"]} == {
+        "add": ["add"],
+        "multiply": ["math", "multiplication"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("multiskill", "entry", "expected"),
+    [(False, None, "heard: ¡hola!"), (True, "listen", "heard: ¡hola!"), (True, None, None)],
+)
+def test_plain_text_skill_selection(multiskill, entry, expected):
+    from starlette.testclient import TestClient
+
+    agent = Agent(name="Listener", description="Text routing", free_text_skill=entry)
+
+    @agent.skill("listen")
+    async def listen(message: str):
+        return f"heard: {message}"
+
+    if multiskill:
+
+        @agent.skill("repeat")
+        async def repeat(text: str):
+            return text
+
+    def send(client, text):
+        message = {"role": "ROLE_USER", "parts": [{"text": text}], "messageId": uuid4().hex}
+        response = client.post(
+            "/",
+            headers={"A2A-Version": "1.0"},
+            json={"jsonrpc": "2.0", "id": uuid4().hex, "method": "SendMessage", "params": {"message": message}},
+        )
+        response.raise_for_status()
+        return response.json()["result"]["message"]["parts"][0]["text"]
+
+    with TestClient(agent.get_app()) as client:
+        response = send(client, "¡hola!")
+        if expected is None:
+            error = json.loads(response)
+            assert error["type"] == "SkillNotFoundError"
+            assert error["available_skills"] == ["listen", "repeat"]
+        else:
+            assert response == expected
+        if entry:
+            card = client.get("/.well-known/agent-card.json").json()
+            assert "text/plain" in next(skill for skill in card["skills"] if skill["id"] == entry)["inputModes"]
+            assert send(client, '{"skill":"repeat","params":{"text":"explicit"}}') == "explicit"
+            error = json.loads(send(client, '{"skill":"missing","params":{}}'))
+            assert error["type"] == "SkillNotFoundError"
+            assert "missing" in error["error"]
+
+
+def test_free_text_skill_validated_at_startup():
+    agent = Agent(name="Listener", description="Text routing", free_text_skill="listen")
+    with pytest.raises(ValueError, match="Unknown free_text_skill"):
+        agent.get_app()
+
+    @agent.skill("listen")
+    def listen(required: str):
+        return required
+
+    with pytest.raises(ValueError, match="must accept message"):
+        agent.get_app()
 
 
 @pytest.mark.asyncio

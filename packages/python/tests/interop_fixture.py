@@ -20,12 +20,19 @@ def create_agent():
         description="Live A2A protocol fixture",
         runtime=RuntimeConfig(profile="durable" if persistence else "authenticated"),
         persistence=persistence,
+        free_text_skill="echo" if os.getenv("A2ALITE_INTEROP_TEXT_ENTRY") == "1" else None,
         auth=APIKeyAuth(principals={"interop-secret": "alice", "interop-rotated": "alice", "interop-other": "bob"}),
     )
 
     @agent.skill("greet")
     async def greet(text: str):
         return text
+
+    if agent.free_text_skill:
+
+        @agent.skill("echo")
+        async def echo(message: str):
+            return message
 
     @agent.skill("taskProbe", task=True)
     async def task_probe(task: TaskContext):

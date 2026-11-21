@@ -15,6 +15,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
+from . import __version__
+
 app = typer.Typer(
     name="a2a-lite",
     help="A2A Lite - Simplified Agent-to-Agent Protocol SDK",
@@ -31,9 +33,10 @@ MIGRATION_HINT = "https://a2a-protocol.org/latest/"
 
 def _card_url(card: dict, fallback: str) -> str:
     """Extract the agent URL from a v1.0 agent card (supportedInterfaces)."""
-    from .orchestration import _select_jsonrpc_url
+    from .orchestration import _select_jsonrpc_interface
 
-    return _select_jsonrpc_url(card, fallback)
+    endpoint, _ = _select_jsonrpc_interface(card, fallback, "")
+    return endpoint
 
 
 def _is_v03_card(card: dict) -> bool:
@@ -149,7 +152,7 @@ version = "0.1.0"
 description = "A2A Agent: {name}"
 requires-python = ">=3.10"
 dependencies = [
-    "a2a-lite>=1.0.0",
+    "a2a-lite>={__version__},<2",
 ]
 
 [project.optional-dependencies]
@@ -175,11 +178,11 @@ uv run agent.py
 ## Testing
 
 ```bash
-# Using the CLI
-a2a-lite test http://localhost:8787 hello -p name=World
+# With the agent running in another terminal
+uv run a2a-lite test http://localhost:8787 hello -p name=World
 
 # Using pytest
-uv run pytest tests/
+uv run --extra dev pytest tests/
 ```
 
 ## Project Structure
@@ -447,9 +450,11 @@ def test(
 
     Example: a2a-lite test http://localhost:8787 hello -p name=World
     """
-    from uuid import uuid4
-
     import httpx
+
+    from .client import ClientConfig
+    from .errors import RemoteAgentError
+    from .orchestration import _rpc_request, _select_jsonrpc_interface, _skill_params
 
     # Parse parameters
     param_dict = {}
@@ -463,58 +468,36 @@ def test(
                 param_dict[key] = value
 
     async def _test():
-        async with httpx.AsyncClient() as client:
-            # Detect legacy 0.3 agents before sending (fall through if the card
-            # cannot be fetched; the SendMessage error will surface instead)
-            try:
-                card = await _fetch_card(url)
-            except httpx.HTTPError:
-                card = None
-            if card is not None:
-                _check_card_version(card, url)
+        endpoint = url
+        config = ClientConfig().bind(url)
+        try:
+            card = await _fetch_card(url)
+        except httpx.HTTPError:
+            # A caller may supply the RPC endpoint of a server without a card.
+            pass
+        else:
+            _check_card_version(card, url)
+            endpoint, tenant = _select_jsonrpc_interface(card, url, config.tenant)
+            config = config.for_interface(endpoint, tenant)
 
-            # Build request
-            message = json.dumps(
-                {
-                    "skill": skill,
-                    "params": param_dict,
-                }
-            )
-
-            request_body = {
-                "jsonrpc": "2.0",
-                "method": "SendMessage",
-                "id": uuid4().hex,
-                "params": {
-                    "message": {
-                        "role": "ROLE_USER",
-                        "parts": [{"text": message}],
-                        "messageId": uuid4().hex,
-                    }
-                },
-            }
-
-            response = await client.post(
-                url,
-                json=request_body,
-                headers={"A2A-Version": "1.0"},
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            result = response.json()
-
-            if output_json:
-                # Raw JSON output
-                console.print(json.dumps(result, indent=2))
-            else:
-                # Formatted output
-                console.print("\n[bold green]Response:[/]")
-                console.print_json(json.dumps(result, indent=2))
+        request = _skill_params(skill, param_dict)
+        result = await _rpc_request(endpoint, "SendMessage", request, 30.0, client_config=config)
+        if output_json:
+            typer.echo(json.dumps(result, indent=2))
+        else:
+            console.print("\n[bold green]Response:[/]")
+            console.print_json(json.dumps(result, indent=2))
 
     try:
         asyncio.run(_test())
     except typer.Exit:
         raise
+    except RemoteAgentError as e:
+        if output_json and e.code is not None:
+            typer.echo(json.dumps(e.response, indent=2))
+        else:
+            console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(1)
     except httpx.HTTPError as e:
         console.print(f"[red]Error: {e}[/]")
         raise typer.Exit(1)
@@ -597,7 +580,6 @@ def doctor(
 
     Example: a2a-lite doctor http://localhost:8787
     """
-    from . import __version__
 
     healthy = True
 
@@ -830,7 +812,7 @@ version = "0.1.0"
 description = "A2A Agent: {name}"
 requires-python = ">=3.10"
 dependencies = [
-    "a2a-lite>=1.0.0",
+    "a2a-lite>={__version__},<2",
 ]
 
 [project.optional-dependencies]
@@ -839,6 +821,13 @@ dev = [
     "pytest-asyncio>=0.21",
 ]
 '''
+    )
+
+    source = _find_a2a_lite_source()
+    docker_source = (
+        "Docker installs the copy of your local checkout in `vendor/a2a-lite/`."
+        if source is not None
+        else "Docker installs the published `a2a-lite` package from PyPI."
     )
 
     (project_path / "README.md").write_text(
@@ -851,17 +840,17 @@ An A2A Lite agent (A2A protocol v1.0).
 ```bash
 cd {project_path}
 uv run agent.py
-# or: a2a-lite serve agent.py
+# or: uv run a2a-lite serve agent.py
 ```
 
 ## Testing
 
 ```bash
-# Using the CLI
-a2a-lite test http://localhost:8787 hello -p name=World
+# With the agent running in another terminal
+uv run a2a-lite test http://localhost:8787 hello -p name=World
 
 # Using pytest
-uv run pytest tests/
+uv run --extra dev pytest tests/
 ```
 
 ## Docker
@@ -871,22 +860,14 @@ docker compose up --build
 # Agent available at http://localhost:8787
 ```
 
-> **Note:** until `a2a-lite` 1.0.0 is published on PyPI, the project vendors the
-> library from your local checkout (`vendor/a2a-lite/`) so `docker build` works
-> today. For local development outside Docker, install it with
-> `pip install "git+https://github.com/xvierd/a2a-lite#subdirectory=packages/python"`.
-> Once the release is on PyPI, delete `vendor/` and replace the dependency with
-> `"a2a-lite>=1.0.0"` (in `pyproject.toml` and the `Dockerfile`).
+The project resolves the `a2a-lite` requirement in `pyproject.toml` from PyPI. {docker_source}
 """
     )
 
     (project_path / ".gitignore").write_text("__pycache__/\n*.pyc\n.venv/\ndist/\n*.egg-info/\n.pytest_cache/\n")
 
-    # a2a-lite 1.0 is not on PyPI yet: when the CLI itself runs from a local
-    # source checkout, vendor it into the project so `docker build` works today.
     import shutil
 
-    source = _find_a2a_lite_source()
     if source is not None:
         vendor_dir = project_path / "vendor" / "a2a-lite"
         if vendor_dir.exists():
@@ -902,10 +883,6 @@ docker compose up --build
 WORKDIR /app
 COPY agent.py .
 
-# a2a-lite 1.0 is vendored from your local checkout (not on PyPI yet).
-# Once a2a-lite>=1.0.0 is published, delete vendor/ and replace the two
-# lines below with:
-#   RUN pip install --no-cache-dir "a2a-lite>=1.0.0"
 COPY vendor/ ./vendor/
 RUN pip install --no-cache-dir ./vendor/a2a-lite
 
@@ -913,12 +890,12 @@ EXPOSE 8787
 CMD ["a2a-lite", "serve", "agent.py", "--port", "8787"]
 """
     else:
-        dockerfile = """FROM python:3.12-slim
+        dockerfile = f"""FROM python:3.12-slim
 
 WORKDIR /app
 COPY agent.py .
 
-RUN pip install --no-cache-dir "a2a-lite>=1.0.0"
+RUN pip install --no-cache-dir "a2a-lite>={__version__},<2"
 
 EXPOSE 8787
 CMD ["a2a-lite", "serve", "agent.py", "--port", "8787"]
@@ -945,14 +922,14 @@ CMD ["a2a-lite", "serve", "agent.py", "--port", "8787"]
     tree.add("docker-compose.yml")
     tree.add(".gitignore")
     if source is not None:
-        tree.add("vendor/a2a-lite/  (local a2a-lite source, until 1.0 is on PyPI)")
+        tree.add("vendor/a2a-lite/  (local a2a-lite source)")
 
     console.print(
         Panel(
             f"[green]Created project: {name}[/]\n\n"
             f"[bold]Next steps:[/]\n"
             f"  cd {project_path}\n"
-            f"  uv run pytest tests/          # run the tests\n"
+            f"  uv run --extra dev pytest tests/\n"
             f"  uv run agent.py               # start the agent\n"
             f"  a2a-lite doctor http://localhost:8787\n"
             f"  docker compose up --build     # run in Docker",
@@ -1009,7 +986,6 @@ def serve(
 @app.command()
 def version():
     """Show A2A Lite version."""
-    from . import __version__
 
     console.print(f"A2A Lite v{__version__}")
 
