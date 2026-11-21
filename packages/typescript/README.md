@@ -9,21 +9,25 @@
 
 Wraps the official [@a2a-js/sdk](https://github.com/a2aproject/a2a-js) with a simple API and tested A2A 1.0 JSON-RPC/HTTP+JSON interoperability.
 
-> **v1.2.1 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
-> - **Transports:** JSON-RPC + REST (HTTP+JSON) via `agent.run()`; card at `/.well-known/agent-card.json`.
+> **v1.3.0 — A2A Protocol v1.0.** Uses the official [`@a2a-js/sdk 1.3.0`](https://github.com/a2aproject/a2a-js/releases/tag/v1.3.0). The latest protocol specification is [v1.0.1](https://github.com/a2aproject/A2A/releases/tag/v1.0.1); the wire version remains `1.0`.
+> - The server exposes JSON-RPC and REST (HTTP+JSON). The Lite client uses JSON-RPC. Both support SSE. The discovery card lives at `/.well-known/agent-card.json`.
 > - **gRPC:** not implemented in TypeScript yet (Python has experimental `run_grpc`; see root Feature Matrix).
 > - Requires **Node.js >= 20**. No v0.3 compatibility.
 > - Experimental **signed Agent Cards** via `signAgentCard` / `verifyAgentCard`.
 > - See [MIGRATION.md](https://github.com/xvierd/a2a-lite/blob/main/MIGRATION.md).
 
-**1.2.1 documentation patch:** Corrected README examples for skills, authentication, task helpers,
-streaming and lifecycle handling, with registry-safe links to the guides. Runtime APIs and
-dependency versions remain the same as 1.2.0.
+Version 1.3.0 adds task pagination, SSE subscriptions to running tasks, and typed access
+to messages and artifacts. The client verifies the request ID and JSON-RPC version on
+each response. A peer error raises `RemoteAgentError` with its `code`, `data` and original
+`response`, including errors returned after streaming has begun.
 
-Discovery selects an advertised JSON-RPC interface for A2A `1.0`, including when
-REST or gRPC appears first. Agents without a compatible interface are rejected.
-`returnHandle` requires a task ID issued by the remote agent; a plain Message
-still works with regular calls but cannot be used for task management.
+Discovery selects a compatible JSON-RPC interface and uses its URL and tenant for each
+operation. A named agent retains its registered base URL for rediscovery. When a caller
+specifies a tenant, the client prefers the matching advertised interface. If it selects
+an interface without a tenant, it omits the field on every operation, including task
+handles. A card offering only other tenants causes the call to fail before sending.
+Calls to a direct URL without discovery use the caller's configured tenant.
+`returnHandle` requires a task ID issued by the remote agent.
 
 Authenticated requests carry their verified `userId` into both SDK transports.
 The default SDK stores isolate tasks and push configurations by user and tenant.
@@ -219,7 +223,8 @@ prototype whose tested boundaries are documented in [OPERATIONS.md](https://gith
 ### Dependency security pins
 
 The tested development toolchain uses Vitest/coverage 4.1.12, Express 5.3.0, Supertest 7.3.1 and
-uuid 11.1.1. Package overrides pin patched transitive releases for `@humanfs/node`,
+uuid 11.1.1. The lock resolves Express's body-parser to 2.4.0. The development-only
+TypeScript ESLint parser and plugin use 8.73.0 with minimatch 11.0.9. Package overrides pin patched transitive releases for `@humanfs/node`,
 `brace-expansion` 1/5, `form-data`, `path-to-regexp` and `rollup`. These address the audit
 advisories without `npm audit fix` or a major production framework migration. Revisit the overrides
 when their parent packages ship compatible patched dependencies. Consumer applications should
@@ -428,10 +433,10 @@ await runtime.stop();
 
 ### TaskHandle -- track remote tasks
 
-When delegating to a remote agent, you can get back a `TaskHandle` that includes the A2A task ID alongside the result. The remote skill must return a Task, for example with `{ task: true }`; a plain Message has no task ID. Use `returnImmediately: true` to obtain the handle while work is still running.
+When delegating to a remote agent, you can get back a `TaskHandle` that includes the A2A task ID alongside the result. The remote can return a Task (for example, with `{ task: true }`) or a Message that carries an explicit `taskId`. A Message without a task ID supports ordinary calls. Use `returnImmediately: true` to obtain the handle while work is still running.
 
 ```typescript
-import { Agent, AgentNetwork, TaskHandle, getRemoteTask, cancelRemoteTask } from 'a2a-lite';
+import { Agent, AgentNetwork } from 'a2a-lite';
 
 const network = new AgentNetwork();
 network.add('data', 'http://localhost:8787');
@@ -440,7 +445,7 @@ const agent = new Agent({ name: 'Orchestrator', description: 'Delegate data requ
 
 agent.skill('process', async ({ query }) => {
   // Get a TaskHandle instead of just the result
-  const handle = await agent.delegate('data', 'fetch', { query }, { returnHandle: true }) as TaskHandle;
+  const handle = await agent.delegate('data', 'fetch', { query }, { returnHandle: true });
   console.log(`Task ID: ${handle.taskId}`);
   console.log(`Agent: ${handle.agentUrl}`);
   console.log(`Result: ${handle.result}`);
@@ -503,6 +508,80 @@ for await (const chunk of streamRemoteSkill('http://localhost:8788', 'tellStory'
 }
 ```
 
+### Resume a task and read structured output
+
+`handle.streamEvents()` opens `SubscribeToTask` for a running task. After a disconnect,
+open another subscription with the same task ID. The server sends its current snapshot
+and subsequent updates for that same ID. Use `handle.get()` to read a task that has already finished.
+`handle.subscribe(webhookUrl)` registers a push notification.
+
+```typescript
+import { AgentNetwork } from 'a2a-lite';
+
+const network = new AgentNetwork({ worker: 'https://worker.example' });
+await network.discover('worker');
+const task = await network.call('worker', 'process', {}, 30_000, {
+  returnImmediately: true,
+  returnHandle: true,
+});
+
+for await (const event of task.streamEvents()) {
+  if (event.$case === 'artifactUpdate') {
+    for (const part of event.value.artifact?.parts ?? []) {
+      console.log(part.content, part.mediaType, part.metadata);
+    }
+  }
+  if (event.$case === 'statusUpdate') console.log(event.value.status);
+}
+```
+
+`network.subscribeToTask(name, taskId)` also works with a saved ID. For a fresh
+stream, use `network.streamEvents(name, skill, params)` or `streamRemoteSkillEvents`.
+Each event has the SDK discriminator `$case` (`message`, `task`, `statusUpdate` or
+`artifactUpdate`), the typed `value`, and its original JSON result in `raw`. Use
+`raw` when field presence matters, such as an artifact update with omitted
+`lastChunk`. For a unary call, `network.callResult` and `callRemoteSkillResult`
+return a typed Message or Task with all of its parts. The existing `stream` and
+`call` helpers still extract text. A terminal state or a direct Message ends the
+iterator. A task waiting for input or authentication can continue on the same
+stream, or the peer can close it there. If an active stream closes prematurely,
+the iterator raises `RemoteAgentError` after delivering any complete events.
+
+### Page through tasks
+
+```typescript
+let pageToken = '';
+do {
+  const page = await network.listTasks('worker', { pageSize: 20, pageToken, includeArtifacts: true });
+  for (const task of page.tasks) console.log(task.id, task.artifacts);
+  pageToken = page.nextPageToken;
+} while (pageToken);
+```
+
+`listRemoteTasks(endpoint, query, timeout, options)` exposes the same operation
+for callers that already have the JSON-RPC endpoint.
+
+### Plain text from Google ADK and other clients
+
+A Lite skill call sends a text part containing JSON such as
+`{"skill":"lookup","params":{"id":"42"}}`. Clients such as an ADK
+`RemoteA2aAgent` can also send an ordinary text part. A single-skill agent receives
+that text in `message`. For an agent with several skills, designate the entry
+skill explicitly.
+
+```typescript
+const agent = new Agent({ name: 'Help', description: 'Help desk', freeTextSkill: 'ask' });
+agent.skill('ask', async ({ message }) => `You asked: ${message}`);
+agent.skill('lookup', async ({ id }) => ({ id }));
+```
+
+An explicit skill selection still invokes the named skill. An unknown name, or an
+ambiguous plain-text request without an entry skill, returns an A2A Message
+whose text contains an error object with `type: "SkillNotFoundError"` and
+`available_skills`. A caller can display those choices and resend an explicit skill
+call. Transport and JSON-RPC errors are raised separately. Each published skill
+carries its configured tags, or its skill ID as the default tag.
+
 ### Agent Card Discovery
 
 Fetch a remote agent's card to inspect its capabilities before delegating:
@@ -515,7 +594,7 @@ console.log(`Agent: ${card.name} v${card.version}`);
 console.log(`Skills: ${card.skills.map(s => s.name).join(', ')}`);
 console.log(`Streaming: ${card.supportsStreaming}`);
 
-// Auto-discover when registering
+// Calls wait for auto-discovery and propagate discovery errors
 network.add('data', 'http://localhost:8787', { autoDiscover: true });
 
 // Validate skill exists before delegating
@@ -532,7 +611,7 @@ const credentials = {
 };
 network.add('worker', 'https://worker.example', credentials);
 // The remote process skill must return a Task and require authentication.
-const handle = await agent.delegate('worker', 'process', { data: '...' }, { returnHandle: true }) as TaskHandle;
+const handle = await agent.delegate('worker', 'process', { data: '...' }, { returnHandle: true });
 
 // Register webhook for this specific task
 await handle.subscribe('https://my-app.com/webhook', 'secret-token');

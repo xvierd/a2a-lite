@@ -1,3 +1,4 @@
+import { rpcReply, sseReply } from './rpc-peer.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentNetwork, callRemoteSkillWithHandle, streamRemoteSkill } from '../src/orchestration.js';
 
@@ -14,7 +15,7 @@ const card = (url: string) => ({
 afterEach(() => vi.unstubAllGlobals());
 describe('scoped rotating client credentials', () => {
   it('refreshes credentials on calls and every task operation while preserving tenant', async () => {
-    const fetcher = vi.fn().mockImplementation(async () => Response.json(task));
+    const fetcher = vi.fn().mockImplementation(rpcReply(task));
     vi.stubGlobal('fetch', fetcher);
     let token = 'first';
     const handle = await callRemoteSkillWithHandle('https://peer.example/rpc', 'work', {}, 1000, {
@@ -50,7 +51,7 @@ describe('scoped rotating client credentials', () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(Response.json(card('https://other.example/rpc')))
-      .mockResolvedValueOnce(Response.json(task));
+      .mockImplementationOnce(rpcReply(task));
     vi.stubGlobal('fetch', fetcher);
     const network = new AgentNetwork({ peer: 'https://peer.example' }).withCredentials('peer', {
       headers: { Authorization: 'Bearer secret' },
@@ -60,7 +61,9 @@ describe('scoped rotating client credentials', () => {
     await network.call('peer', 'work');
     expect(fetcher.mock.calls[1][0]).toBe('https://other.example/rpc');
     expect(fetcher.mock.calls[1][1].headers.authorization).toBe('Bearer secret');
-    fetcher.mockResolvedValueOnce(new Response('data: {"result":{"message":{"parts":[{"text":"done"}]}}}\n\n'));
+    fetcher.mockImplementationOnce(
+      sseReply('data: {"jsonrpc":"2.0","id":"$id","result":{"message":{"parts":[{"text":"done"}]}}}\n\n'),
+    );
     const values = [];
     for await (const value of streamRemoteSkill('https://peer.example', 'work', {}, 1000, {
       headers: { Authorization: 'Bearer rotated' },

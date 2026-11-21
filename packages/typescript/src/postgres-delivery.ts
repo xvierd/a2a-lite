@@ -8,6 +8,7 @@ import {
   type TaskStore,
 } from '@a2a-js/sdk/server';
 import { TaskState, type Task } from '@a2a-js/sdk';
+import { TaskNotCancelableError, TaskNotFoundError } from '@a2a-js/sdk/errors';
 import {
   EXECUTION_FENCE,
   CANCEL_TASK,
@@ -137,6 +138,8 @@ export class PostgresDelivery implements DurableDelivery {
         const tenant = context.tenant ?? '';
         const owner = context.user?.userName ?? '';
         const expected = Number(context.state.get(this.revisionKey(task.id)) ?? 0);
+        const canceling =
+          context.state.get(CANCEL_TASK) === true && task.status?.state === TaskState.TASK_STATE_CANCELED;
         const savedRevision = await db.transaction().execute(async (tx) => {
           // Serializes a task across replicas before validating its observed revision.
           await sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([tenant, owner, task.id])}))`.execute(tx);
@@ -154,7 +157,17 @@ export class PostgresDelivery implements DurableDelivery {
           // A remote cancel is authoritative. Reconcile queued executor events without
           // writing stale state, even if cancellation invalidated the observed revision.
           if (this.observeCancellation(previous, context)) return revision;
-          if (revision !== expected) throw new Error('Concurrent task update; reload the task before retrying');
+          if (canceling) {
+            // Apply the status transition to the locked snapshot, preserving concurrent progress.
+            if (!previous) throw new TaskNotFoundError();
+            if (previous.status?.state === TaskState.TASK_STATE_CANCELED) {
+              task = previous;
+              return revision;
+            }
+            task = { ...previous, status: task.status };
+          } else if (revision !== expected) {
+            throw new Error('Concurrent task update; reload the task before retrying');
+          }
           if (
             previous &&
             [
@@ -164,8 +177,10 @@ export class PostgresDelivery implements DurableDelivery {
               TaskState.TASK_STATE_REJECTED,
             ].includes(previous.status!.state) &&
             previous.status!.state !== task.status!.state
-          )
+          ) {
+            if (canceling) throw new TaskNotCancelableError();
             throw new Error('Terminal task state cannot be overwritten');
+          }
           const lease = context.state.get(EXECUTION_FENCE) as { holder: string; fence: number } | undefined;
           const prefix = this.options.tablePrefix;
           const expiredFence = context.state.get(RECOVER_EXPIRED);
@@ -183,7 +198,7 @@ export class PostgresDelivery implements DurableDelivery {
               );
             if (!owned.rows.length) throw new Error('Stale execution fence');
           }
-          if (context.state.get(CANCEL_TASK))
+          if (canceling)
             await sql`UPDATE ${sql.table(prefix + '_leases')} SET cancel_requested=true,fence=fence+1,lease_until=now() WHERE tenant=${tenant} AND owner=${owner} AND task_id=${task.id}`.execute(
               tx,
             );
@@ -215,6 +230,7 @@ export class PostgresDelivery implements DurableDelivery {
           return revision + 1;
         });
         context.state.set(this.revisionKey(task.id), savedRevision);
+        if (canceling) context.state.set(PERSISTED_CANCEL, task);
       },
     };
   }

@@ -37,9 +37,9 @@ import { NoAuth } from './auth.js';
 import { createHttpAuthentication } from './http-auth.js';
 import { authorizedHandler } from './authorization.js';
 import { ProtocolPushStore, ProtocolPushSender } from './protocol-push.js';
-import type { AgentNetwork } from './orchestration.js';
+import type { AgentNetwork, TaskHandle } from './orchestration.js';
 import { bindRemoteOptions, type RemoteCallOptions } from './remote-auth.js';
-import { callRemoteSkill, streamRemoteSkill, discoverAgent } from './orchestration.js';
+import { callRemoteSkill, callRemoteSkillWithHandle, streamRemoteSkill, discoverAgent } from './orchestration.js';
 
 export class Agent {
   readonly name: string;
@@ -132,10 +132,6 @@ export class Agent {
     const skillName = config.name ?? name;
     const isStreaming = config.streaming ?? this.isGeneratorFunction(handler);
 
-    if (isStreaming) {
-      this.hasStreaming = true;
-    }
-
     // Auto-detect TaskContext parameter by analyzing the handler
     const taskContextInfo = this.detectTaskContextParameter(handler);
     const needsTaskContext = config.taskContext !== undefined ? !!config.taskContext : taskContextInfo.needsTaskContext;
@@ -151,7 +147,7 @@ export class Agent {
     const skillDef: SkillDefinition = {
       name: skillName,
       description: config.description ?? `Skill: ${skillName}`,
-      tags: config.tags ?? [],
+      tags: config.tags?.length ? config.tags : [skillName],
       handler,
       inputSchema: {},
       outputSchema: {},
@@ -166,6 +162,7 @@ export class Agent {
     };
 
     this.skills.set(skillName, skillDef);
+    this.hasStreaming ||= isStreaming || !!skillDef.taskMode;
     return this;
   }
 
@@ -252,9 +249,15 @@ export class Agent {
   async delegate(
     target: string,
     skill: string,
-    params?: Record<string, unknown>,
-    options?: RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream: true },
+    params: Record<string, unknown> | undefined,
+    options: RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream: true },
   ): Promise<AsyncGenerator<string>>;
+  async delegate(
+    target: string,
+    skill: string,
+    params: Record<string, unknown> | undefined,
+    options: RemoteCallOptions & { timeout?: number; returnHandle: true; discover?: boolean; stream?: false },
+  ): Promise<TaskHandle>;
   async delegate(
     target: string,
     skill: string,
@@ -271,61 +274,25 @@ export class Agent {
       | number
       | (RemoteCallOptions & { timeout?: number; returnHandle?: boolean; discover?: boolean; stream?: boolean }),
   ): Promise<unknown | AsyncGenerator<string>> {
-    let timeout = 30000;
-    let returnHandle = false;
-    let discover = false;
-    let stream = false;
+    const options = typeof timeoutOrOptions === 'number' ? { timeout: timeoutOrOptions } : (timeoutOrOptions ?? {});
+    const timeout = options.timeout ?? 30000;
+    const resolved =
+      this.network && !/^https?:\/\//.test(target)
+        ? await this.network.resolve(target, options, options.discover)
+        : { url: target, options: bindRemoteOptions(options, target) };
+    let { url, options: credentials } = resolved;
 
-    if (typeof timeoutOrOptions === 'number') {
-      timeout = timeoutOrOptions;
-    } else if (timeoutOrOptions) {
-      timeout = timeoutOrOptions.timeout ?? 30000;
-      returnHandle = timeoutOrOptions.returnHandle ?? false;
-      discover = timeoutOrOptions.discover ?? false;
-      stream = timeoutOrOptions.stream ?? false;
-    }
-
-    let url = target;
-    if (this.network && !target.startsWith('http://') && !target.startsWith('https://')) {
-      const resolved = this.network.get(target);
-      if (resolved === undefined) {
-        throw new Error(
-          `Agent '${target}' not found in network. Available: ${Object.keys(this.network.list()).join(', ')}`,
-        );
-      }
-      url = resolved;
-    }
-
-    const credentials = bindRemoteOptions(
-      { ...this.network?.getCredentials(target), ...(typeof timeoutOrOptions === 'object' ? timeoutOrOptions : {}) },
-      url,
-    );
-
-    // Optionally discover the agent card and validate the skill exists
-    if (discover) {
+    if (options.discover) {
       const card = await discoverAgent(url, timeout, credentials);
-      const skillExists = card.skills.some((s) => s.id === skill || s.name === skill);
-      if (!skillExists) {
+      if (!card.skills.some((s) => s.id === skill || s.name === skill)) {
         const available = card.skills.map((s) => s.id).join(', ');
         throw new Error(`Skill '${skill}' not found on agent '${card.name}' at ${url}. Available: ${available}`);
       }
-      // Use the card's advertised URL if present
-      if (card.url) {
-        url = card.url;
-      }
+      url = card.url;
+      credentials = { ...credentials, tenant: card.tenant };
     }
-
-    // Streaming mode — return an async generator
-    if (stream) {
-      return streamRemoteSkill(url, skill, params, timeout, credentials);
-    }
-
-    if (returnHandle) {
-      // For direct URLs, import the internal helper indirectly via callRemoteSkill pattern
-      const { callRemoteSkillWithHandle } = await import('./orchestration.js');
-      return callRemoteSkillWithHandle(url, skill, params, timeout, credentials);
-    }
-
+    if (options.stream) return streamRemoteSkill(url, skill, params, timeout, credentials);
+    if (options.returnHandle) return callRemoteSkillWithHandle(url, skill, params, timeout, credentials);
     return callRemoteSkill(url, skill, params, timeout, credentials);
   }
 
@@ -333,13 +300,19 @@ export class Agent {
    * Build the A2A v1.0-compliant Agent Card.
    */
   buildAgentCard(host = 'localhost', port = 8787): AgentCard {
+    if (this.config.freeTextSkill !== undefined && !this.skills.has(this.config.freeTextSkill)) {
+      throw new Error(`Unknown freeTextSkill '${this.config.freeTextSkill}'. Register it with agent.skill().`);
+    }
     const skills: AgentSkill[] = Array.from(this.skills.values()).map((s) => ({
       id: s.name,
       name: s.name,
       description: s.description,
       tags: s.tags,
       examples: [],
-      inputModes: ['application/json'],
+      inputModes:
+        this.skills.size === 1 || this.config.freeTextSkill === s.name
+          ? ['application/json', 'text/plain']
+          : ['application/json'],
       outputModes: ['application/json'],
       securityRequirements: [],
     }));
@@ -533,6 +506,7 @@ export class Agent {
     // Create the executor that bridges to our skills
     const executor = new LiteAgentExecutor({
       skills: this.skills,
+      freeTextSkill: this.config.freeTextSkill,
       errorHandler: this.errorHandler,
       middlewares: this.middlewares,
       onCompleteHooks,

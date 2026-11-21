@@ -47,7 +47,7 @@ describe('CLI transport discovery', () => {
   const calledPaths: string[] = [];
 
   beforeAll(async () => {
-    server = createServer((req, res) => {
+    server = createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       if (req.method === 'GET') {
         res.end(
@@ -56,14 +56,17 @@ describe('CLI transport discovery', () => {
             supportedInterfaces: [
               { url: `${baseUrl}/rest`, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
               ...(includeJsonRpc
-                ? [{ url: `${baseUrl}/rpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0' }]
+                ? [{ url: `${baseUrl}/rpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: 'cli-team' }]
                 : []),
             ],
           }),
         );
       } else {
         calledPaths.push(req.url ?? '');
-        res.end(JSON.stringify({ jsonrpc: '2.0', id: 'response', result: 'called-jsonrpc' }));
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const { id, params } = JSON.parse(Buffer.concat(chunks).toString());
+        res.end(JSON.stringify({ jsonrpc: '2.0', id, result: { called: 'called-jsonrpc', tenant: params.tenant } }));
       }
     });
     await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
@@ -79,6 +82,7 @@ describe('CLI transport discovery', () => {
     expect(code).toBe(0);
     expect(output).toContain('called-jsonrpc');
     expect(calledPaths).toEqual(['/rpc']);
+    expect(output).toContain('"tenant": "cli-team"');
   });
 
   it('refuses to post when only an unsupported transport is advertised', async () => {

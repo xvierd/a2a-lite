@@ -58,9 +58,17 @@ export class ParamValidationError extends A2ALiteError {
 export class RemoteAgentError extends A2ALiteError {
   readonly response: Record<string, unknown>;
 
+  readonly code?: number;
+  readonly data?: unknown;
+
   constructor(message: string, response?: Record<string, unknown>) {
     super(message);
     this.response = response ?? {};
+    const error = this.response.error;
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'number') {
+      this.code = error.code;
+      this.data = 'data' in error ? error.data : undefined;
+    }
   }
 
   toResponse(): Record<string, unknown> {

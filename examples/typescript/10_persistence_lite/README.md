@@ -1,7 +1,7 @@
 # 10 — Persistence Lite: Pluggable TaskStore + PushNotifier
 
 Shows how to wire an explicit `protocolTaskStore` and a `pushNotifier` into
-an A2A Lite 1.2.0 agent. Both stores in this example are in memory and reset on
+an A2A Lite 1.3.0 agent. Both stores in this example are in memory and reset on
 restart. Its two ordinary skills return Messages, so they do not create queryable
 protocol Tasks. For real task IDs and PostgreSQL persistence, continue with the
 [progressive production example](../11_production_path/README.md).

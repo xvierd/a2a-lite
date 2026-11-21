@@ -1,3 +1,4 @@
+import { rpcReply } from './rpc-peer.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TaskPushRegistry } from '../src/push-notifications.js';
 import {
@@ -10,15 +11,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mockJsonResponse(body: Record<string, unknown>, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    json: () => Promise.resolve(body),
-  } as Response;
-}
 
 // ---------------------------------------------------------------------------
 // TaskPushRegistry
@@ -78,7 +70,7 @@ describe('setTaskPushNotification()', () => {
 
   it('sends correct JSON-RPC body', async () => {
     const responseBody = { result: { taskId: 't1' } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     await setTaskPushNotification('http://agent', 't1', 'http://hook', 'tok');
 
@@ -92,7 +84,7 @@ describe('setTaskPushNotification()', () => {
 
   it('omits token when not provided', async () => {
     const responseBody = { result: { taskId: 't2' } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     await setTaskPushNotification('http://agent', 't2', 'http://hook');
 
@@ -114,7 +106,7 @@ describe('getTaskPushNotification()', () => {
 
   it('sends correct JSON-RPC body', async () => {
     const responseBody = { result: { taskId: 't1', pushNotificationConfig: { url: 'http://hook' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     await getTaskPushNotification('http://agent', 't1');
 
@@ -137,7 +129,7 @@ describe('deleteTaskPushNotification()', () => {
 
   it('sends correct JSON-RPC body', async () => {
     const responseBody = { result: { taskId: 't1', deleted: true } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     await deleteTaskPushNotification('http://agent', 't1');
 
@@ -164,7 +156,7 @@ describe('TaskHandle push notification methods', () => {
 
   it('subscribe() calls setTaskPushNotification with correct args', async () => {
     const responseBody = { result: { taskId: 'h1' } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     const handle = new TaskHandle('h1', 'some-result', 'http://agent:8787');
     await handle.subscribe('http://my-hook', 'my-token');
@@ -180,7 +172,7 @@ describe('TaskHandle push notification methods', () => {
 
   it('unsubscribe() calls deleteTaskPushNotification', async () => {
     const responseBody = { result: { taskId: 'h2', deleted: true } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     const handle = new TaskHandle('h2', 'result', 'http://agent:8787');
     await handle.unsubscribe();
@@ -193,7 +185,7 @@ describe('TaskHandle push notification methods', () => {
 
   it('getPushConfig() calls getTaskPushNotification', async () => {
     const responseBody = { result: { taskId: 'h3', pushNotificationConfig: { url: 'http://x' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(responseBody));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(responseBody));
 
     const handle = new TaskHandle('h3', 'result', 'http://agent:8787');
     await handle.getPushConfig();

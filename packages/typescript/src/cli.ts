@@ -11,6 +11,7 @@
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { sendSkillRequest } from './orchestration.js';
 import { parseDiscoveryCard, selectJsonRpcInterface, type DiscoveryCard } from './discovery.js';
 
 const args = process.argv.slice(2);
@@ -39,7 +40,7 @@ function getVersion(): string {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     return pkg.version;
   } catch {
-    return '1.2.1';
+    return '1.3.0';
   }
 }
 
@@ -123,7 +124,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => 
 /** Fetch the A2A v1.0 agent card, rejecting 0.3 agents with a clear error. */
 async function fetchAgentCard(url: string, timeoutMs?: number): Promise<DiscoveryCard> {
   const cardUrl = url.replace(/\/$/, '') + '/.well-known/agent-card.json';
-  const res = await fetch(cardUrl, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
+  const res = await fetch(cardUrl, {
+    headers: { 'A2A-Version': '1.0' },
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${cardUrl}`);
   try {
     const card = parseDiscoveryCard(await res.json());
@@ -136,7 +140,7 @@ async function fetchAgentCard(url: string, timeoutMs?: number): Promise<Discover
 }
 
 function cardInterfaceUrl(card: DiscoveryCard): string {
-  return selectJsonRpcInterface(card);
+  return selectJsonRpcInterface(card).url;
 }
 
 async function cmdInspect(url: string): Promise<void> {
@@ -215,26 +219,7 @@ async function cmdTest(url: string, skill: string, rawParams: string[]): Promise
     }
   }
 
-  const body = {
-    jsonrpc: '2.0',
-    method: 'SendMessage',
-    id: Math.random().toString(36).slice(2),
-    params: {
-      message: {
-        role: 'ROLE_USER',
-        parts: [{ text: JSON.stringify({ skill, params }) }],
-        messageId: Math.random().toString(36).slice(2),
-      },
-    },
-  };
-
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'A2A-Version': '1.0' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
+  const data = await sendSkillRequest(endpoint.url, skill, params, 30000, { tenant: endpoint.tenant });
   console.log(JSON.stringify(data, null, 2));
 }
 

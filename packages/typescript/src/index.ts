@@ -107,8 +107,12 @@ export {
 export {
   AgentNetwork,
   callRemoteSkill,
+  callRemoteSkillResult,
   callRemoteSkillWithHandle,
   streamRemoteSkill,
+  streamRemoteSkillEvents,
+  subscribeToTask,
+  listRemoteTasks,
   TaskHandle,
   getRemoteTask,
   cancelRemoteTask,
@@ -117,7 +121,7 @@ export {
   getTaskPushNotification,
   deleteTaskPushNotification,
 } from './orchestration.js';
-export type { AgentCardInfo } from './orchestration.js';
+export type { AgentCardInfo, RemoteStreamEvent, RemoteSkillResult, TaskListQuery } from './orchestration.js';
 export type { RemoteCallOptions, CredentialProvider } from './remote-auth.js';
 
 // Push notifications (optional)

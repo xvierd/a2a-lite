@@ -272,6 +272,44 @@ describe.skipIf(!dsn)('official PostgreSQL protocol stores', () => {
     await one.close();
     await two.close();
   });
+  it('cancels the latest locked snapshot when progress races every cancellation read', async () => {
+    const persistence = await createPostgresPersistence({
+      connectionString: dsn!,
+      taskTable,
+      pushTable,
+      encryptionKey: Buffer.alloc(32, 7).toString('base64'),
+      delivery: { tablePrefix: prefix },
+      execution: {},
+    });
+    const context = () => new ServerCallContext({ user: { userName: 'cancel-race', isAuthenticated: true } });
+    const writer = context();
+    const canceler = context();
+    const task: Task = {
+      id: randomUUID(),
+      contextId: randomUUID(),
+      history: [],
+      artifacts: [],
+      metadata: undefined,
+      status: { state: TaskState.TASK_STATE_WORKING, timestamp: new Date().toISOString(), message: undefined },
+    };
+    try {
+      await persistence.taskStore.save(task, writer);
+      const load = persistence.taskStore.load.bind(persistence.taskStore);
+      let writes = 0;
+      vi.spyOn(persistence.taskStore, 'load').mockImplementation(async (id, ctx) => {
+        const snapshot = await load(id, ctx);
+        if (ctx === canceler) await persistence.taskStore.save({ ...task, metadata: { progress: ++writes } }, writer);
+        return snapshot;
+      });
+      const canceled = await persistence.execution!.cancelTask(task.id, canceler);
+      expect(writes).toBe(1);
+      expect(canceled.status?.state).toBe(TaskState.TASK_STATE_CANCELED);
+      expect(canceled.metadata).toEqual({ progress: 1 });
+      expect(await load(task.id, writer)).toEqual(canceled);
+    } finally {
+      await persistence.close();
+    }
+  });
   it('routes subscription and cancellation from a second replica and fences the first executor', async () => {
     const options = {
       connectionString: dsn!,

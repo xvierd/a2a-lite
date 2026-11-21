@@ -1,48 +1,8 @@
+import { sseReply } from './rpc-peer.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentNetwork, streamRemoteSkill } from '../src/orchestration.js';
 import { Agent } from '../src/agent.js';
 import { RemoteAgentError } from '../src/errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers — mock SSE Response with a ReadableStream body
-// ---------------------------------------------------------------------------
-
-function mockSSEResponse(sseData: string, status = 200): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(sseData));
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    headers: { 'Content-Type': 'text/event-stream' },
-  });
-}
-
-function mockSSEResponseChunked(chunks: string[], status = 200): Response {
-  const encoder = new TextEncoder();
-  let index = 0;
-  const stream = new ReadableStream({
-    pull(controller) {
-      if (index < chunks.length) {
-        controller.enqueue(encoder.encode(chunks[index]));
-        index++;
-      } else {
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    headers: { 'Content-Type': 'text/event-stream' },
-  });
-}
 
 // ---------------------------------------------------------------------------
 // streamRemoteSkill()
@@ -60,13 +20,13 @@ describe('streamRemoteSkill()', () => {
 
   it('yields text chunks from artifact updates and stops at terminal state', async () => {
     const sseData = [
-      'data: {"result":{"task":{"id":"t1","contextId":"c1","status":{"state":"TASK_STATE_WORKING"}}}}\n\n',
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"task":{"id":"t1","contextId":"c1","status":{"state":"TASK_STATE_WORKING"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const chunks: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'echo', {})) {
@@ -78,11 +38,11 @@ describe('streamRemoteSkill()', () => {
 
   it('yields text from status update message parts', async () => {
     const sseData = [
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_WORKING","message":{"parts":[{"text":"typed"}]}}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_WORKING","message":{"parts":[{"text":"typed"}]}}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const chunks: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'echo', {})) {
@@ -94,9 +54,9 @@ describe('streamRemoteSkill()', () => {
 
   it('throws RemoteAgentError on failed status', async () => {
     const sseData =
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_FAILED","message":{"parts":[{"text":"something broke"}]}}}}}\n\n';
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_FAILED","message":{"parts":[{"text":"something broke"}]}}}}}\n\n';
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const chunks: string[] = [];
     await expect(async () => {
@@ -117,8 +77,9 @@ describe('streamRemoteSkill()', () => {
   });
 
   it('sends a JSON-RPC SendStreamingMessage request with the A2A-Version header', async () => {
-    const sseData = 'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n';
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    const sseData =
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n';
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const chunks: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'doWork', { x: 1 })) {
@@ -136,12 +97,12 @@ describe('streamRemoteSkill()', () => {
 
   it('handles chunked delivery across multiple reads', async () => {
     const chunks = [
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ch',
-      'unk1"}]}}}}\n\ndata: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"chunk2"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ch',
+      'unk1"}]}}}}\n\ndata: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"chunk2"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ];
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponseChunked(chunks));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(chunks));
 
     const result: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'echo', {})) {
@@ -153,11 +114,11 @@ describe('streamRemoteSkill()', () => {
 
   it('stops at canceled state', async () => {
     const sseData = [
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"partial"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_CANCELED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"partial"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_CANCELED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const result: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'echo', {})) {
@@ -171,11 +132,11 @@ describe('streamRemoteSkill()', () => {
     const sseData = [
       ':comment line\n',
       'event: update\n',
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ok"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"ok"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const result: string[] = [];
     for await (const chunk of streamRemoteSkill('http://agent', 'echo', {})) {
@@ -211,12 +172,12 @@ describe('AgentNetwork.stream()', () => {
 
   it('yields text chunks from the named agent', async () => {
     const sseData = [
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"A"}]}}}}\n\n',
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"B"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"A"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"B"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const chunks: string[] = [];
@@ -246,12 +207,12 @@ describe('Agent.delegate() with stream: true', () => {
 
   it('returns an async generator when stream: true', async () => {
     const sseData = [
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"Hello"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":" World"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const network = new AgentNetwork({ story: 'http://story:8787' });
     const agent = new Agent({ name: 'Test', description: 'Test agent', network });
@@ -268,11 +229,11 @@ describe('Agent.delegate() with stream: true', () => {
 
   it('works with direct URL and stream: true', async () => {
     const sseData = [
-      'data: {"result":{"artifactUpdate":{"artifact":{"parts":[{"text":"direct"}]}}}}\n\n',
-      'data: {"result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"artifactUpdate":{"artifact":{"parts":[{"text":"direct"}]}}}}\n\n',
+      'data: {"jsonrpc":"2.0","id":"$id","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n',
     ].join('');
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockSSEResponse(sseData));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(sseReply(sseData));
 
     const agent = new Agent({ name: 'Test', description: 'Test agent' });
 

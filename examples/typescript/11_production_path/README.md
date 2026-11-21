@@ -1,6 +1,6 @@
 # Message → Task → stream → authenticated → durable
 
-This example uses A2A Lite 1.2.0 and protocol wire version `1.0`.
+This example uses A2A Lite 1.3.0 and protocol wire version `1.0`.
 
 ```sh
 # From the repository root:

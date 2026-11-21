@@ -38,6 +38,7 @@ interface ExecutionState {
 }
 
 export class LiteAgentExecutor implements AgentExecutor {
+  private freeTextSkill?: string;
   private skills: Map<string, SkillDefinition>;
   private errorHandler?: (error: Error) => Promise<unknown>;
   private middlewares: Middleware[];
@@ -58,6 +59,7 @@ export class LiteAgentExecutor implements AgentExecutor {
 
   constructor(options: {
     skills: Map<string, SkillDefinition>;
+    freeTextSkill?: string;
     errorHandler?: (error: Error) => Promise<unknown>;
     middlewares?: Middleware[];
     onCompleteHooks?: Array<(skill: string, result: unknown) => Promise<void> | void>;
@@ -80,6 +82,7 @@ export class LiteAgentExecutor implements AgentExecutor {
     this.maxExecutions = options.maxExecutions ?? 128;
     this.maxTaskHistory = options.maxTaskHistory ?? 256;
     this.skills = options.skills;
+    this.freeTextSkill = options.freeTextSkill;
     this.errorHandler = options.errorHandler;
     this.middlewares = options.middlewares ?? [];
     this.onCompleteHooks = options.onCompleteHooks ?? [];
@@ -434,7 +437,7 @@ export class LiteAgentExecutor implements AgentExecutor {
     } catch {
       // Not JSON
     }
-    return { skill: null, params: { message } };
+    return { skill: (message && this.freeTextSkill) || null, params: { message } };
   }
 
   /**

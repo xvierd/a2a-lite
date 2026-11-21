@@ -41,6 +41,8 @@ export interface AgentConfig {
    * Use `LogPushNotifier` in development or `WebhookPushNotifier` for production.
    */
   pushNotifier?: import('./push-notifications.js').PushNotifier;
+  /** Existing skill that receives plain text in its message parameter. */
+  freeTextSkill?: string;
   network?: import('./orchestration.js').AgentNetwork;
   corsOrigins?: string[];
   production?: boolean;

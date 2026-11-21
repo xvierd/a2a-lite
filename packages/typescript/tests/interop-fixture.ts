@@ -15,6 +15,7 @@ const option = (name: string) => args[args.indexOf(name) + 1];
 if (args[0] === 'server') {
   const agent = new Agent({
     name: 'TypeScriptInterop',
+    freeTextSkill: process.env.A2ALITE_INTEROP_TEXT_ENTRY === '1' ? 'text' : undefined,
     description: 'Cross-language contract fixture',
     profile: process.env.A2ALITE_INTEROP_POSTGRES_DSN ? 'durable' : 'authenticated',
     persistence: process.env.A2ALITE_INTEROP_POSTGRES_DSN
@@ -29,6 +30,7 @@ if (args[0] === 'server') {
       identities: { 'interop-secret': 'alice', 'interop-rotated': 'alice', 'interop-other': 'bob' },
     }),
   });
+  if (process.env.A2ALITE_INTEROP_TEXT_ENTRY === '1') agent.skill('text', async ({ message }) => message);
   agent.skill('delay', async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     return 'ok';

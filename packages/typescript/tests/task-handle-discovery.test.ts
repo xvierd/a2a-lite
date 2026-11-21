@@ -1,3 +1,4 @@
+import { rpcReply } from './rpc-peer.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TaskHandle, AgentNetwork, getRemoteTask, cancelRemoteTask, discoverAgent } from '../src/orchestration.js';
 import type { AgentCardInfo } from '../src/orchestration.js';
@@ -7,26 +8,15 @@ import { RemoteAgentError } from '../src/errors.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function mockJsonResponse(body: Record<string, unknown>, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    json: () => Promise.resolve(body),
-  } as Response;
-}
-
 function a2aResponse(text: string, taskId = 'task-abc-123'): Record<string, unknown> {
   return {
     jsonrpc: '2.0',
-    id: '1',
     result: {
       task: {
         id: taskId,
-        status: { state: 'TASK_STATE_COMPLETED' },
+        status: { state: 'TASK_STATE_COMPLETED', message: { parts: [{ text }] } },
         artifacts: [],
       },
-      message: { taskId, parts: [{ text }] },
     },
   };
 }
@@ -91,8 +81,8 @@ describe('TaskHandle.getStatus()', () => {
   });
 
   it('sends a GetTask JSON-RPC request to the correct URL', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const handle = new TaskHandle('task-1', 'original-result', 'http://agent:8787');
     const status = await handle.getStatus();
@@ -118,8 +108,8 @@ describe('TaskHandle.cancel()', () => {
   });
 
   it('sends a CancelTask JSON-RPC request to the correct URL', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const handle = new TaskHandle('task-1', 'original-result', 'http://agent:8787');
     const result = await handle.cancel();
@@ -150,7 +140,7 @@ describe('AgentNetwork.call() with returnHandle', () => {
 
   it('returns a TaskHandle when returnHandle is true', async () => {
     const body = a2aResponse('"pong"', 'task-xyz');
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const handle = await net.call('bot', 'ping', {}, 30000, { returnHandle: true });
@@ -163,7 +153,7 @@ describe('AgentNetwork.call() with returnHandle', () => {
 
   it('returns raw result when returnHandle is not set (backward compat)', async () => {
     const body = a2aResponse('"pong"');
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.call('bot', 'ping');
@@ -174,7 +164,7 @@ describe('AgentNetwork.call() with returnHandle', () => {
 
   it('returns raw result when returnHandle is false', async () => {
     const body = a2aResponse('{"v":1}');
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.call('bot', 'ping', {}, 30000, { returnHandle: false });
@@ -183,13 +173,23 @@ describe('AgentNetwork.call() with returnHandle', () => {
     expect(result).not.toBeInstanceOf(TaskHandle);
   });
 
+  it('keeps the task ID on a Message associated with an existing task', async () => {
+    vi.mocked(fetch).mockImplementation(
+      rpcReply({ result: { message: { taskId: 'existing', parts: [{ text: 'updated' }] } } }),
+    );
+    const network = new AgentNetwork({ bot: 'http://bot:3000' });
+    const handle = await network.call('bot', 'work', {}, undefined, { returnHandle: true });
+    expect(handle).toBeInstanceOf(TaskHandle);
+    expect(handle.taskId).toBe('existing');
+    expect(handle.result).toBe('updated');
+  });
+
   it('rejects a task handle when the peer returns a Message without a task ID', async () => {
     const body = {
       jsonrpc: '2.0',
-      id: '1',
       result: { message: { parts: [{ text: '"ok"' }] } },
     };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     await expect(net.call('bot', 'ping', {}, 30000, { returnHandle: true })).rejects.toThrow(
@@ -214,8 +214,8 @@ describe('getRemoteTask()', () => {
   });
 
   it('sends a GetTask JSON-RPC request', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const result = await getRemoteTask('http://agent:8787', 'task-1');
 
@@ -228,14 +228,14 @@ describe('getRemoteTask()', () => {
   });
 
   it('throws RemoteAgentError on HTTP error', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse({}, 500));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply({}, 500));
 
     await expect(getRemoteTask('http://agent', 'task-1')).rejects.toThrow(RemoteAgentError);
   });
 
   it('throws RemoteAgentError when response contains error field', async () => {
-    const body = { jsonrpc: '2.0', id: '1', error: { code: -32601, message: 'Method not found' } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { error: { code: -32601, message: 'Method not found' } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     await expect(getRemoteTask('http://agent', 'task-1')).rejects.toThrow(RemoteAgentError);
   });
@@ -252,8 +252,8 @@ describe('cancelRemoteTask()', () => {
   });
 
   it('sends a CancelTask JSON-RPC request', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const result = await cancelRemoteTask('http://agent:8787', 'task-1');
 
@@ -282,7 +282,7 @@ describe('discoverAgent()', () => {
 
   it('fetches /.well-known/agent-card.json and returns AgentCardInfo', async () => {
     const cardBody = agentCardResponse();
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(cardBody));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(cardBody));
 
     const card = await discoverAgent('http://test-agent:8787');
 
@@ -302,7 +302,7 @@ describe('discoverAgent()', () => {
   });
 
   it('strips trailing slash from agentUrl', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(agentCardResponse()));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(agentCardResponse()));
 
     await discoverAgent('http://test-agent:8787/');
 
@@ -311,7 +311,7 @@ describe('discoverAgent()', () => {
   });
 
   it('throws RemoteAgentError on non-ok response', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse({}, 404));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json({}, { status: 404 }));
 
     await expect(discoverAgent('http://agent')).rejects.toThrow(RemoteAgentError);
   });
@@ -323,13 +323,13 @@ describe('discoverAgent()', () => {
       url: 'http://legacy:8787/a2a/jsonrpc',
       skills: [],
     };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(legacyCard));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(legacyCard));
 
     await expect(discoverAgent('http://legacy:8787')).rejects.toThrow('speaks A2A 0.3, not supported by a2a-lite 1.0');
   });
 
   it('returns correct shape (AgentCardInfo)', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(agentCardResponse()));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(agentCardResponse()));
 
     const card: AgentCardInfo = await discoverAgent('http://agent');
 
@@ -352,7 +352,7 @@ describe('discoverAgent()', () => {
       { url: 'https://agent/future', protocolBinding: 'JSONRPC', protocolVersion: '2.0' },
       { url: 'https://agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
     ];
-    vi.mocked(fetch).mockResolvedValue(mockJsonResponse(response));
+    vi.mocked(fetch).mockResolvedValue(Response.json(response));
     expect((await discoverAgent('https://agent')).url).toBe('https://agent/rpc');
   });
 
@@ -363,7 +363,7 @@ describe('discoverAgent()', () => {
     [{ url: 'file:///tmp/socket', protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
     [{ url: 'https://user:secret@agent/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
   ])('rejects missing or incompatible interfaces: %j', async (...interfaces) => {
-    vi.mocked(fetch).mockResolvedValue(mockJsonResponse({ ...agentCardResponse(), supportedInterfaces: interfaces }));
+    vi.mocked(fetch).mockResolvedValue(Response.json({ ...agentCardResponse(), supportedInterfaces: interfaces }));
     await expect(discoverAgent('https://agent')).rejects.toThrow(RemoteAgentError);
   });
 });
@@ -383,7 +383,7 @@ describe('AgentNetwork.add() with autoDiscover', () => {
   });
 
   it('triggers discovery when autoDiscover is true', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(agentCardResponse()));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(agentCardResponse()));
 
     const net = new AgentNetwork();
     net.add('test', 'http://test-agent:8787', { autoDiscover: true });
@@ -424,7 +424,7 @@ describe('AgentNetwork.discover()', () => {
   });
 
   it('fetches and caches the agent card', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(agentCardResponse()));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(agentCardResponse()));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const card = await net.discover('bot');
@@ -447,9 +447,9 @@ describe('AgentNetwork.discover()', () => {
       ],
     };
     vi.mocked(fetch)
-      .mockResolvedValueOnce(mockJsonResponse(card))
-      .mockResolvedValueOnce(mockJsonResponse(a2aResponse('"ok"')))
-      .mockResolvedValueOnce(mockJsonResponse(card));
+      .mockResolvedValueOnce(Response.json(card))
+      .mockImplementationOnce(rpcReply(a2aResponse('"ok"')))
+      .mockResolvedValueOnce(Response.json(card));
     const network = new AgentNetwork({ bot: 'https://agent' });
     await network.discover('bot');
     await network.call('bot', 'greet');
@@ -483,7 +483,7 @@ describe('Agent.delegate() with options', () => {
     // We test via AgentNetwork.call since Agent.delegate uses it under the hood
     // when a network name is used with returnHandle
     const body = a2aResponse('"result"', 'task-delegate');
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ weather: 'http://weather:8788' });
     const handle = await net.call('weather', 'forecast', { city: 'NYC' }, 30000, { returnHandle: true });
@@ -506,7 +506,7 @@ describe('Agent.delegate() with options', () => {
 
     // Mock fetch to return agent card for discovery, then fail for non-existent skill
     const cardBody = agentCardResponse(); // has 'greet' and 'calc' skills
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(cardBody));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(Response.json(cardBody));
 
     await expect(agent.delegate('data', 'nonexistent', {}, { discover: true })).rejects.toThrow(
       "Skill 'nonexistent' not found on agent",
@@ -528,8 +528,8 @@ describe('Agent.delegate() with options', () => {
     const cardBody = agentCardResponse();
     const a2aBody = a2aResponse('"hello"', 'task-disc');
     (fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(mockJsonResponse(cardBody))
-      .mockResolvedValueOnce(mockJsonResponse(a2aBody));
+      .mockResolvedValueOnce(Response.json(cardBody))
+      .mockImplementationOnce(rpcReply(a2aBody));
 
     const result = await agent.delegate('data', 'greet', { name: 'World' }, { discover: true });
     expect(result).toBe('hello');
@@ -551,8 +551,8 @@ describe('AgentNetwork.getTask()', () => {
   });
 
   it('resolves agent URL from name and sends GetTask', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_COMPLETED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.getTask('bot', 'task-1');
@@ -583,8 +583,8 @@ describe('AgentNetwork.cancelTask()', () => {
   });
 
   it('resolves agent URL from name and sends CancelTask', async () => {
-    const body = { jsonrpc: '2.0', id: '1', result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockJsonResponse(body));
+    const body = { result: { id: 'task-1', status: { state: 'TASK_STATE_CANCELED' } } };
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(rpcReply(body));
 
     const net = new AgentNetwork({ bot: 'http://bot:3000' });
     const result = await net.cancelTask('bot', 'task-1');

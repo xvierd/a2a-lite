@@ -6,6 +6,7 @@ const interfaceSchema = z
     url: z.string().url(),
     protocolBinding: z.string(),
     protocolVersion: z.string(),
+    tenant: z.string().optional(),
   })
   .passthrough();
 
@@ -56,13 +57,19 @@ export function parseDiscoveryCard(value: unknown): DiscoveryCard {
   return result.data;
 }
 
-/** The lite client implements JSON-RPC v1.0; interface ordering is not a preference. */
-export function selectJsonRpcInterface(card: DiscoveryCard): string {
-  const candidate = card.supportedInterfaces.find((entry) => {
-    if (entry.protocolBinding !== 'JSONRPC' || entry.protocolVersion !== '1.0') return false;
+/** Prefer card order among compatible JSON-RPC interfaces for the requested tenant. */
+export function selectJsonRpcInterface(card: Pick<DiscoveryCard, 'supportedInterfaces'>, tenant?: string) {
+  const compatible = card.supportedInterfaces.filter((entry) => {
+    if (entry.protocolBinding !== 'JSONRPC' || !/^1\.0(?:\.\d+)?$/.test(entry.protocolVersion)) return false;
     const url = new URL(entry.url);
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.hash;
   });
-  if (!candidate) throw new RemoteAgentError('Agent does not advertise a compatible JSONRPC interface for A2A 1.0.');
-  return candidate.url;
+  const candidate = tenant
+    ? (compatible.find((entry) => entry.tenant === tenant) ?? compatible.find((entry) => !entry.tenant))
+    : compatible[0];
+  if (!candidate)
+    throw new RemoteAgentError(
+      'Agent does not advertise a compatible JSONRPC interface for the requested tenant and A2A 1.0.',
+    );
+  return candidate;
 }

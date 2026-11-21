@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { Agent, TaskContext, type AgentRuntime } from '../src/index.js';
+import { Agent, AgentNetwork, callRemoteSkillWithHandle, TaskContext, type AgentRuntime } from '../src/index.js';
 
 const message = (skill: string, configuration: Record<string, unknown> = {}) => ({
   jsonrpc: '2.0',
@@ -36,6 +36,46 @@ describe('real protocol task lifecycle', () => {
       const failed = await request(runtime.url).post('/').set('A2A-Version', '1.0').send(message('fail'));
       expect(failed.body.result.task.status.state).toBe('TASK_STATE_FAILED');
     } finally {
+      await runtime.stop();
+    }
+  });
+  it('resubscribes to a live task and follows two ListTasks pages with the public client', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const agent = new Agent({ name: 'Work', description: 'Task streaming' });
+    agent.skill('work', { task: true }, async () => {
+      await gate;
+      return 'done';
+    });
+    const runtime = await agent.start({ host: '127.0.0.1', port: 0 });
+    const network = new AgentNetwork({ worker: runtime.url });
+    try {
+      expect((await network.discover('worker')).supportsStreaming).toBe(true);
+      const first = await callRemoteSkillWithHandle(runtime.url, 'work', {}, 4000, { returnImmediately: true });
+      const updates = first.streamEvents(4000);
+      const snapshot = await updates.next();
+      expect(snapshot.value).toMatchObject({ $case: 'task', value: { id: first.taskId } });
+      release();
+      const received = [];
+      for await (const update of updates) received.push(update);
+      expect(received.map((e) => e.$case)).toContain('artifactUpdate');
+      expect(received.at(-1)?.raw).toMatchObject({ statusUpdate: { status: { state: 'TASK_STATE_COMPLETED' } } });
+
+      const second = await callRemoteSkillWithHandle(runtime.url, 'work', {});
+      const page = await network.listTasks('worker', { pageSize: 1, includeArtifacts: true });
+      expect(page.nextPageToken).toBeTruthy();
+      const next = await network.listTasks('worker', {
+        pageSize: 1,
+        includeArtifacts: true,
+        pageToken: page.nextPageToken,
+      });
+      expect(next.nextPageToken).toBe('');
+      expect([...page.tasks, ...next.tasks].map((t) => t.id).sort()).toEqual([first.taskId, second.taskId].sort());
+      expect(page.tasks[0].artifacts[0].parts[0].content).toEqual({ $case: 'text', value: 'done' });
+    } finally {
+      release();
       await runtime.stop();
     }
   });

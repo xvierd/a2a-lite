@@ -217,12 +217,13 @@ export class PostgresExecution implements DistributedExecution {
       context.state.set(CANCEL_TASK, true);
       try {
         await this.store.save(canceled, context);
-        return canceled;
+        return (context.state.get(PERSISTED_CANCEL) as Task | undefined) ?? canceled;
       } catch (error) {
         if (attempt === 2 || !(error instanceof Error) || !error.message.includes('Concurrent task update'))
           throw error;
       } finally {
         context.state.delete(CANCEL_TASK);
+        context.state.delete(PERSISTED_CANCEL);
       }
     }
     throw new TaskNotCancelableError();
