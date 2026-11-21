@@ -1,0 +1,28 @@
+name: Prepare A2A interoperability fixtures
+description: Install the three Lite runtimes and compile the Java test server
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+        cache-dependency-glob: packages/python/uv.lock
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: packages/typescript/package-lock.json
+    - uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: temurin
+        cache: gradle
+    - name: Install locked dependencies and build fixtures
+      shell: bash
+      run: |
+        uv sync --project packages/python --locked --python 3.12 --extra dev --extra postgresql --extra sqlite --extra oauth
+        npm ci --prefix packages/typescript
+        packages/java/gradlew -p packages/java writeInteropClasspath --no-daemon

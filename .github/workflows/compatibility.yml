@@ -1,0 +1,129 @@
+name: Interoperability
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  clients:
+    name: Lite and official SDK clients
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/interop-fixtures
+      - name: Isolate the upstream Python client and reference server
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/a2a-official"
+          uv pip install --python "$RUNNER_TEMP/a2a-official/bin/python" 'a2a-sdk[http-server]==1.3.1' 'uvicorn==0.54.0'
+          echo "A2ALITE_OFFICIAL_PYTHON=$RUNNER_TEMP/a2a-official/bin/python" >> "$GITHUB_ENV"
+      - name: Check published transports
+        if: github.event_name == 'pull_request'
+        run: python tests/interop/run.py --output reports/interop.json
+      - name: Include the official Java client and independent Python server
+        if: github.event_name != 'pull_request'
+        run: |
+          packages/java/gradlew -p tests/interop/official-java installDist --no-daemon
+          python tests/interop/run.py --extended --output reports/interop.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: interop-clients
+          path: reports/interop.json
+          if-no-files-found: warn
+
+  conformance:
+    name: A2A conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/interop-fixtures
+      - uses: actions/checkout@v4
+        with:
+          repository: a2aproject/a2a-tck
+          ref: 5e6f37c2d38eb3d7684686243c34d365c83df49b
+          path: .qualification/tck
+          persist-credentials: false
+      - name: Prepare pinned upstream TCK
+        run: uv sync --project .qualification/tck --python 3.15 --locked --no-dev
+      - name: Check public cards
+        if: github.event_name == 'pull_request'
+        run: |
+          .qualification/tck/.venv/bin/python -m pytest -q tests/qualification/test_tck.py \
+            -k cards --tck-checkout=.qualification/tck --junitxml=reports/tck-cards.xml
+      - name: Check cards and authenticated operations
+        if: github.event_name != 'pull_request'
+        run: |
+          .qualification/tck/.venv/bin/python -m pytest -q tests/qualification/test_tck.py \
+            --tck-checkout=.qualification/tck --junitxml=reports/tck-periodic.xml --tck-results=reports/tck-details
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tck-results
+          path: reports/
+          if-no-files-found: warn
+
+  google-adk:
+    name: Google ADK consumer
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/interop-fixtures
+      - name: Qualify ADK in an independent environment
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/adk"
+          uv pip install --python "$RUNNER_TEMP/adk/bin/python" \
+            'google-adk[a2a]==2.15.0' 'a2a-sdk[http-server]==1.3.1' 'pytest==9.0.2'
+          "$RUNNER_TEMP/adk/bin/python" -m pytest -q tests/qualification/test_adk.py --junitxml=reports/adk.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: google-adk-results
+          path: reports/adk.xml
+          if-no-files-found: warn
+
+  postgres:
+    name: PostgreSQL crash and restore
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/interop-fixtures
+      - name: Check package contracts and recover from process termination
+        run: python tests/interop/durable.py --package-tests --active --output reports/durable.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-results
+          path: reports/durable.json
+          if-no-files-found: warn
+
+  upstream-js:
+    name: Unreleased JavaScript client at pinned revision
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: packages/typescript/package-lock.json
+      - run: npm ci --prefix packages/typescript
+      - run: bash tests/upstream-js/run.sh

@@ -1,8 +1,6 @@
 name: Publish TypeScript to npm
 
 on:
-  release:
-    types: [published]
   push:
     tags:
       - 'npm/v*'      # npm-only release: npm/v0.3.0
@@ -12,7 +10,7 @@ on:
       dry_run:
         description: 'Dry run (build only, no publish)'
         type: boolean
-        default: false
+        default: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -42,7 +40,7 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests
         run: npm test
@@ -50,10 +48,35 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Verify build output
-        run: ls -la dist/
+      - name: Verify release tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          case "$GITHUB_REF_NAME" in
+            "v$version"|"npm/v$version") ;;
+            *) echo "::error::Release tag does not match npm package version $version"; exit 1 ;;
+          esac
+
+      - name: Pack distribution
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Install and exercise release tarball
+        run: |
+          dest=$(mktemp -d)
+          cp "$GITHUB_WORKSPACE/tests/release/npm_smoke.mjs" "$dest/"
+          cd "$dest"
+          printf '%s\n' '{"name":"a2a-lite-release-smoke","private":true}' > package.json
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/a2a-lite-*.tgz
+          node npm_smoke.mjs
+
+      - name: Store the publishable tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-dist
+          path: ${{ runner.temp }}/a2a-lite-*.tgz
+          if-no-files-found: error
 
       - name: Publish to npm
         if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
-        run: npm publish --access public --provenance
+        run: npm publish "$RUNNER_TEMP"/a2a-lite-*.tgz --access public --provenance
         # No NODE_AUTH_TOKEN — its absence is what triggers the OIDC flow

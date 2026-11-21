@@ -11,7 +11,7 @@ env:
 
 jobs:
   python:
-    name: Python ${{ matrix.python-version }}
+    name: Python ${{ matrix.python-version }} · A2A ${{ matrix.sdk }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -19,7 +19,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        include:
+          - { python-version: '3.10', sdk: '1.2.2' }
+          - { python-version: '3.11', sdk: '1.3.1' }
+          - { python-version: '3.12', sdk: '1.3.1' }
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +34,9 @@ jobs:
           cache-dependency-path: packages/python/pyproject.toml
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        env:
+          SDK_VERSION: ${{ matrix.sdk }}
+        run: pip install -e '.[dev,grpc,sqlite,oauth]' "a2a-sdk==$SDK_VERSION"
 
       - name: Lint (ruff check)
         run: ruff check src tests
@@ -62,7 +67,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-          cache-dependency-path: packages/typescript/package.json
+          cache-dependency-path: packages/typescript/package-lock.json
 
       - name: Install dependencies
         # Use ci when lockfile is present for reproducible prettier/eslint
@@ -72,6 +77,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Build package
+        run: npm run build
+
       - name: Lint
         run: npm run lint
 
@@ -80,6 +88,12 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+
+      - name: Check persistence example
+        working-directory: examples/typescript/10_persistence_lite
+        run: |
+          npm install --package-lock=false
+          npm run typecheck
 
   java:
     name: Java JDK ${{ matrix.java-version }}
@@ -108,4 +122,4 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build and test
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test compileExamples --no-daemon

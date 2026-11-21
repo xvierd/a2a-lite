@@ -1,8 +1,6 @@
 name: Publish Python to PyPI
 
 on:
-  release:
-    types: [published]
   push:
     tags:
       - 'python/v*'   # python-only release: python/v0.3.0
@@ -12,7 +10,7 @@ on:
       dry_run:
         description: 'Dry run (build only, no publish)'
         type: boolean
-        default: false
+        default: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -40,6 +38,25 @@ jobs:
 
       - name: Build package
         run: uv build
+
+      - name: Install and exercise both release distributions
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            dest=$(mktemp -d)
+            uv venv --python 3.12 "$dest/venv"
+            uv pip install --python "$dest/venv/bin/python" "$artifact"
+            "$dest/venv/bin/python" -I "$GITHUB_WORKSPACE/tests/release/python_smoke.py" "$version"
+          done
+
+      - name: Verify release tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          case "$GITHUB_REF_NAME" in
+            "v$version"|"python/v$version") ;;
+            *) echo "::error::Release tag does not match Python package version $version"; exit 1 ;;
+          esac
 
       - name: Store distribution packages
         uses: actions/upload-artifact@v4
