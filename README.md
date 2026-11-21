@@ -25,7 +25,7 @@
 
 A2A Lite wraps the official A2A SDKs ([Python](https://github.com/a2aproject/a2a-python), [TypeScript](https://github.com/a2aproject/a2a-js), [Java](https://github.com/a2aproject/a2a-java)) to give you a decorator-based API for **A2A protocol v1.0** with minimal boilerplate. Supported features and transport limitations are listed in the [feature matrix](#feature-matrix).
 
-> **A2A Lite 1.3.0** adds task pagination, structured streaming events and task resubscription. Lite clients use the JSON-RPC interface and tenant selected from the agent card. Python and TypeScript servers also expose HTTP+JSON. Java is available from source. [Migration guide](MIGRATION.md)
+> **A2A Lite 1.3.0** adds task pagination, structured streaming events and task resubscription. Lite clients use the JSON-RPC interface and tenant selected from the agent card. Python and TypeScript servers also expose HTTP+JSON. Java is available from source. [Migration guide](MIGRATION.md) · [1.3.0 qualification](tests/evidence/2026-11-20-1.3.0/README.md)
 
 > The SDK baseline is `a2a-sdk 1.3.1`, `@a2a-js/sdk 1.3.0` and `a2a-java-sdk 1.5.1.Final`. Agent cards and `A2A-Version` use `1.0`. [A2A specification 1.0.1](https://a2a-protocol.org/v1.0.1/specification/)
 

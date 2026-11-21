@@ -1,0 +1,15 @@
+{
+  "version": "1.3.0",
+  "commit": "e86e340b0fe1386e0e23e9b1e65ee93c529adb0c",
+  "pypiSha256": {
+    "a2a_lite-1.3.0-py3-none-any.whl": "04e767b0b9450ea33494d2253c3fe508207dad43b66a642e176e60e4ab972cc2",
+    "a2a_lite-1.3.0.tar.gz": "0720c7f3684dd8ec57e8db5815f464a5e1814b3bc004bd9755ffecc97727cfce"
+  },
+  "npmIntegrity": "sha512-I91dCo9D57Ymx206zEHqJiDdReEImI7oKH/uNazAATXkbNBPTE279BSU3nKMNnowavbYT8WaZZH3WaY0UI3Msw==",
+  "npmProvenanceRun": "https://github.com/xvierd/a2a-lite/actions/runs/44844273343/attempts/1",
+  "registryInstalls": "passed",
+  "npmSignatures": "verified",
+  "cli": "passed",
+  "esmAndCjs": "passed",
+  "messageTaskStream": "passed"
+}

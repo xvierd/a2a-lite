@@ -1,6 +1,6 @@
 # Publishing A2A Lite
 
-The 1.3.0 release targets PyPI and npm. Java is distributed from source. Package versions are independent of the A2A wire version, which remains `1.0`. [Previous release evidence](../tests/evidence/2026-10-18-1.2.1/README.md)
+The 1.3.0 release targets PyPI and npm. Java is distributed from source. Package versions are independent of the A2A wire version, which remains `1.0`. [1.3.0 release evidence](../tests/evidence/2026-11-20-1.3.0/README.md)
 
 ## Validate a release candidate
 

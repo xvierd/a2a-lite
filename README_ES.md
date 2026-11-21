@@ -20,7 +20,7 @@ A2A Lite envuelve los SDKs oficiales de A2A ([Python](https://github.com/a2aproj
 
 > Los SDK de referencia son `a2a-sdk 1.3.1`, `@a2a-js/sdk 1.3.0` y `a2a-java-sdk 1.5.1.Final`. Las tarjetas y la cabecera `A2A-Version` usan `1.0`. [Especificación A2A 1.0.1](https://a2a-protocol.org/v1.0.1/specification/)
 
-> **Aprende con un agente pequeño y agrega capacidades según las necesitas.** El perfil `learning` funciona sin base de datos. `authenticated` exige identidad verificada y `durable` requiere almacenamiento compatible. Python y npm 1.2.1 están publicados; Java 1.2.0 está validado desde código fuente y su publicación en Maven Central sigue pendiente. Consulta [OPERATIONS.md](OPERATIONS.md) para límites y recuperación, y la [evidencia de 1.2.0](tests/evidence/2026-10-17-1.2.0/README.md) para resultados medidos.
+> **Aprende con un agente pequeño y agrega capacidades según las necesitas.** El perfil `learning` funciona sin base de datos. `authenticated` exige identidad verificada y `durable` requiere almacenamiento compatible. Consulta los [límites operativos y la recuperación](OPERATIONS.md) y los [resultados de las pruebas de 1.3.0](tests/evidence/2026-11-20-1.3.0/README.md).
 
 ## Por que A2A Lite?
 

@@ -15,6 +15,8 @@ Implementation and qualification checklist
 
 The local qualification exercised all 30 interoperability combinations, 35 Google ADK consumer cases and 62 upstream TCK cases across the fixtures. PostgreSQL crash and restore passed for all three implementations. See the [migration guide](../MIGRATION.md) and [conformance profile](../tests/qualification/README.md).
 
+- [x] Publish Python and npm 1.3.0 from the qualified commit, verify the public artifacts and test clean registry installations. [Release evidence](../tests/evidence/2026-11-20-1.3.0/README.md)
+
 ## October 2026 delivery history
 
 Scope: finish the six findings from the 2026-10-17 SDK maintenance review, verify the result, and prepare the GitHub/release handoff. Future roadmap features outside these findings are separate work.

@@ -1,0 +1,58 @@
+{
+  "workflow": "https://github.com/xvierd/a2a-lite/actions/runs/44842022252",
+  "commit": "e86e340b0fe1386e0e23e9b1e65ee93c529adb0c",
+  "tck": {
+    "revision": "5e6f37c2d38eb3d7684686243c34d365c83df49b",
+    "profilesPassed": {
+      "java-cards": 6,
+      "java-jsonrpc": 10,
+      "python-cards": 6,
+      "python-http_json": 7,
+      "python-jsonrpc": 10,
+      "typescript-cards": 6,
+      "typescript-http_json": 7,
+      "typescript-jsonrpc": 10
+    },
+    "totalPassed": 62
+  },
+  "googleAdk": {
+    "totalPassed": 35,
+    "casesPassed": [
+      "test_unary_message[python-legacy]",
+      "test_unary_message[python-new-integration]",
+      "test_stream[python-legacy]",
+      "test_stream[python-new-integration]",
+      "test_failed_task[python-unary-legacy]",
+      "test_failed_task[python-unary-new-integration]",
+      "test_failed_task[python-stream-legacy]",
+      "test_failed_task[python-stream-new-integration]",
+      "test_ambiguous_text[python]",
+      "test_configured_text_entry[python-plain]",
+      "test_configured_text_entry[python-skill]",
+      "test_unary_message[typescript-legacy]",
+      "test_unary_message[typescript-new-integration]",
+      "test_stream[typescript-legacy]",
+      "test_stream[typescript-new-integration]",
+      "test_failed_task[typescript-unary-legacy]",
+      "test_failed_task[typescript-unary-new-integration]",
+      "test_failed_task[typescript-stream-legacy]",
+      "test_failed_task[typescript-stream-new-integration]",
+      "test_ambiguous_text[typescript]",
+      "test_configured_text_entry[typescript-plain]",
+      "test_configured_text_entry[typescript-skill]",
+      "test_unary_message[java-legacy]",
+      "test_unary_message[java-new-integration]",
+      "test_stream[java-legacy]",
+      "test_stream[java-new-integration]",
+      "test_failed_task[java-unary-legacy]",
+      "test_failed_task[java-unary-new-integration]",
+      "test_failed_task[java-stream-legacy]",
+      "test_failed_task[java-stream-new-integration]",
+      "test_ambiguous_text[java]",
+      "test_configured_text_entry[java-plain]",
+      "test_configured_text_entry[java-skill]",
+      "test_fragmented_artifact_without_last_chunk[legacy]",
+      "test_fragmented_artifact_without_last_chunk[new-integration]"
+    ]
+  }
+}

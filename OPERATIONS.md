@@ -83,7 +83,7 @@ During a rolling upgrade, keep overlapping workers on compatible schema and even
 
 ## Qualification
 
-The [1.2.0 local evidence](tests/evidence/2026-10-17-1.2.0/README.md) records measured results and remaining qualification.
+The [1.3.0 qualification](tests/evidence/2026-11-20-1.3.0/README.md) records SDK compatibility, conformance and recovery results. The [1.2.0 load measurements](tests/evidence/2026-10-17-1.2.0/README.md) include the workload and hardware used.
 
 Run the [interoperability gates](tests/interop/README.md) against the exact code and SDK versions being deployed. The nine Lite client/server combinations cover the common JSON-RPC surface. The official SDK probes use discovery to exercise JSON-RPC on all three servers and HTTP+JSON on Python and TypeScript. The extended profile also exercises the independent upstream server. Python gRPC is optional and has its own package tests. [Google ADK and TCK qualification](tests/qualification/README.md)
 
