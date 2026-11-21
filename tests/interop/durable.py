@@ -68,7 +68,9 @@ def postgres(existing=None):
         deadline = time.monotonic() + 30
         while True:
             try:
-                docker("exec", name, "pg_isready", "-U", DB_USER)
+                # The image starts a socket-only server during initialization.
+                # TCP becomes available when the final server is ready.
+                docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", DB_USER, "-d", "postgres")
                 break
             except subprocess.CalledProcessError:
                 if time.monotonic() >= deadline:
