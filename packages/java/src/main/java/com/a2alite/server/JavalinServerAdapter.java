@@ -2,12 +2,12 @@ package com.a2alite.server;
 
 import com.a2alite.Agent;
 import com.a2alite.auth.AuthRequest;
-import com.a2alite.auth.NoAuth;
 import com.a2alite.auth.PrincipalIdentity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.javalin.Javalin;
+import io.javalin.config.JavalinConfig;
 import io.javalin.http.Context;
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AErrorResponse;
@@ -28,6 +28,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntSupplier;
 
 /** Javalin HTTP adapter backed by the official SDK's task lifecycle and JSON-RPC models. */
 public class JavalinServerAdapter implements ServerAdapter {
@@ -55,29 +56,53 @@ public class JavalinServerAdapter implements ServerAdapter {
 
     @Override
     public void start(Agent agent, String host, int port) {
+        try {
+            app = Javalin.create(config -> {
+                config.http.maxRequestSize = agent.getRuntimeOptions().limits().maxRequestBytes();
+                register(config, agent, host, port, "", this::port);
+            });
+            app.start(host, port);
+        } catch (RuntimeException failure) {
+            stop();
+            throw failure;
+        }
+    }
+
+    /** Register a complete agent on the router's listener during Javalin configuration. */
+    public static ServerAdapter mounted(JavalinConfig config, String prefix, List<String> corsOrigins,
+                                        IntSupplier listeningPort) {
+        return new JavalinServerAdapter(corsOrigins) {
+            @Override public void start(Agent agent, String host, int port) {
+                register(config, agent, host, port, prefix, listeningPort);
+            }
+
+            @Override public int port() { return listeningPort.getAsInt(); }
+        };
+    }
+
+    final void register(JavalinConfig config, Agent agent, String host, int port, String prefix,
+                        IntSupplier listeningPort) {
         String displayHost = "0.0.0.0".equals(host) ? "localhost" : host;
         limits = agent.getRuntimeOptions().limits();
         controller = new RuntimeController(limits);
-        protocol = new SdkProtocol(agent, displayHost, port);
-        app = Javalin.create(config -> {
-            config.http.maxRequestSize = limits.maxRequestBytes();
-            config.routes.get("/health/live", ctx -> ctx.json(Map.of("live", true)));
-            config.routes.get("/health/ready", ctx -> ctx.status(ready() ? 200 : 503).json(Map.of("ready", ready())));
-            config.routes.get("/metrics", ctx -> ctx.json(metrics()));
-            config.routes.before(this::addCorsHeaders);
-            config.routes.get("/.well-known/agent-card.json", ctx -> {
-                var card = agent.buildAgentCardJson(displayHost, app.port());
-                card.withObject("/capabilities").put("pushNotifications", !agent.getAuth().allowsAnonymous());
-                ctx.json(card);
-            });
-            config.routes.post("/", ctx -> handleRequest(ctx, agent));
-            if (corsOrigins != null && !corsOrigins.isEmpty()) config.routes.options("/", ctx -> ctx.status(204));
+        protocol = new SdkProtocol(agent, displayHost, port, prefix);
+        String endpoint = prefix.isEmpty() ? "/" : prefix;
+        String cardPath = prefix + "/.well-known/agent-card.json";
+        String live = prefix + "/health/live";
+        String health = prefix + "/health/ready";
+        String metricsPath = prefix + "/metrics";
+        config.routes.get(live, ctx -> ctx.json(Map.of("live", true)));
+        config.routes.get(health, ctx -> {
+            boolean ready = ready();
+            ctx.status(ready ? 200 : 503).json(Map.of("ready", ready));
         });
-        try {
-            app.start(host, port);
-        } catch (RuntimeException e) {
-            protocol.close();
-            throw e;
+        config.routes.get(metricsPath, ctx -> ctx.json(metrics()));
+        config.routes.get(cardPath, ctx -> ctx.json(agent.buildAgentCardJson(displayHost, listeningPort.getAsInt(), prefix)));
+        config.routes.post(endpoint, ctx -> handleRequest(ctx, agent));
+        if (corsOrigins != null && !corsOrigins.isEmpty()) {
+            for (String path : List.of(endpoint, cardPath, live, health, metricsPath))
+                config.routes.before(path, this::addCorsHeaders);
+            config.routes.options(endpoint, ctx -> ctx.status(204));
         }
     }
 
@@ -86,9 +111,17 @@ public class JavalinServerAdapter implements ServerAdapter {
 
     @Override
     public void stop() {
-        if (controller != null) controller.close();
-        if (protocol != null) protocol.close();
-        if (app != null) app.stop();
+        try {
+            if (controller != null) controller.close();
+        } finally {
+            try {
+                if (protocol != null) protocol.close();
+            } finally {
+                if (app != null) app.stop();
+                protocol = null;
+                app = null;
+            }
+        }
     }
 
     @Override public boolean ready() { return controller != null && controller.ready() && protocol != null && protocol.ready(); }
@@ -100,8 +133,12 @@ public class JavalinServerAdapter implements ServerAdapter {
         try {
             JsonNode body;
             try {
-                byte[] bytes = ctx.bodyAsBytes();
-                if (bytes.length > limits.maxRequestBytes()) { ctx.status(413); throw new InvalidRequestError("Request too large"); }
+                var input = ctx.req().getInputStream();
+                byte[] bytes = input.readNBytes(limits.maxRequestBytes());
+                if (bytes.length == limits.maxRequestBytes() && input.read() != -1) {
+                    ctx.status(413);
+                    throw new InvalidRequestError("Request too large");
+                }
                 body = mapper.readTree(bytes);
             } catch (io.javalin.http.HttpResponseException e) {
                 ctx.status(e.getStatus());

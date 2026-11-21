@@ -20,7 +20,7 @@ The `task_id` in these skill results is an application interaction ID stored in 
 ## Running
 
 ```bash
-# From the repository root; resolves the local 1.2.0 library via composite build
+# From the repository root; resolves the local 1.3.0 library via composite build
 cd examples/java
 ./gradlew :09_human_in_loop_lite:run
 ```

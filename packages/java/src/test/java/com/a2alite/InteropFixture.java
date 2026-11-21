@@ -50,7 +50,10 @@ public final class InteropFixture {
                 backend.initializeSchema();
                 builder.protocolBackend(backend).runtimeOptions(RuntimeOptions.durable());
             }
+            boolean textEntry = "1".equals(System.getenv("A2ALITE_INTEROP_TEXT_ENTRY"));
+            if (textEntry) builder.textEntrySkill("echoText");
             var agent = builder.build();
+            if (textEntry) agent.skill("echoText", params -> params.get("message"));
             agent.skill("greet", params -> params.get("text"));
             agent.skill("taskProbe", (params, task) -> task.getTaskId());
             agent.skill(

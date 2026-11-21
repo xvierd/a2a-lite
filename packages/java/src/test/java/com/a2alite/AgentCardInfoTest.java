@@ -242,15 +242,9 @@ class AgentCardInfoTest {
     // ---- parseAgentCard unit test -------------------------------------------
 
     @Test
-    void parseAgentCardHandlesMinimalJson() {
-        var network = new AgentNetwork();
-        var card = network.parseAgentCard(Map.of());
-
-        assertThat(card.getName()).isEmpty();
-        assertThat(card.getDescription()).isEmpty();
-        assertThat(card.getSkills()).isEmpty();
-        assertThat(card.isSupportsStreaming()).isFalse();
-        assertThat(card.isSupportsPush()).isFalse();
+    void parseAgentCardRejectsMissingInterfaces() {
+        assertThatThrownBy(() -> new AgentNetwork().parseAgentCard(Map.of()))
+            .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("JSON-RPC interface");
     }
 
     @Test

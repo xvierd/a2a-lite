@@ -1,6 +1,6 @@
 # Java: learning to a durable service
 
-Java 17+, the repository Gradle wrapper, and PostgreSQL 17 for the durable steps. Java 1.2.0 is built and verified in this checkout but is not published to Maven Central; the composite build resolves it locally. This example registers no callbacks and uses no LLM. Run from `examples/java`; use a second terminal for the client.
+Java 17+, the repository Gradle wrapper, and PostgreSQL 17 for the durable steps. The composite build resolves Java 1.3.0 from this checkout. This example registers no callbacks and uses no LLM. Run from `examples/java`; use a second terminal for the client.
 
 ```bash
 ./gradlew :11_production_path_lite:run --args='learning'

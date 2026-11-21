@@ -128,6 +128,7 @@ class PostgresBackendTest {
             s.execute("DROP TRIGGER reject_outbox ON a2a_lite_outbox");
         }
         backend.save(task("atomic", TaskState.TASK_STATE_COMPLETED), false);
+        assertThat(backend.outbox().metrics()).containsEntry("pending", 1L).containsEntry("delivered", 1L);
         var ids = new ArrayList<String>();
         assertThat(
                         backend.outbox()
@@ -153,6 +154,15 @@ class PostgresBackendTest {
         assertThat(ids).hasSize(2);
         assertThat(ids.get(0)).isEqualTo(ids.get(1));
         assertThat(backend.outbox().metrics().get("delivered")).isEqualTo(2);
+    }
+
+    @Test
+    void outboxCountsOnlyAcknowledgedDeliveries() {
+        seed("ack");
+        backend.setInfo(config("ack", "hook"));
+        assertThat(backend.outbox().drainOnce((url, payload, headers) ->
+                backend.deleteInfo("ack", "hook"))).isZero();
+        assertThat(backend.outbox().metrics().get("delivered")).isZero();
     }
 
     @Test

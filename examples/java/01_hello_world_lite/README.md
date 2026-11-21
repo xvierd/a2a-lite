@@ -5,7 +5,7 @@ A simple greeting agent using the **real A2A Lite library** (`com.a2alite`).
 ## Prerequisites
 
 - Java 17+
-- Repository checkout; the composite build resolves A2A Lite 1.2.0 locally. It is not yet published to Maven Central.
+- Repository checkout; the composite build resolves A2A Lite 1.3.0 locally.
 
 ## Building
 

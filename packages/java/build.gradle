@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'io.github.xvierd'
-version = '1.2.0'
+version = '1.3.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -35,7 +35,7 @@ repositories {
 
 dependencies {
     // A2A SDK - official Java implementation (A2A protocol v1.0)
-    api 'org.a2aproject.sdk:a2a-java-sdk-server-common:1.4.0.Final'
+    api 'org.a2aproject.sdk:a2a-java-sdk-server-common:1.5.1.Final'
 
     // Align the complete Jetty graph beyond Javalin's bundled baseline security fixes.
     api platform('org.eclipse.jetty:jetty-bom:12.1.14')

@@ -11,7 +11,7 @@ package com.a2alite;
 public class TaskHandle {
     private final String taskId;
     private final Object result;
-    private final String agentUrl;
+    private final AgentNetwork.Endpoint endpoint;
     private final AgentNetwork network;
 
     public TaskHandle(String taskId, Object result, String agentUrl) {
@@ -21,19 +21,34 @@ public class TaskHandle {
     public TaskHandle(String taskId, Object result, String agentUrl, AgentNetwork network) {
         this.taskId = taskId;
         this.result = result;
-        this.agentUrl = agentUrl;
+        this.network = network != null ? network : new AgentNetwork();
+        this.endpoint = this.network.endpoint(agentUrl);
+    }
+
+    TaskHandle(String taskId, Object result, AgentNetwork.Endpoint endpoint, AgentNetwork network) {
+        this.taskId = taskId;
+        this.result = result;
         this.network = network;
+        this.endpoint = endpoint;
     }
 
     /** Full protocol Task; unlike legacy getStatus(), this never flattens its message/artifacts. */
     public java.util.Map<String, Object> get() throws Exception { return get(10); }
     public java.util.Map<String, Object> get(int timeoutSeconds) throws Exception {
-        return (network != null ? network : new AgentNetwork()).getRemoteTaskSnapshot(agentUrl, taskId, timeoutSeconds);
+        return network.taskSnapshot(endpoint, taskId, timeoutSeconds);
     }
 
     public String getTaskId() { return taskId; }
     public Object getResult() { return result; }
-    public String getAgentUrl() { return agentUrl; }
+    public String getAgentUrl() { return endpoint.url(); }
+    public String getTenant() { return endpoint.tenant(); }
+
+    /** Open a fresh SSE subscription for this task, retaining its endpoint and tenant. */
+    public TaskEventStream subscribeEvents(int timeoutSeconds) {
+        return network.subscribeTask(endpoint, taskId, timeoutSeconds);
+    }
+
+    public TaskEventStream subscribeEvents() { return subscribeEvents(30); }
 
     /**
      * Poll the remote agent for this task's current status.
@@ -43,10 +58,7 @@ public class TaskHandle {
      * @throws Exception if the remote call fails
      */
     public Object getStatus(int timeoutSeconds) throws Exception {
-        if (network != null) {
-            return network.getRemoteTask(agentUrl, taskId, timeoutSeconds);
-        }
-        return new AgentNetwork().getRemoteTask(agentUrl, taskId, timeoutSeconds);
+        return network.getTaskResult(endpoint, taskId, timeoutSeconds);
     }
 
     /**
@@ -64,10 +76,7 @@ public class TaskHandle {
      * @throws Exception if the remote call fails
      */
     public Object cancel(int timeoutSeconds) throws Exception {
-        if (network != null) {
-            return network.cancelRemoteTask(agentUrl, taskId, timeoutSeconds);
-        }
-        return new AgentNetwork().cancelRemoteTask(agentUrl, taskId, timeoutSeconds);
+        return network.cancel(endpoint, taskId, timeoutSeconds);
     }
 
     /**
@@ -87,8 +96,7 @@ public class TaskHandle {
      * @throws Exception if the remote call fails
      */
     public Object subscribe(String webhookUrl, String token, int timeoutSeconds) throws Exception {
-        AgentNetwork net = network != null ? network : new AgentNetwork();
-        return net.setTaskPushNotification(agentUrl, taskId, webhookUrl, token, timeoutSeconds);
+        return network.setPush(endpoint, taskId, webhookUrl, token, timeoutSeconds);
     }
 
     /**
@@ -106,8 +114,7 @@ public class TaskHandle {
      * @throws Exception if the remote call fails
      */
     public Object unsubscribe(int timeoutSeconds) throws Exception {
-        AgentNetwork net = network != null ? network : new AgentNetwork();
-        return net.deleteTaskPushNotification(agentUrl, taskId, timeoutSeconds);
+        return network.deletePush(endpoint, taskId, timeoutSeconds);
     }
 
     /**
@@ -125,8 +132,7 @@ public class TaskHandle {
      * @throws Exception if the remote call fails
      */
     public Object getPushConfig(int timeoutSeconds) throws Exception {
-        AgentNetwork net = network != null ? network : new AgentNetwork();
-        return net.getTaskPushNotification(agentUrl, taskId, timeoutSeconds);
+        return network.getPush(endpoint, taskId, timeoutSeconds);
     }
 
     /**

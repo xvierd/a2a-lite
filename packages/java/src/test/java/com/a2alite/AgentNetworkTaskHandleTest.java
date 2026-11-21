@@ -44,7 +44,7 @@ class AgentNetworkTaskHandleTest {
 
             var response = Map.of(
                 "jsonrpc", "2.0",
-                "id", "req-1",
+                "id", mapper.readTree(ctx.body()).get("id").asText(),
                 "result", Map.of(
                     "task", Map.of(
                         "id", "task-abc-123",
@@ -79,7 +79,7 @@ class AgentNetworkTaskHandleTest {
         app.post("/", ctx -> {
             var response = Map.of(
                 "jsonrpc", "2.0",
-                "id", "req-2",
+                "id", mapper.readTree(ctx.body()).get("id").asText(),
                 "result", Map.of(
                     "message", Map.of(
                         "role", "ROLE_AGENT",
@@ -105,7 +105,7 @@ class AgentNetworkTaskHandleTest {
         app.post("/", ctx -> {
             var response = Map.of(
                 "jsonrpc", "2.0",
-                "id", "req-2b",
+                "id", mapper.readTree(ctx.body()).get("id").asText(),
                 "result", Map.of(
                     "message", Map.of(
                         "role", "ROLE_AGENT",
@@ -132,7 +132,7 @@ class AgentNetworkTaskHandleTest {
         app.post("/", ctx -> {
             var response = Map.of(
                 "jsonrpc", "2.0",
-                "id", "req-3",
+                "id", mapper.readTree(ctx.body()).get("id").asText(),
                 "result", Map.of(
                     "task", Map.of(
                         "id", "task-xyz",

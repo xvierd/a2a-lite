@@ -46,6 +46,7 @@ public class LiteAgentExecutor implements AgentExecutor {
     private static final Logger LOGGER = Logger.getLogger(LiteAgentExecutor.class.getName());
 
     private final Map<String, SkillDefinition> skills;
+    private final String textEntrySkill;
     private final List<Middleware> middlewares;
     private final List<BiConsumer<String, Object>> completeHooks;
     private final AuthProvider authProvider;
@@ -85,6 +86,14 @@ public class LiteAgentExecutor implements AgentExecutor {
             List<BiConsumer<String, Object>> completeHooks, AuthProvider authProvider,
             TaskPushRegistry pushRegistry, Function<Exception, Object> errorHandler,
             Map<String, SkillHandlerWithContext> contextualSkills) {
+        this(skills, middlewares, completeHooks, authProvider, pushRegistry, errorHandler, contextualSkills, null);
+    }
+
+    LiteAgentExecutor(Map<String, SkillDefinition> skills, List<Middleware> middlewares,
+            List<BiConsumer<String, Object>> completeHooks, AuthProvider authProvider,
+            TaskPushRegistry pushRegistry, Function<Exception, Object> errorHandler,
+            Map<String, SkillHandlerWithContext> contextualSkills, String textEntrySkill) {
+        this.textEntrySkill = textEntrySkill;
         this.contextualSkills = contextualSkills;
         this.errorHandler = errorHandler;
         this.skills = skills;
@@ -121,31 +130,12 @@ public class LiteAgentExecutor implements AgentExecutor {
     public void execute(RequestContext context, AgentEmitter emitter) throws A2AError {
         var execution = new Execution(Thread.currentThread());
         executions.put(context.getTaskId(), execution);
-        String finalSkillName = null;
         try {
             // Extract message text
             String text = extractTextFromMessage(context.getMessage());
 
-            // Parse skill call
-            String skillName = null;
-            Map<String, Object> params = new HashMap<>();
-
-            try {
-                var parsed = mapper.readTree(text);
-                if (parsed.has("skill")) {
-                    skillName = parsed.path("skill").asText();
-                    if (parsed.has("params")) {
-                        params = mapper.convertValue(parsed.path("params"), Map.class);
-                    }
-                }
-            } catch (Exception e) {
-                LOGGER.fine("Message is not JSON, treating as plain text");
-                params.put("message", text);
-            }
-
-            if ((skillName == null || skillName.isEmpty()) && skills.size() == 1) {
-                skillName = skills.keySet().iterator().next();
-            }
+            var call = SkillCall.parse(text, skills.keySet(), textEntrySkill, mapper);
+            String skillName = call.name();
             var definition = skills.get(skillName);
             boolean taskMode = context.getTask() != null
                 || (definition != null && (definition.isStreaming() || definition.needsTaskContext() || definition.taskMode()))
@@ -156,16 +146,14 @@ public class LiteAgentExecutor implements AgentExecutor {
 
             // Build middleware context
             var ctx = new MiddlewareContext(
-                skillName != null ? skillName : "",
-                params,
+                skillName,
+                call.params(),
                 text,
                 new HashMap<>()
             );
 
             // Execute through middleware chain
-            finalSkillName = skillName;
-            final String hookedSkillName = finalSkillName;
-            MiddlewareNext finalHandler = () -> executeSkill(hookedSkillName, ctx.params(), context, emitter, execution);
+            MiddlewareNext finalHandler = () -> executeSkill(skillName, ctx.params(), context, emitter, execution);
 
             MiddlewareNext handler = finalHandler;
             for (int i = middlewares.size() - 1; i >= 0; i--) {
@@ -209,9 +197,9 @@ public class LiteAgentExecutor implements AgentExecutor {
             // Call completion hooks
             for (var hook : completeHooks) {
                 try {
-                    hook.accept(hookedSkillName, result);
+                    hook.accept(skillName, result);
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Completion hook error for skill '" + hookedSkillName + "'", e);
+                    LOGGER.log(Level.WARNING, "Completion hook error for skill '" + skillName + "'", e);
                 }
             }
 
@@ -220,7 +208,7 @@ public class LiteAgentExecutor implements AgentExecutor {
                 String taskId = context.getTask().id();
                 if (taskId != null) {
                     pushRegistry.get(taskId).ifPresent(config ->
-                        fireTaskWebhook(config, taskId, hookedSkillName, result)
+                        fireTaskWebhook(config, taskId, skillName, result)
                     );
                 }
             }
@@ -340,18 +328,6 @@ public class LiteAgentExecutor implements AgentExecutor {
 
     private Object executeSkill(String skillName, Map<String, Object> params, RequestContext request,
                                 AgentEmitter emitter, Execution execution) throws Exception {
-        // Default to first skill only if there's exactly one
-        if (skillName == null || skillName.isEmpty()) {
-            if (skills.isEmpty()) {
-                throw new SkillNotFoundException("", List.of());
-            }
-            if (skills.size() == 1) {
-                skillName = skills.keySet().iterator().next();
-            } else {
-                throw new SkillNotFoundException("", new ArrayList<>(skills.keySet()));
-            }
-        }
-
         var skillDef = skills.get(skillName);
         if (skillDef == null) {
             throw new SkillNotFoundException(skillName, new ArrayList<>(skills.keySet()));

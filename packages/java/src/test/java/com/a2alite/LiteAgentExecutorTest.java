@@ -40,6 +40,20 @@ class LiteAgentExecutorTest {
     }
 
     @Test
+    void plainTextReachesTheOnlySkillWithItsOriginalContent() {
+        var agent = Agent.builder().name("Echo").description("One skill").build()
+            .skill("echo", params -> params.get("message"));
+        for (String text : List.of("  Hola mundo  ", "42", "{\"city\":\"Lima\"}")) {
+            var context = requestContext(text);
+            var queue = new RecordingQueue();
+            agent.getExecutor().execute(context, new AgentEmitter(context, queue));
+            assertThat(queue.events).hasSize(1);
+            var reply = (Message) queue.events.get(0);
+            assertThat(((TextPart) reply.parts().get(0)).text()).isEqualTo(text);
+        }
+    }
+
+    @Test
     void shouldStreamTaskLifecycleUsingOfficialSdkEmitter() {
         var agent = Agent.builder().name("SDKBot").description("SDK compatibility").build();
         agent.skill("stream", SkillConfig.withStreaming(),

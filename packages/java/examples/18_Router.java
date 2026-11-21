@@ -6,17 +6,17 @@ import java.util.Map;
 /**
  * AgentRouter mounts multiple agents under a single HTTP server.
  *
- * Each agent gets its own path prefix, and a merged agent card is
- * served at /.well-known/agent.json combining all mounted agents.
+ * GET / lists the mounted cards. Each card gives the complete JSON-RPC URL.
+ * The root well-known card describes the first mount (weather in this example).
  *
- * Endpoints after starting:
- *   GET  /.well-known/agent.json          — merged card (all skills)
- *   GET  /weather/.well-known/agent.json  — weather agent card
- *   POST /weather                          — call weather skills
- *   GET  /hotels/.well-known/agent.json   — hotels agent card
- *   POST /hotels                           — call hotel skills
+ * GET  /weather/.well-known/agent-card.json
+ * POST /weather
+ * GET  /hotels/.well-known/agent-card.json
+ * POST /hotels
  *
- * Run: ./gradlew run -PmainClass=Router
+ * Run from packages/java:
+ * ./gradlew writeInteropClasspath
+ * java --class-path "$(cat build/interop-classpath.txt)" examples/18_Router.java
  */
 class Router {
     public static void main(String[] args) {
@@ -24,10 +24,11 @@ class Router {
         var weatherAgent = Agent.builder()
             .name("WeatherAgent")
             .description("Provides weather forecasts")
+            .textEntrySkill("forecast")
             .build();
 
         weatherAgent.skill("forecast", params -> {
-            String city = (String) params.get("city");
+            String city = (String) params.getOrDefault("city", params.get("message"));
             return Map.of(
                 "city", city,
                 "temperature", "22C",
@@ -69,7 +70,7 @@ class Router {
         router.mount("/hotels", hotelAgent);
 
         System.out.println("Endpoints:");
-        System.out.println("  Merged card:  http://localhost:8787/.well-known/agent.json");
+        System.out.println("  Directory:    http://localhost:8787/");
         System.out.println("  Weather:      http://localhost:8787/weather");
         System.out.println("  Hotels:       http://localhost:8787/hotels");
 

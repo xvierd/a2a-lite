@@ -8,7 +8,7 @@
 
 Wraps the official [A2A Java SDK](https://github.com/a2aproject/a2a-java) with a simple, builder-based API and a standalone JSON-RPC adapter.
 
-> **v1.2.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.4.0.Final via `AgentEmitter`. No v0.3 compatibility. Prepared Maven coordinates: `io.github.xvierd:a2a-lite:1.2.0`. See [MIGRATION.md](../../MIGRATION.md).
+> **v1.3.0 — A2A Protocol v1.0.** Serves A2A v1.0 (JSON-RPC transport, card at `/.well-known/agent-card.json`) integrated with `org.a2aproject.sdk` 1.5.1.Final via `AgentEmitter`. No v0.3 compatibility. Prepared Maven coordinates: `io.github.xvierd:a2a-lite:1.3.0`. See [MIGRATION.md](../../MIGRATION.md).
 
 The standalone Javalin server started by `agent.run()` uses the official SDK
 request handler for messages, SSE streaming, task retrieval/cancellation,
@@ -32,7 +32,7 @@ agent.run();
 
 ## Installation
 
-**Java 1.2.0 is built and verified in this repository, but is not published to Maven Central.** A dependency declaration alone will not download it. Java 17+ is required.
+Java 17+ is required. To build and run A2A Lite 1.3.0 from this checkout, use the Gradle composite build or install the generated artifacts locally.
 
 The examples resolve the library directly from the checkout through a Gradle composite build; no publication, credentials or signing key is needed:
 
@@ -56,7 +56,7 @@ includeBuild('/absolute/path/to/a2a-lite/packages/java') {
 
 ```groovy
 dependencies {
-    implementation 'io.github.xvierd:a2a-lite:1.2.0'
+    implementation 'io.github.xvierd:a2a-lite:1.3.0'
     implementation 'io.javalin:javalin:7.2.3'
 }
 ```
@@ -70,10 +70,10 @@ Build the artifacts and install their generated POM in your local Maven reposito
 cd packages/java
 ./gradlew jar sourcesJar javadocJar generatePomFileForMavenPublication
 mvn install:install-file \
-  -Dfile=build/libs/java-1.2.0.jar \
+  -Dfile=build/libs/java-1.3.0.jar \
   -DpomFile=build/publications/maven/pom-default.xml \
-  -Dsources=build/libs/java-1.2.0-sources.jar \
-  -Djavadoc=build/libs/java-1.2.0-javadoc.jar
+  -Dsources=build/libs/java-1.3.0-sources.jar \
+  -Djavadoc=build/libs/java-1.3.0-javadoc.jar
 ```
 
 Then use these dependencies in your Maven application:
@@ -82,7 +82,7 @@ Then use these dependencies in your Maven application:
 <dependency>
     <groupId>io.github.xvierd</groupId>
     <artifactId>a2a-lite</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
 </dependency>
 
 <dependency>
@@ -142,6 +142,45 @@ assertThat(result.getData()).isEqualTo(5);
 ```
 
 ---
+
+## Routing text to a skill
+
+Clients can name a skill explicitly in a text part, for example
+`{"skill":"forecast","params":{"city":"Lima"}}`. A plain-text message goes
+to the sole registered skill by default. To receive free text from Google ADK
+or another A2A client when several skills are registered, choose an entry skill.
+
+```java
+var weather = Agent.builder().name("Weather").description("Weather by city")
+    .textEntrySkill("forecast").build();
+weather.skill("forecast", p -> "Forecast for " + p.getOrDefault("city", p.get("message")));
+weather.skill("alerts", p -> "Alerts for " + p.get("city"));
+```
+
+A plain text part containing `Lima` supplies `params.get("message")` with
+`Lima`. An explicit skill name always takes precedence. If selection fails,
+the standalone server returns a Task in `TASK_STATE_FAILED`. Its status
+message contains the unknown skill and the available names. Skills with no
+tags supplied use their name as a tag in the published card.
+
+## Mounting several agents
+
+```java
+try (var router = new AgentRouter().mount("/weather", weather).mount("/hotels", hotels)) {
+    router.start("127.0.0.1", 0);
+    System.out.println("Listening on " + router.port());
+    // Keep the router open while clients use it.
+}
+```
+
+`GET /` lists agent names and card paths. Discover weather at
+`/weather/.well-known/agent-card.json` and POST to the JSON-RPC URL in its
+`supportedInterfaces`. Each prefix uses its agent's credentials, limits,
+task store, stream and push capabilities. When deploying behind a proxy,
+`Builder.url(...)` sets the complete external JSON-RPC endpoint, including
+the prefix. The root well-known card describes the agent mounted at `/`,
+or the first registered agent when all mounts have prefixes. Command-line
+servers can use `router.run(port)`. See the [router example](examples/18_Router.java).
 
 ## Features
 
@@ -414,7 +453,7 @@ signed tokens from the configured issuer.
 
 For Quarkus applications, use CDI producer classes to integrate with the framework:
 
-The official SDK 1.4.0.Final denies task operations unless a
+The official SDK 1.5.1.Final denies task operations unless a
 `TaskAuthorizationProvider` is configured. Supply a provider for production;
 for development or a deliberately open single-user deployment, set
 `a2a.authorization.required=false`. This SDK setting applies to the Quarkus
@@ -549,6 +588,13 @@ callbacks, for isolated restores or tests; explicit `outbox().drainOnce()` is an
 operator-controlled send. The official SDK JPA store remains a
 valid Quarkus integration option, but it does not supply this atomic outbox/ownership
 boundary automatically.
+
+With in-memory push storage, the SDK sender attempts each registered destination.
+It returns success when all destinations return HTTP 2xx, including the empty set.
+Any rejected or failed POST makes the overall result false. With a durable
+backend the SDK sender acknowledges the committed outbox handoff. The worker
+increments `outbox().metrics().get("delivered")` after the POST succeeds and
+its lease acknowledgment commits. Pending and dead-letter counts track the rest.
 
 The JDBC prototype persists task revisions and delivery records atomically. It
 supports other-replica Task reads, snapshot subscriptions, cancellation relay, and

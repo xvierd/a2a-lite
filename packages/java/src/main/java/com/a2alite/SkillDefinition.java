@@ -14,6 +14,10 @@ public record SkillDefinition(
     boolean needsTaskContext,
     boolean taskMode
 ) {
+    public SkillDefinition {
+        tags = tags == null || tags.isEmpty() ? List.of(name) : List.copyOf(tags);
+    }
+
     public SkillDefinition(String name, String description, List<String> tags, SkillHandler handler,
                            boolean isStreaming, boolean needsTaskContext) {
         this(name, description, tags, handler, isStreaming, needsTaskContext, false);

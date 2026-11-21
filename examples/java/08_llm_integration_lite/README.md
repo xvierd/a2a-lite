@@ -22,7 +22,7 @@ export LLM_MODEL="simulation"
 ## Running
 
 ```bash
-# From the repository root; resolves the local 1.2.0 library via composite build
+# From the repository root; resolves the local 1.3.0 library via composite build
 cd examples/java
 ./gradlew :08_llm_integration_lite:run
 ```

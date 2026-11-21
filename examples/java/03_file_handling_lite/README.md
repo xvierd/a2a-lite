@@ -11,7 +11,7 @@ File handling agent using the **real A2A Lite library**.
 ## Running
 
 ```bash
-# From the repository root; resolves the local 1.2.0 library via composite build
+# From the repository root; resolves the local 1.3.0 library via composite build
 cd examples/java
 ./gradlew :03_file_handling_lite:run
 ```

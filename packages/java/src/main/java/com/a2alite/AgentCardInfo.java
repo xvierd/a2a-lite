@@ -14,6 +14,7 @@ public class AgentCardInfo {
     private final String name;
     private final String description;
     private final String url;
+    private final String tenant;
     private final String version;
     private final List<Map<String, Object>> skills;
     private final boolean supportsStreaming;
@@ -23,6 +24,13 @@ public class AgentCardInfo {
     public AgentCardInfo(String name, String description, String url, String version,
                          List<Map<String, Object>> skills, boolean supportsStreaming,
                          boolean supportsPush, Map<String, Object> raw) {
+        this(name, description, url, null, version, skills, supportsStreaming, supportsPush, raw);
+    }
+
+    AgentCardInfo(String name, String description, String url, String tenant, String version,
+                  List<Map<String, Object>> skills, boolean supportsStreaming,
+                  boolean supportsPush, Map<String, Object> raw) {
+        this.tenant = tenant;
         this.name = name;
         this.description = description;
         this.url = url;
@@ -36,6 +44,8 @@ public class AgentCardInfo {
     public String getName() { return name; }
     public String getDescription() { return description; }
     public String getUrl() { return url; }
+    /** Tenant advertised by the selected interface, or null when none was supplied. */
+    public String getTenant() { return tenant; }
     public String getVersion() { return version; }
     public List<Map<String, Object>> getSkills() { return skills; }
     public boolean isSupportsStreaming() { return supportsStreaming; }

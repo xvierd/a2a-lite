@@ -16,7 +16,7 @@ This example's regular skills return Messages and do not create persisted protoc
 ## Prerequisites
 
 - Java 17+
-- Repository checkout; Gradle resolves the unpublished 1.2.0 library through the composite build
+- Repository checkout; Gradle resolves the local 1.3.0 library through the composite build
 
 ## Building
 

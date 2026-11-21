@@ -11,8 +11,6 @@ import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
 import org.a2aproject.sdk.server.extensions.A2AExtensions;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
-import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
-import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
@@ -20,7 +18,6 @@ import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.version.A2AVersionValidator;
 import org.a2aproject.sdk.spec.*;
 
-import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -28,12 +25,9 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
 import org.a2aproject.sdk.spec.InternalError;
 import java.util.concurrent.Executors;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /** Owns the SDK runtime. HTTP serialization and authentication stay in the adapter. */
 final class SdkProtocol implements AutoCloseable {
-    private static final Logger LOG = Logger.getLogger(SdkProtocol.class.getName());
     private final AgentCard card;
     private final ProtocolBackend backend;
     private final DefaultRequestHandler handler;
@@ -49,8 +43,8 @@ final class SdkProtocol implements AutoCloseable {
     }
     private final ManagedProcessor processor;
 
-    SdkProtocol(Agent agent, String host, int port) {
-        card = agent.buildAgentCard(host, port);
+    SdkProtocol(Agent agent, String host, int port, String prefix) {
+        card = agent.buildAgentCard(host, port, prefix);
         backend = agent.getProtocolBackend() == null ? new InMemoryProtocolBackend(agent.getRuntimeOptions().limits()) : agent.getProtocolBackend();
         var ownership = java.util.Objects.requireNonNull(backend.authorization(), "Backend authorization required");
         var tasks = java.util.Objects.requireNonNull(backend.tasks(), "Backend task store required");
@@ -61,23 +55,7 @@ final class SdkProtocol implements AutoCloseable {
         var queues = java.util.Objects.requireNonNull(backend.queues(bus), "Backend queue manager required");
         var callbacks = new PublicWebhookClient();
         configs = new ValidatedPushStore(backend.pushConfigs(), callbacks, agent.getRuntimeOptions().limits().maxPushConfigsPerTask());
-        PushNotificationSender sender = (event, task) -> {
-            if (task == null || backend.durableNotifications()) return;
-            for (var config : configs.getInfo(new ListTaskPushNotificationConfigsParams(task.id())).configs()) {
-                try {
-                    var headers = new HashMap<String, String>();
-                    if (config.token() != null) headers.put("X-A2A-Notification-Token", config.token());
-                    if (config.authentication() != null && config.authentication().credentials() != null) {
-                        headers.put("Authorization", config.authentication().scheme() + " "
-                            + config.authentication().credentials());
-                    }
-                    callbacks.post(config.url(), JsonUtil.toJsonStreamingEvent(event), headers);
-                } catch (Exception e) {
-                    // Do not put callback credentials or URLs into logs.
-                    LOG.log(Level.WARNING, "Task callback delivery failed: " + e.getClass().getSimpleName());
-                }
-            }
-        };
+        var sender = SdkPushSender.forBackend(backend, callbacks::post);
         processor = new ManagedProcessor(bus, tasks, sender, queues);
         processor.setPushNotificationExecutor(pushes);
         handler = DefaultRequestHandler.builder()

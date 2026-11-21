@@ -1,6 +1,6 @@
 # Java LLM examples: manual server and Lite simulation
 
-The `08_llm_integration_google` name is historical: it is a hand-written A2A v1.0 server using Javalin 7.2.3 and Jackson, not an implementation built on the official A2A Java SDK. A2A Lite uses SDK 1.4.0.Final underneath its standalone adapter.
+The `08_llm_integration_google` name is historical: it is a hand-written A2A v1.0 server using Javalin 7.2.3 and Jackson, not an implementation built on the official A2A Java SDK. A2A Lite uses SDK 1.5.1.Final underneath its standalone adapter.
 
 These examples have different behavior. The manual example contains an HTTP provider client; the Lite example simulates responses. A line-count comparison therefore does not measure equivalent functionality or production readiness.
 
@@ -38,7 +38,7 @@ The application still owns `handleChat`, session isolation, concurrency safety, 
 
 ## Run the Lite simulation
 
-Java 1.2.0 is built and verified in the repository but not published to Maven Central. Run with the included composite build:
+Use the included composite build to run Java 1.3.0 from this checkout.
 
 ```bash
 # From the repository root

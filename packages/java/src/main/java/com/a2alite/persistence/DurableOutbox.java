@@ -91,8 +91,7 @@ public final class DurableOutbox implements AutoCloseable {
                                     + " "
                                     + config.authentication().credentials());
                 delivery.send(config.url(), pending.payload(), headers);
-                finish(pending, true);
-                delivered++;
+                if (finish(pending, true)) delivered++;
             } catch (Exception e) {
                 finish(pending, false);
             }

@@ -9,9 +9,9 @@ This directory contains side-by-side examples comparing a **hand-rolled A2A v1.0
 | Approach | Build Tool | Library | Description |
 |----------|-----------|---------|-------------|
 | `*_google` | Maven | none (Javalin + Jackson) | A2A v1.0 protocol implemented from scratch |
-| `*_lite` | Gradle | `io.github.xvierd:a2a-lite:1.2.0` | Simplified A2A Lite library (real library from packages/java/) |
+| `*_lite` | Gradle | `io.github.xvierd:a2a-lite:1.3.0` | Simplified A2A Lite library (real library from packages/java/) |
 
-**Java 1.2.0 is built and verified locally but is not published to Maven Central.** These Gradle examples resolve it from `packages/java` through the included composite build, without publishing or signing. The current stack is SDK `1.4.0.Final`, Javalin `7.2.3`, Jetty `12.1.14` and Jackson `2.22.3`.
+These Gradle examples resolve A2A Lite 1.3.0 from `packages/java` through the included composite build. The current stack is SDK `1.5.1.Final`, Javalin `7.2.3`, Jetty `12.1.14` and Jackson `2.22.3`.
 
 ## Showcase: Battleship (Python demo — same A2A v1.0 wire)
 
@@ -254,7 +254,7 @@ For an SDK/Quarkus integration, see the [Java package guide](../../packages/java
 
 ```
 a2a-lite/
-├── packages/java/                  # A2A Lite library (local implementation, v1.2.0)
+├── packages/java/                  # A2A Lite library (local implementation, v1.3.0)
 │   ├── src/main/java/com/a2alite/
 │   │   ├── Agent.java              # Main agent class
 │   │   ├── SkillHandler.java       # Skill functional interface

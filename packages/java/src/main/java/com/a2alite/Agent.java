@@ -55,6 +55,7 @@ public class Agent {
     private final String description;
     private final String version;
     private final String url;
+    private final String textEntrySkill;
     private final AuthProvider auth;
     private final List<String> corsOrigins;
     private final boolean production;
@@ -75,7 +76,6 @@ public class Agent {
     private Function<Exception, Object> errorHandler;
 
     private final ObjectMapper mapper = new ObjectMapper();
-    private boolean hasStreaming = false;
     private Thread shutdownHookThread;
     private ServerAdapter serverAdapter;
 
@@ -84,6 +84,7 @@ public class Agent {
         this.description = builder.description;
         this.version = builder.version != null ? builder.version : "1.0.0";
         this.url = builder.url;
+        this.textEntrySkill = builder.textEntrySkill;
         this.auth = builder.auth != null ? builder.auth : new NoAuth();
         this.corsOrigins = builder.corsOrigins;
         this.production = builder.production;
@@ -149,10 +150,6 @@ public class Agent {
             config != null && config.taskMode()
         );
 
-        if (def.isStreaming()) {
-            hasStreaming = true;
-        }
-
         contextualSkills.remove(name);
         skills.put(name, def);
         return this;
@@ -184,10 +181,6 @@ public class Agent {
             config != null ? config.streaming() : false,
             true
         );
-
-        if (def.isStreaming()) {
-            hasStreaming = true;
-        }
 
         contextualSkills.put(name, handler);
         skills.put(name, def);
@@ -238,6 +231,10 @@ public class Agent {
      * Build the A2A-compliant Agent Card (protocol v1.0).
      */
     public AgentCard buildAgentCard(String host, int port) {
+        return buildAgentCard(host, port, "");
+    }
+
+    public AgentCard buildAgentCard(String host, int port, String prefix) {
         var skillList = skills.values().stream()
             .map(s -> AgentSkill.builder()
                 .id(s.name())
@@ -247,7 +244,7 @@ public class Agent {
                 .build())
             .toList();
 
-        var agentUrl = url != null ? url : "http://" + host + ":" + port;
+        var agentUrl = advertisedUrl(host, port, prefix);
 
         return AgentCard.builder()
             .name(name)
@@ -256,8 +253,8 @@ public class Agent {
             .supportedInterfaces(List.of(
                 new AgentInterface("JSONRPC", agentUrl, null, PROTOCOL_VERSION)))
             .capabilities(AgentCapabilities.builder()
-                .streaming(hasStreaming)
-                .pushNotifications(!completeHooks.isEmpty())
+                .streaming(skills.values().stream().anyMatch(SkillDefinition::isStreaming))
+                .pushNotifications(!auth.allowsAnonymous())
                 .build())
             .defaultInputModes(List.of("application/json"))
             .defaultOutputModes(List.of("application/json"))
@@ -265,11 +262,17 @@ public class Agent {
             .build();
     }
 
+    private String advertisedUrl(String host, int port, String prefix) {
+        if (url != null) return url;
+        String authorityHost = host.contains(":") && !host.startsWith("[") ? "[" + host + "]" : host;
+        return "http://" + authorityHost + ":" + port + prefix;
+    }
+
     /**
      * Get the agent executor for use with the SDK.
      */
     public AgentExecutor getExecutor() {
-        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry, errorHandler, contextualSkills)
+        return new LiteAgentExecutor(skills, middlewares, completeHooks, auth, pushRegistry, errorHandler, contextualSkills, textEntrySkill)
             .withRuntimeLimits(runtimeOptions.limits());
     }
 
@@ -278,7 +281,11 @@ public class Agent {
      * Useful for standalone mode without the full SDK.
      */
     public ObjectNode buildAgentCardJson(String host, int port) {
-        var agentUrl = url != null ? url : "http://" + host + ":" + port;
+        return buildAgentCardJson(host, port, "");
+    }
+
+    public ObjectNode buildAgentCardJson(String host, int port, String prefix) {
+        var agentUrl = advertisedUrl(host, port, prefix);
 
         var card = mapper.createObjectNode();
         card.put("name", name);
@@ -292,8 +299,8 @@ public class Agent {
         iface.put("protocolVersion", PROTOCOL_VERSION);
 
         var capabilities = card.putObject("capabilities");
-        capabilities.put("streaming", hasStreaming);
-        capabilities.put("pushNotifications", !completeHooks.isEmpty());
+        capabilities.put("streaming", skills.values().stream().anyMatch(SkillDefinition::isStreaming));
+        capabilities.put("pushNotifications", !auth.allowsAnonymous());
 
         // Advertise the security scheme when an auth provider is configured
         var scheme = auth != null ? auth.getScheme() : Map.<String, Object>of();
@@ -409,28 +416,13 @@ public class Agent {
             }
         }
 
-        // Parse skill call
-        String skillName = null;
-        Map<String, Object> params = new HashMap<>();
-
-        try {
-            var parsed = mapper.readTree(text);
-            if (parsed.has("skill")) {
-                skillName = parsed.path("skill").asText();
-                if (parsed.has("params")) {
-                    params = mapper.convertValue(parsed.path("params"), Map.class);
-                }
-            }
-        } catch (Exception e) {
-            params.put("message", text);
-        }
-
-        // Build middleware context
-        var ctx = new MiddlewareContext(skillName, params, text, new HashMap<>());
-
-        // Execute through middleware chain
-        final String finalSkillName = skillName;
-        MiddlewareNext finalHandler = () -> executeSkill(finalSkillName, ctx.params());
+        var call = SkillCall.parse(text, skills.keySet(), textEntrySkill, mapper);
+        var ctx = new MiddlewareContext(call.name(), call.params(), text, new HashMap<>());
+        MiddlewareNext finalHandler = () -> {
+            var skill = skills.get(call.name());
+            if (skill == null) throw new SkillNotFoundException(call.name(), new ArrayList<>(skills.keySet()));
+            return skill.handler().handle(ctx.params());
+        };
 
         MiddlewareNext handler = finalHandler;
         for (int i = middlewares.size() - 1; i >= 0; i--) {
@@ -452,38 +444,13 @@ public class Agent {
         // Call completion hooks
         for (var hook : completeHooks) {
             try {
-                String hookSkillName = finalSkillName != null ? finalSkillName : "(unknown)";
-                hook.accept(hookSkillName, result);
+                hook.accept(call.name(), result);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Completion hook error for skill '" + finalSkillName + "'", e);
+                LOGGER.log(Level.WARNING, "Completion hook error for skill '" + call.name() + "'", e);
             }
         }
 
         return result;
-    }
-
-    /**
-     * Execute a skill directly (for standalone mode).
-     */
-    private Object executeSkill(String skillName, Map<String, Object> params) throws Exception {
-        // Default to first skill only if there's exactly one
-        if (skillName == null || skillName.isEmpty()) {
-            if (skills.isEmpty()) {
-                throw new SkillNotFoundException("", List.of());
-            }
-            if (skills.size() == 1) {
-                skillName = skills.keySet().iterator().next();
-            } else {
-                throw new SkillNotFoundException("", new ArrayList<>(skills.keySet()));
-            }
-        }
-
-        var skillDef = skills.get(skillName);
-        if (skillDef == null) {
-            throw new SkillNotFoundException(skillName, new ArrayList<>(skills.keySet()));
-        }
-
-        return skillDef.handler().handle(params);
     }
 
     /**
@@ -517,7 +484,13 @@ public class Agent {
 
     /** Start without process signal hooks. The caller owns the returned runtime. */
     public synchronized com.a2alite.runtime.AgentRuntime start(String host, int port) {
+        return start(host, port, resolveServerAdapter());
+    }
+
+    synchronized com.a2alite.runtime.AgentRuntime start(String host, int port, ServerAdapter adapter) {
         if (runtime != null) throw new IllegalStateException("Agent already started");
+        if (textEntrySkill != null && !skills.containsKey(textEntrySkill))
+            throw new IllegalStateException("Unregistered text entry skill: " + textEntrySkill);
         if (runtimeOptions.profile() != com.a2alite.runtime.RuntimeOptions.Profile.LEARNING && auth.allowsAnonymous()) {
             throw new IllegalStateException("Authenticated and durable profiles require identified authentication");
         }
@@ -526,7 +499,6 @@ public class Agent {
             throw new IllegalStateException("Durable profile requires a durable protocol backend");
         }
         for (var hook : startupHooks) hook.run();
-        ServerAdapter adapter = resolveServerAdapter();
         try { adapter.start(this, host, port); }
         catch (RuntimeException failure) { adapter.stop(); throw failure; }
         runtime = new com.a2alite.runtime.AgentRuntime(adapter, () -> {
@@ -667,6 +639,7 @@ public class Agent {
     public String getName() { return name; }
     public String getDescription() { return description; }
     public String getVersion() { return version; }
+    List<String> getCorsOrigins() { return corsOrigins; }
     public AuthProvider getAuth() { return auth; }
     public Map<String, SkillDefinition> getSkills() { return Collections.unmodifiableMap(skills); }
     public AgentNetwork getNetwork() { return network; }
@@ -681,6 +654,7 @@ public class Agent {
         private String description;
         private String version;
         private String url;
+        private String textEntrySkill;
         private AuthProvider auth;
         private List<String> corsOrigins;
         private boolean production = false;
@@ -708,6 +682,13 @@ public class Agent {
 
         public Builder url(String url) {
             this.url = url;
+            return this;
+        }
+
+        /** Route free text to this registered skill with the original text in params.get("message"). */
+        public Builder textEntrySkill(String name) {
+            if (name == null || name.isBlank()) throw new IllegalArgumentException("Text entry skill needs a name");
+            this.textEntrySkill = name;
             return this;
         }
 

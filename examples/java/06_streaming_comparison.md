@@ -2,7 +2,7 @@
 
 The manual `06_streaming_google` example implements A2A v1.0 SSE using Javalin 7.2.3 and Jackson. It does not use the official A2A Java SDK. The `06_streaming_lite` example currently returns complete `chat`, `count` and `progress` results; it is a regular-skill API demonstration, not equivalent incremental streaming.
 
-A2A Lite 1.2.0 itself supports real standalone SSE through SDK 1.4.0.Final. The runnable [production path example](11_production_path_lite/) demonstrates that implementation. Java 1.2.0 is verified in the checkout but not published to Maven Central; the examples use the local composite build.
+A2A Lite 1.3.0 itself supports real standalone SSE through SDK 1.5.1.Final. The runnable [production path example](11_production_path_lite/) demonstrates that implementation. The examples resolve Java 1.3.0 through the local composite build.
 
 ## Run real streaming
 

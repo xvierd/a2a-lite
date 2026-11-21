@@ -1,7 +1,7 @@
 package com.a2alite;
 
 import com.a2alite.errors.RemoteAgentException;
-import com.a2alite.streaming.StreamingHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.a2alite.testing.HttpTestServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +18,7 @@ class AgentNetworkStreamingTest {
 
     private HttpTestServer app;
     private int port;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
@@ -36,11 +37,12 @@ class AgentNetworkStreamingTest {
     void testStreamRemoteSkill_yieldsChunks() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"Hello\"}]}}}}\n\n" +
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\" beautiful\"}]}}}}\n\n" +
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\" World\"}]}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"Hello\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\" beautiful\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\" World\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
             );
         });
 
@@ -60,11 +62,12 @@ class AgentNetworkStreamingTest {
     void testStreamRemoteSkill_yieldsStatusMessageChunks() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"task\":{\"id\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_SUBMITTED\"}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m1\",\"parts\":[{\"text\":\"chunk-a\"}]}}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m2\",\"parts\":[{\"text\":\"chunk-b\"}]}}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"task\":{\"id\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_SUBMITTED\"}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m1\",\"parts\":[{\"text\":\"chunk-a\"}]}}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m2\",\"parts\":[{\"text\":\"chunk-b\"}]}}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
             );
         });
 
@@ -84,10 +87,11 @@ class AgentNetworkStreamingTest {
     void testStreamRemoteSkill_stopsAtTerminalState() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"chunk1\"}]}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n" +
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"should-not-appear\"}]}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"chunk1\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"should-not-appear\"}]}}}}\n\n"
             );
         });
 
@@ -107,9 +111,10 @@ class AgentNetworkStreamingTest {
     void testStreamRemoteSkill_throwsOnFailed() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"partial\"}]}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_FAILED\"}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"partial\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_FAILED\"}}}}\n\n"
             );
         });
 
@@ -121,16 +126,17 @@ class AgentNetworkStreamingTest {
             for (Object chunk : result) {
                 // consume
             }
-        }).hasCauseInstanceOf(RemoteAgentException.class);
+        }).isInstanceOf(RemoteAgentException.class);
     }
 
     @Test
     void testStream_resolvesName() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"resolved\"}]}}}}\n\n" +
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"artifactUpdate\":{\"artifact\":{\"artifactId\":\"a1\",\"parts\":[{\"text\":\"resolved\"}]}}}}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
             );
         });
 
@@ -161,8 +167,9 @@ class AgentNetworkStreamingTest {
     void testStreamRemoteSkill_handlesMessageEvent() {
         app.post("/", ctx -> {
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m1\",\"parts\":[{\"text\":\"via-message\"}]}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m1\",\"parts\":[{\"text\":\"via-message\"}]}}}\n\n"
             );
         });
 
@@ -186,8 +193,9 @@ class AgentNetworkStreamingTest {
             received.set(ctx.body());
             versionHeader.set(ctx.header("A2A-Version"));
             ctx.contentType("text/event-stream");
+            String id = mapper.readTree(ctx.body()).get("id").asText();
             ctx.result(
-                "data: {\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"result\":{\"statusUpdate\":{\"taskId\":\"t1\",\"contextId\":\"c1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n"
             );
         });
 
